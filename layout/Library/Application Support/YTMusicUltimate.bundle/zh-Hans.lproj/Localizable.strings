@@ -119,3 +119,18 @@
 "ALL_DOWNLOADS" = "所有下载的音频"; //keep it lowercase
 "DELETE" = "删除";
 "RENAME" = "重命名";
+
+"TRANSLATION_SETTINGS" = "翻译";
+"BILINGUAL_LYRICS" = "双语歌词";
+"BILINGUAL_LYRICS_DESC" = "在原歌词下方显示翻译行";
+"TRANSLATION_PROVIDER" = "服务商";
+"TRANSLATION_TARGET_LANG" = "目标语言";
+"TRANSLATION_AUTO" = "自动";
+"TRANSLATION_API_KEY" = "API 密钥";
+"TRANSLATION_MODEL" = "模型";
+"TRANSLATION_BASE_URL" = "Base URL";
+"TRANSLATION_CLEAR_CACHE" = "清除翻译缓存";
+"PROVIDER_GOOGLE" = "Google 翻译";
+"PROVIDER_ANTHROPIC" = "Anthropic";
+"PROVIDER_GEMINI" = "Gemini";
+"PROVIDER_OPENAI" = "OpenAI 兼容";

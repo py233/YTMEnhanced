@@ -119,3 +119,18 @@
 "ALL_DOWNLOADS" = "all download audios"; //keep it lowercase
 "DELETE" = "Delete";
 "RENAME" = "Rename";
+
+"TRANSLATION_SETTINGS" = "Translation";
+"BILINGUAL_LYRICS" = "Bilingual lyrics";
+"BILINGUAL_LYRICS_DESC" = "Shows translated lyric lines below the original lyrics";
+"TRANSLATION_PROVIDER" = "Provider";
+"TRANSLATION_TARGET_LANG" = "Target language";
+"TRANSLATION_AUTO" = "Auto";
+"TRANSLATION_API_KEY" = "API key";
+"TRANSLATION_MODEL" = "Model";
+"TRANSLATION_BASE_URL" = "Base URL";
+"TRANSLATION_CLEAR_CACHE" = "Clear translation cache";
+"PROVIDER_GOOGLE" = "Google Translate";
+"PROVIDER_ANTHROPIC" = "Anthropic";
+"PROVIDER_GEMINI" = "Gemini";
+"PROVIDER_OPENAI" = "OpenAI-compatible";
