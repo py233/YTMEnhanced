@@ -4,3 +4,4 @@
 .vscode/
 packages/
 *.ipa
+build/
