@@ -9,10 +9,47 @@ static BOOL YTMUSyncedLyricsEnabled(void) {
     return [dict[@"YTMUltimateIsEnabled"] boolValue] && [dict[@"syncedLyricsEnabled"] boolValue];
 }
 
+static void YTMULogOfficialLyricsProbe(id object, NSString *event, NSString *source, NSData *data, NSString *entityKey) {
+    if (!YTMULyricsDebugLoggingEnabled()) return;
+    static NSMutableSet<NSString *> *seen;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        seen = [NSMutableSet set];
+    });
+
+    NSString *signature = [NSString stringWithFormat:@"%@::%@::%@::%lu::%@",
+                           NSStringFromClass([object class]),
+                           event ?: @"",
+                           source ?: @"",
+                           (unsigned long)data.length,
+                           entityKey ?: @""];
+    @synchronized (seen) {
+        if ([seen containsObject:signature]) return;
+        [seen addObject:signature];
+    }
+    YTMULyricsLog(@"official lyrics probe event=%@ class=%@ source=%@ dataBytes=%lu entityKey=%@",
+                  event ?: @"<unknown>",
+                  NSStringFromClass([object class]),
+                  source.length ? source : @"<empty>",
+                  (unsigned long)data.length,
+                  entityKey.length ? entityKey : @"<empty>");
+}
+
 @interface YTPlayerViewController ()
 @property (nonatomic, retain) YTMUSyncedLyricsView *ytmuSyncedLyricsView;
 - (void)ytmu_attachSyncedLyricsViewIfNeeded;
 - (void)ytmu_layoutSyncedLyricsView;
+@end
+
+@interface YTClientLyricsDataModel : NSObject
+- (NSString *)lyricsSource;
+- (NSData *)data;
+@end
+
+@interface YTMusicLyricsEntityModel : NSObject
+- (id)clientLyricsData;
+- (NSData *)data;
+- (NSString *)entityKey;
 @end
 
 %hook YTPlayerViewController
@@ -39,18 +76,19 @@ static BOOL YTMUSyncedLyricsEnabled(void) {
     NSTimeInterval duration = self.currentVideoTotalMediaTime;
     [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId title:title artist:artist];
 
-    if (!YTMUSyncedLyricsEnabled()) {
-        [[YTMULyricsManager sharedManager] clearCurrent];
-        return;
-    }
-
-    [self ytmu_attachSyncedLyricsViewIfNeeded];
     YTMULyricsSearchInfo *info = [[YTMULyricsSearchInfo alloc] init];
     info.videoId = videoId;
     info.title = title;
     info.alternativeTitle = title;
     info.artist = artist;
     info.duration = duration;
+
+    if (!YTMUSyncedLyricsEnabled()) {
+        [[YTMULyricsManager sharedManager] refreshWithInfo:info];
+        return;
+    }
+
+    [self ytmu_attachSyncedLyricsViewIfNeeded];
     [[YTMULyricsManager sharedManager] refreshWithInfo:info];
 }
 
@@ -92,6 +130,49 @@ static BOOL YTMUSyncedLyricsEnabled(void) {
 
 %end
 
+%group YTMUOfficialLyricsProbe
+
+%hook YTClientLyricsDataModel
+
+- (NSString *)lyricsSource {
+    NSString *source = %orig;
+    NSData *data = nil;
+    @try {
+        data = [self data];
+    } @catch (__unused NSException *exception) {
+        data = nil;
+    }
+    YTMULogOfficialLyricsProbe(self, @"clientLyricsData.lyricsSource", source, data, @"");
+    return source;
+}
+
+%end
+
+%hook YTMusicLyricsEntityModel
+
+- (id)clientLyricsData {
+    id clientData = %orig;
+    NSString *source = @"";
+    if ([clientData respondsToSelector:@selector(lyricsSource)]) {
+        source = [clientData lyricsSource];
+    }
+    NSData *data = nil;
+    NSString *entityKey = @"";
+    @try {
+        data = [self data];
+        entityKey = [self entityKey];
+    } @catch (__unused NSException *exception) {
+        data = nil;
+        entityKey = @"";
+    }
+    YTMULogOfficialLyricsProbe(self, @"musicLyricsEntity.clientLyricsData", source, data, entityKey);
+    return clientData;
+}
+
+%end
+
+%end
+
 %ctor {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
@@ -106,5 +187,10 @@ static BOOL YTMUSyncedLyricsEnabled(void) {
     YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", @(NO));
     [defaults setObject:dict forKey:@"YTMUltimate"];
+    %init;
     YTMULyricsLog(@"synced lyrics module loaded");
+    if (NSClassFromString(@"YTClientLyricsDataModel") || NSClassFromString(@"YTMusicLyricsEntityModel")) {
+        %init(YTMUOfficialLyricsProbe);
+        YTMULyricsLog(@"official lyrics probe installed");
+    }
 }

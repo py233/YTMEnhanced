@@ -8,6 +8,8 @@ NSString *const YTMULyricsSourceGenius = @"Genius";
 
 NSString *const YTMULyricsDidUpdateNotification = @"YTMULyricsDidUpdateNotification";
 NSString *const YTMULyricsStateDidChangeNotification = @"YTMULyricsStateDidChangeNotification";
+NSString *const YTMULyricsSettingsDidChangeNotification = @"YTMULyricsSettingsDidChangeNotification";
+NSString *const YTMULyricsSettingChangedKey = @"key";
 
 @implementation YTMULyricLine
 

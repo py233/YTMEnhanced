@@ -1,7 +1,10 @@
 #import "TranslationSettingsController.h"
+#import "../Headers/ABCSwitch.h"
 #import "../Translation/YTMUTranslationTypes.h"
 #import "../Translation/YTMUPromptBuilder.h"
 #import "../Translation/YTMUTranslationCache.h"
+#import "../Lyrics/YTMULyricsCache.h"
+#import "../Lyrics/YTMULyricsTypes.h"
 
 @interface YTMUTranslationLanguageController : UITableViewController
 @property (nonatomic, copy) NSArray<NSDictionary *> *languages;
@@ -17,10 +20,7 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"languageCell"];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"languageCell"];
-    }
-
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"languageCell"];
     NSDictionary *language = self.languages[indexPath.row];
     cell.textLabel.text = language[@"title"];
     cell.accessoryType = [language[@"code"] isEqualToString:self.selectedCode] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
@@ -29,8 +29,7 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     NSDictionary *language = self.languages[indexPath.row];
-    NSString *code = language[@"code"];
-    if (self.selectionHandler) self.selectionHandler(code);
+    if (self.selectionHandler) self.selectionHandler(language[@"code"]);
     [self.navigationController popViewControllerAnimated:YES];
 }
 
@@ -40,7 +39,6 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-
     self.title = LOC(@"TRANSLATION_SETTINGS");
     [self ensureDefaults];
 
@@ -61,11 +59,21 @@
 - (void)ensureDefaults {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
-    if (dict[@"bilingualLyrics"] == nil) dict[@"bilingualLyrics"] = @(NO);
-    if (dict[@"translationProvider"] == nil) dict[@"translationProvider"] = YTMUTranslationProviderGoogle;
-    if (dict[@"translationTargetLang"] == nil) dict[@"translationTargetLang"] = @"auto";
-    if (dict[@"translationBaseUrl"] == nil) dict[@"translationBaseUrl"] = @"https://api.openai.com/v1";
-    if (dict[@"translationDebugLogs"] == nil) dict[@"translationDebugLogs"] = @(YES);
+    YTMULyricsSetDefault(dict, @"bilingualLyrics", @(NO));
+    YTMULyricsSetDefault(dict, @"syncedLyricsEnabled", @(NO));
+    YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", dict[@"bilingualLyrics"] ?: @(NO));
+    YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
+    YTMULyricsSetDefault(dict, @"lyricsShowInexact", @(YES));
+    YTMULyricsSetDefault(dict, @"lyricsRomanization", @(YES));
+    YTMULyricsSetDefault(dict, @"lyricsConvertChinese", @"disabled");
+    YTMULyricsSetDefault(dict, @"lyricsShowTimeCodes", @(NO));
+    YTMULyricsSetDefault(dict, @"lyricsLineEffect", @"fancy");
+    YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
+    YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
+    YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
+    YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
+    YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
+    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(YES));
     [defaults setObject:dict forKey:@"YTMUltimate"];
 }
 
@@ -74,10 +82,20 @@
 }
 
 - (void)setSetting:(id)value forKey:(NSString *)key {
+    [self setSettings:@{key ?: @"": value ?: @""} notificationKey:key];
+}
+
+- (void)setSettings:(NSDictionary<NSString *, id> *)values notificationKey:(NSString *)notificationKey {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [self settings];
-    dict[key] = value ?: @"";
+    [values enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+        if (key.length) dict[key] = value ?: @"";
+    }];
     [defaults setObject:dict forKey:@"YTMUltimate"];
+    [defaults synchronize];
+    YTMULyricsLog(@"settings changed keys=%@", values.allKeys);
+    NSDictionary *userInfo = notificationKey.length ? @{YTMULyricsSettingChangedKey: notificationKey} : @{};
+    [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification object:self userInfo:userInfo];
 }
 
 - (NSString *)stringSetting:(NSString *)key fallback:(NSString *)fallback {
@@ -86,13 +104,18 @@
     return fallback ?: @"";
 }
 
+- (BOOL)boolSetting:(NSString *)key fallback:(BOOL)fallback {
+    id value = [self settings][key];
+    return value == nil ? fallback : [value boolValue];
+}
+
 - (NSString *)currentProvider {
     NSString *provider = [self stringSetting:@"translationProvider" fallback:YTMUTranslationProviderGoogle];
     NSArray *valid = @[YTMUTranslationProviderGoogle, YTMUTranslationProviderAnthropic, YTMUTranslationProviderGemini, YTMUTranslationProviderOpenAI];
     return [valid containsObject:provider] ? provider : YTMUTranslationProviderGoogle;
 }
 
-- (NSArray<NSDictionary *> *)providerOptions {
+- (NSArray<NSDictionary *> *)translationProviderOptions {
     return @[
         @{@"key": YTMUTranslationProviderGoogle, @"title": LOC(@"PROVIDER_GOOGLE")},
         @{@"key": YTMUTranslationProviderAnthropic, @"title": LOC(@"PROVIDER_ANTHROPIC")},
@@ -101,11 +124,57 @@
     ];
 }
 
-- (NSString *)providerTitle:(NSString *)provider {
-    for (NSDictionary *option in [self providerOptions]) {
-        if ([option[@"key"] isEqualToString:provider]) return option[@"title"];
+- (NSArray<NSDictionary *> *)lyricSourceOptions {
+    return @[
+        @{@"key": @"auto", @"title": LOC(@"LYRICS_SOURCE_AUTO")},
+        @{@"key": YTMULyricsSourceYTMusic, @"title": @"YTMusic"},
+        @{@"key": YTMULyricsSourceLRCLib, @"title": @"LRCLib"},
+        @{@"key": YTMULyricsSourceNetEase, @"title": @"NetEase"},
+        @{@"key": YTMULyricsSourceMusixMatch, @"title": @"MusixMatch"},
+        @{@"key": YTMULyricsSourceGenius, @"title": @"Genius"},
+    ];
+}
+
+- (NSArray<NSDictionary *> *)lineEffectOptions {
+    return @[
+        @{@"key": @"fancy", @"title": LOC(@"LYRICS_EFFECT_FANCY")},
+        @{@"key": @"scale", @"title": LOC(@"LYRICS_EFFECT_SCALE")},
+        @{@"key": @"offset", @"title": LOC(@"LYRICS_EFFECT_OFFSET")},
+        @{@"key": @"focus", @"title": LOC(@"LYRICS_EFFECT_FOCUS")},
+    ];
+}
+
+- (NSArray<NSDictionary *> *)fontSizeOptions {
+    return @[
+        @{@"key": @"small", @"title": LOC(@"LYRICS_FONT_SMALL")},
+        @{@"key": @"medium", @"title": LOC(@"LYRICS_FONT_MEDIUM")},
+        @{@"key": @"large", @"title": LOC(@"LYRICS_FONT_LARGE")},
+    ];
+}
+
+- (NSArray<NSDictionary *> *)defaultTextOptions {
+    return @[
+        @{@"key": @"♪", @"title": @"♪"},
+        @{@"key": @"space", @"title": @"\" \""},
+        @{@"key": @"dots", @"title": @"..."},
+        @{@"key": @"bullets", @"title": @"•••"},
+        @{@"key": @"dash", @"title": @"———"},
+    ];
+}
+
+- (NSArray<NSDictionary *> *)chineseConversionOptions {
+    return @[
+        @{@"key": @"disabled", @"title": LOC(@"LYRICS_CHINESE_DISABLED")},
+        @{@"key": @"simplifiedToTraditional", @"title": LOC(@"LYRICS_CHINESE_S2T")},
+        @{@"key": @"traditionalToSimplified", @"title": LOC(@"LYRICS_CHINESE_T2S")},
+    ];
+}
+
+- (NSString *)titleForKey:(NSString *)key inOptions:(NSArray<NSDictionary *> *)options fallback:(NSString *)fallback {
+    for (NSDictionary *option in options) {
+        if ([option[@"key"] isEqualToString:key]) return option[@"title"];
     }
-    return provider;
+    return fallback ?: key;
 }
 
 - (NSString *)modelFallbackForProvider:(NSString *)provider {
@@ -118,27 +187,11 @@
 - (NSArray<NSDictionary *> *)providerConfigRows {
     NSString *provider = [self currentProvider];
     if ([provider isEqualToString:YTMUTranslationProviderGoogle]) return @[];
-
     NSMutableArray *rows = [NSMutableArray array];
-    [rows addObject:@{
-        @"title": LOC(@"TRANSLATION_API_KEY"),
-        @"key": [@"translationApiKey_" stringByAppendingString:provider],
-        @"secure": @(YES),
-        @"fallback": @"",
-    }];
-    [rows addObject:@{
-        @"title": LOC(@"TRANSLATION_MODEL"),
-        @"key": [@"translationModel_" stringByAppendingString:provider],
-        @"secure": @(NO),
-        @"fallback": [self modelFallbackForProvider:provider],
-    }];
+    [rows addObject:@{@"title": LOC(@"TRANSLATION_API_KEY"), @"key": [@"translationApiKey_" stringByAppendingString:provider], @"secure": @(YES), @"fallback": @""}];
+    [rows addObject:@{@"title": LOC(@"TRANSLATION_MODEL"), @"key": [@"translationModel_" stringByAppendingString:provider], @"secure": @(NO), @"fallback": [self modelFallbackForProvider:provider]}];
     if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
-        [rows addObject:@{
-            @"title": LOC(@"TRANSLATION_BASE_URL"),
-            @"key": @"translationBaseUrl",
-            @"secure": @(NO),
-            @"fallback": @"https://api.openai.com/v1",
-        }];
+        [rows addObject:@{@"title": LOC(@"TRANSLATION_BASE_URL"), @"key": @"translationBaseUrl", @"secure": @(NO), @"fallback": @"https://api.openai.com/v1"}];
     }
     return rows;
 }
@@ -146,26 +199,42 @@
 - (NSArray<NSDictionary *> *)languageOptions {
     NSArray *codes = @[@"auto", @"zh-CN", @"zh-TW", @"en", @"ja", @"ko", @"fr", @"de", @"es", @"pt-BR", @"pt-PT", @"it", @"nl", @"ru", @"uk", @"pl", @"tr", @"ar", @"he", @"fa", @"hi", @"bn", @"ur", @"ta", @"te", @"mr", @"id", @"ms", @"vi", @"th", @"fil", @"sw", @"sv", @"no", @"da", @"fi", @"cs", @"ro", @"hu", @"el", @"bg", @"sr", @"hr", @"sk", @"lt"];
     NSMutableArray *languages = [NSMutableArray arrayWithCapacity:codes.count];
-    for (NSString *code in codes) {
-        [languages addObject:@{@"code": code, @"title": [self languageTitleForCode:code]}];
-    }
+    for (NSString *code in codes) [languages addObject:@{@"code": code, @"title": [self languageTitleForCode:code]}];
     return languages;
 }
 
 - (NSString *)languageTitleForCode:(NSString *)code {
     if ([code isEqualToString:@"auto"]) return LOC(@"TRANSLATION_AUTO");
-
-    NSDictionary *manual = @{
-        @"zh-CN": @"Chinese (Simplified)",
-        @"zh-TW": @"Chinese (Traditional)",
-        @"pt-BR": @"Portuguese (Brazil)",
-        @"pt-PT": @"Portuguese (Portugal)",
-        @"fil": @"Filipino",
-    };
+    NSDictionary *manual = @{@"zh-CN": @"Chinese (Simplified)", @"zh-TW": @"Chinese (Traditional)", @"pt-BR": @"Portuguese (Brazil)", @"pt-PT": @"Portuguese (Portugal)", @"fil": @"Filipino"};
     if (manual[code]) return manual[code];
-
     NSString *display = [[NSLocale currentLocale] displayNameForKey:NSLocaleIdentifier value:code];
     return display.length ? display : code;
+}
+
+#pragma mark - Cells
+
+- (UITableViewCell *)switchCellWithTitle:(NSString *)title detail:(NSString *)detail key:(NSString *)key fallback:(BOOL)fallback action:(SEL)action {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"switchCell"];
+    cell.textLabel.text = title;
+    cell.detailTextLabel.text = detail;
+    cell.detailTextLabel.numberOfLines = 0;
+    cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
+    ABCSwitch *switchControl = [[NSClassFromString(@"ABCSwitch") alloc] init];
+    switchControl.onTintColor = [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
+    switchControl.on = [self boolSetting:key fallback:fallback];
+    switchControl.accessibilityIdentifier = key;
+    [switchControl addTarget:self action:action forControlEvents:UIControlEventValueChanged];
+    cell.accessoryView = switchControl;
+    return cell;
+}
+
+- (UITableViewCell *)choiceCellWithTitle:(NSString *)title detail:(NSString *)detail {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"choiceCell"];
+    cell.textLabel.text = title;
+    cell.detailTextLabel.text = detail;
+    cell.detailTextLabel.adjustsFontSizeToFitWidth = YES;
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    return cell;
 }
 
 #pragma mark - Table view
@@ -175,57 +244,78 @@
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 4;
+    return 7;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 1;
-    if (section == 1) return 2;
-    if (section == 2) return [self providerConfigRows].count;
-    if (section == 3) return 1;
+    if (section == 0) return 2;
+    if (section == 1) return 5;
+    if (section == 2) return 3;
+    if (section == 3) return 2;
+    if (section == 4) return [self providerConfigRows].count;
+    if (section == 5) return 1;
+    if (section == 6) return 1;
     return 0;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSMutableDictionary *dict = [self settings];
-
     if (indexPath.section == 0) {
-        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"bilingualLyricsCell"];
-        cell.textLabel.text = LOC(@"BILINGUAL_LYRICS");
-        cell.detailTextLabel.text = LOC(@"BILINGUAL_LYRICS_DESC");
-        cell.detailTextLabel.numberOfLines = 0;
-        cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-
-        ABCSwitch *switchControl = [[NSClassFromString(@"ABCSwitch") alloc] init];
-        switchControl.onTintColor = [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
-        switchControl.on = [dict[@"bilingualLyrics"] boolValue];
-        [switchControl addTarget:self action:@selector(toggleBilingualLyrics:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = switchControl;
-        return cell;
+        if (indexPath.row == 0) {
+            return [self switchCellWithTitle:LOC(@"SYNCED_LYRICS")
+                                      detail:LOC(@"SYNCED_LYRICS_DESC")
+                                         key:@"syncedLyricsEnabled"
+                                    fallback:NO
+                                      action:@selector(toggleSwitch:)];
+        }
+        return [self switchCellWithTitle:LOC(@"BILINGUAL_LYRICS")
+                                  detail:LOC(@"BILINGUAL_LYRICS_DESC")
+                                     key:@"lyricsTranslationEnabled"
+                                fallback:[self boolSetting:@"bilingualLyrics" fallback:NO]
+                                  action:@selector(toggleTranslation:)];
     }
 
     if (indexPath.section == 1) {
-        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"choiceCell"];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         if (indexPath.row == 0) {
-            NSString *provider = [self currentProvider];
-            cell.textLabel.text = LOC(@"TRANSLATION_PROVIDER");
-            cell.detailTextLabel.text = [self providerTitle:provider];
-        } else {
-            NSString *language = [self stringSetting:@"translationTargetLang" fallback:@"auto"];
-            cell.textLabel.text = LOC(@"TRANSLATION_TARGET_LANG");
-            cell.detailTextLabel.text = [self languageTitleForCode:language];
+            NSString *key = [self stringSetting:@"lyricsPreferredSource" fallback:@"auto"];
+            return [self choiceCellWithTitle:LOC(@"LYRICS_SOURCE") detail:[self titleForKey:key inOptions:[self lyricSourceOptions] fallback:key]];
         }
-        return cell;
+        if (indexPath.row == 1) {
+            NSString *key = [self stringSetting:@"lyricsLineEffect" fallback:@"fancy"];
+            return [self choiceCellWithTitle:LOC(@"LYRICS_LINE_EFFECT") detail:[self titleForKey:key inOptions:[self lineEffectOptions] fallback:key]];
+        }
+        if (indexPath.row == 2) {
+            NSString *key = [self stringSetting:@"lyricsFontSize" fallback:@"small"];
+            return [self choiceCellWithTitle:LOC(@"LYRICS_FONT_SIZE") detail:[self titleForKey:key inOptions:[self fontSizeOptions] fallback:key]];
+        }
+        if (indexPath.row == 3) {
+            NSString *key = [self stringSetting:@"lyricsDefaultText" fallback:@"♪"];
+            return [self choiceCellWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") detail:[self titleForKey:key inOptions:[self defaultTextOptions] fallback:key]];
+        }
+        NSString *key = [self stringSetting:@"lyricsConvertChinese" fallback:@"disabled"];
+        return [self choiceCellWithTitle:LOC(@"LYRICS_CHINESE_CONVERSION") detail:[self titleForKey:key inOptions:[self chineseConversionOptions] fallback:key]];
     }
 
     if (indexPath.section == 2) {
+        if (indexPath.row == 0) return [self switchCellWithTitle:LOC(@"LYRICS_ROMANIZATION") detail:@"" key:@"lyricsRomanization" fallback:YES action:@selector(toggleSwitch:)];
+        if (indexPath.row == 1) return [self switchCellWithTitle:LOC(@"LYRICS_SHOW_TIMECODES") detail:@"" key:@"lyricsShowTimeCodes" fallback:NO action:@selector(toggleSwitch:)];
+        return [self switchCellWithTitle:LOC(@"LYRICS_SHOW_INEXACT") detail:@"" key:@"lyricsShowInexact" fallback:YES action:@selector(toggleSwitch:)];
+    }
+
+    if (indexPath.section == 3) {
+        if (indexPath.row == 0) {
+            NSString *provider = [self currentProvider];
+            return [self choiceCellWithTitle:LOC(@"TRANSLATION_PROVIDER") detail:[self titleForKey:provider inOptions:[self translationProviderOptions] fallback:provider]];
+        }
+        NSString *language = [self stringSetting:@"translationTargetLang" fallback:@"auto"];
+        return [self choiceCellWithTitle:LOC(@"TRANSLATION_TARGET_LANG") detail:[self languageTitleForCode:language]];
+    }
+
+    if (indexPath.section == 4) {
         NSArray *rows = [self providerConfigRows];
         NSDictionary *row = rows[indexPath.row];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"textFieldCell"];
         cell.textLabel.text = row[@"title"];
         cell.textLabel.adjustsFontSizeToFitWidth = YES;
-
         UITextField *textField = [[UITextField alloc] initWithFrame:CGRectMake(0, 0, 210, 36)];
         textField.text = [self stringSetting:row[@"key"] fallback:row[@"fallback"]];
         textField.placeholder = row[@"fallback"];
@@ -242,6 +332,10 @@
         return cell;
     }
 
+    if (indexPath.section == 5) {
+        return [self switchCellWithTitle:LOC(@"TRANSLATION_DEBUG_LOGS") detail:LOC(@"TRANSLATION_DEBUG_LOGS_DESC") key:@"translationDebugLogs" fallback:YES action:@selector(toggleSwitch:)];
+    }
+
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"clearCacheCell"];
     cell.textLabel.text = LOC(@"TRANSLATION_CLEAR_CACHE");
     cell.textLabel.textColor = [UIColor systemRedColor];
@@ -251,45 +345,58 @@
 }
 
 - (BOOL)tableView:(UITableView *)tableView shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath {
-    return indexPath.section == 1 || indexPath.section == 3;
+    return indexPath.section == 1 || indexPath.section == 3 || indexPath.section == 6;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 1 && indexPath.row == 0) {
+    if (indexPath.section == 1) {
+        if (indexPath.row == 0) [self showOptionPickerWithTitle:LOC(@"LYRICS_SOURCE") key:@"lyricsPreferredSource" options:[self lyricSourceOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+        else if (indexPath.row == 1) [self showOptionPickerWithTitle:LOC(@"LYRICS_LINE_EFFECT") key:@"lyricsLineEffect" options:[self lineEffectOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+        else if (indexPath.row == 2) [self showOptionPickerWithTitle:LOC(@"LYRICS_FONT_SIZE") key:@"lyricsFontSize" options:[self fontSizeOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+        else if (indexPath.row == 3) [self showOptionPickerWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") key:@"lyricsDefaultText" options:[self defaultTextOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+        else [self showOptionPickerWithTitle:LOC(@"LYRICS_CHINESE_CONVERSION") key:@"lyricsConvertChinese" options:[self chineseConversionOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+    } else if (indexPath.section == 3 && indexPath.row == 0) {
         [self showProviderPicker];
-    } else if (indexPath.section == 1 && indexPath.row == 1) {
+    } else if (indexPath.section == 3 && indexPath.row == 1) {
         [self showLanguagePicker];
-    } else if (indexPath.section == 3) {
-        [self clearTranslationCache];
+    } else if (indexPath.section == 6) {
+        [self clearCaches];
     }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
 #pragma mark - Actions
 
-- (void)toggleBilingualLyrics:(UISwitch *)sender {
-    [self setSetting:@([sender isOn]) forKey:@"bilingualLyrics"];
+- (void)toggleSwitch:(UISwitch *)sender {
+    [self setSetting:@(sender.isOn) forKey:sender.accessibilityIdentifier];
 }
 
-- (void)showProviderPicker {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"TRANSLATION_PROVIDER")
-                                                                   message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSDictionary *option in [self providerOptions]) {
-        NSString *key = option[@"key"];
-        UIAlertAction *action = [UIAlertAction actionWithTitle:option[@"title"]
-                                                         style:UIAlertActionStyleDefault
-                                                       handler:^(UIAlertAction *action) {
-            [self setSetting:key forKey:@"translationProvider"];
-            NSIndexSet *sections = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(1, 2)];
+- (void)toggleTranslation:(UISwitch *)sender {
+    [self setSettings:@{@"lyricsTranslationEnabled": @(sender.isOn),
+                        @"bilingualLyrics": @(sender.isOn)}
+      notificationKey:@"lyricsTranslationEnabled"];
+}
+
+- (void)showOptionPickerWithTitle:(NSString *)title key:(NSString *)key options:(NSArray<NSDictionary *> *)options reloadSections:(NSIndexSet *)sections {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary *option in options) {
+        NSString *value = option[@"key"];
+        [alert addAction:[UIAlertAction actionWithTitle:option[@"title"] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            [self setSetting:value forKey:key];
             [self.tableView reloadSections:sections withRowAnimation:UITableViewRowAnimationAutomatic];
-        }];
-        [alert addAction:action];
+        }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.view;
     alert.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2.0, self.view.bounds.size.height / 2.0, 1, 1);
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showProviderPicker {
+    [self showOptionPickerWithTitle:LOC(@"TRANSLATION_PROVIDER")
+                                key:@"translationProvider"
+                            options:[self translationProviderOptions]
+                     reloadSections:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(3, 2)]];
 }
 
 - (void)showLanguagePicker {
@@ -299,22 +406,22 @@
     controller.selectedCode = [self stringSetting:@"translationTargetLang" fallback:@"auto"];
     controller.selectionHandler = ^(NSString *code) {
         [self setSetting:code forKey:@"translationTargetLang"];
-        [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:1 inSection:1]] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:1 inSection:3]] withRowAnimation:UITableViewRowAnimationAutomatic];
     };
     [self.navigationController pushViewController:controller animated:YES];
 }
 
-- (void)clearTranslationCache {
+- (void)clearCaches {
     UIActivityIndicatorView *activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
     [activityIndicator startAnimating];
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:3]];
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:6]];
     cell.accessoryView = activityIndicator;
-
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSUInteger count = [[YTMUTranslationCache sharedCache] clearAll];
+        NSUInteger translations = [[YTMUTranslationCache sharedCache] clearAll];
+        NSUInteger lyrics = [[YTMULyricsCache sharedCache] clearAll];
         dispatch_async(dispatch_get_main_queue(), ^{
             cell.accessoryView = nil;
-            NSString *message = [NSString stringWithFormat:@"%lu", (unsigned long)count];
+            NSString *message = [NSString stringWithFormat:@"Lyrics: %lu\nTranslations: %lu", (unsigned long)lyrics, (unsigned long)translations];
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"DONE") message:message preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DONE") style:UIAlertActionStyleDefault handler:nil]];
             [self presentViewController:alert animated:YES completion:nil];
@@ -325,7 +432,6 @@
 - (void)textFieldDidEndEditing:(UITextField *)textField {
     NSString *key = textField.accessibilityIdentifier;
     if (!key.length) return;
-
     NSString *value = [textField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
     [self setSetting:value forKey:key];
     textField.text = [self stringSetting:key fallback:textField.placeholder ?: @""];
@@ -334,7 +440,6 @@
 - (UIView *)KBToolbar:(UITextField *)textField {
     UIToolbar *toolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(self.view.frame), 44)];
     toolbar.barStyle = UIBarStyleDefault;
-
     UIBarButtonItem *flexibleSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
     UIBarButtonItem *hideKeyboardButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(hideKeyboard)];
     [toolbar setItems:@[flexibleSpace, hideKeyboardButton]];

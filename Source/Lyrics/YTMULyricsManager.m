@@ -19,6 +19,7 @@
 @property (nonatomic, copy, readwrite) NSString *translationAttribution;
 @property (nonatomic, copy, readwrite) NSString *lastErrorMessage;
 @property (nonatomic) NSUInteger requestGeneration;
+@property (nonatomic, strong) YTMULyricsSearchInfo *lastSearchInfo;
 @end
 
 @implementation YTMULyricsManager
@@ -47,6 +48,10 @@
         _translatedLines = @[];
         _translationAttribution = @"";
         _lastErrorMessage = @"";
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(settingsDidChange:)
+                                                     name:YTMULyricsSettingsDidChangeNotification
+                                                   object:nil];
     }
     return self;
 }
@@ -75,6 +80,41 @@
         if (![ordered containsObject:provider]) [ordered addObject:provider];
     }
     return ordered;
+}
+
+- (BOOL)isLyricsEnabled {
+    return YTMULyricsSettingsBool(@"YTMUltimateIsEnabled", NO) &&
+           (YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) || YTMULyricsSettingsBool(@"bilingualLyrics", NO));
+}
+
+- (void)settingsDidChange:(NSNotification *)notification {
+    NSString *key = notification.userInfo[YTMULyricsSettingChangedKey] ?: @"";
+    YTMULyricsLog(@"settings notification key=%@", key.length ? key : @"<unknown>");
+
+    NSSet *visualKeys = [NSSet setWithObjects:
+                         @"lyricsLineEffect",
+                         @"lyricsFontSize",
+                         @"lyricsDefaultText",
+                         @"lyricsConvertChinese",
+                         @"lyricsRomanization",
+                         @"lyricsShowTimeCodes",
+                         @"translationDebugLogs",
+                         nil];
+    if ([visualKeys containsObject:key]) {
+        [self notify];
+        return;
+    }
+
+    if (![self isLyricsEnabled]) {
+        [self clearCurrent];
+        return;
+    }
+
+    if (self.lastSearchInfo.videoId.length || self.lastSearchInfo.title.length) {
+        [self refreshWithInfo:self.lastSearchInfo];
+    } else {
+        [self notify];
+    }
 }
 
 - (void)setStateAndNotify:(YTMULyricsFetchState)state {
@@ -251,11 +291,13 @@
 }
 
 - (void)refreshWithInfo:(YTMULyricsSearchInfo *)info {
-    if (!YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) && !YTMULyricsSettingsBool(@"bilingualLyrics", NO)) {
+    if (!info.videoId.length && !info.title.length) {
         [self clearCurrent];
         return;
     }
-    if (!info.videoId.length && !info.title.length) {
+    self.lastSearchInfo = [info copy];
+
+    if (![self isLyricsEnabled]) {
         [self clearCurrent];
         return;
     }

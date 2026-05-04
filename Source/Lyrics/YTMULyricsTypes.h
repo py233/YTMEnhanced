@@ -10,6 +10,8 @@ extern NSString *const YTMULyricsSourceGenius;
 
 extern NSString *const YTMULyricsDidUpdateNotification;
 extern NSString *const YTMULyricsStateDidChangeNotification;
+extern NSString *const YTMULyricsSettingsDidChangeNotification;
+extern NSString *const YTMULyricsSettingChangedKey;
 
 typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
     YTMULyricsFetchStateIdle = 0,

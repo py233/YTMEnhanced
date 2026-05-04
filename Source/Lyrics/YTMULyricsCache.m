@@ -70,8 +70,17 @@ static NSString *YTMULyricsSHA1(NSString *string) {
     if (!data) return nil;
 
     NSError *error = nil;
-    YTMULyricsResult *result = [NSKeyedUnarchiver unarchivedObjectOfClass:[YTMULyricsResult class] fromData:data error:&error];
-    if (!result || error) return nil;
+    NSSet *classes = [NSSet setWithObjects:
+                      [YTMULyricsResult class],
+                      [YTMULyricLine class],
+                      [NSArray class],
+                      [NSString class],
+                      nil];
+    YTMULyricsResult *result = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:&error];
+    if (!result || error) {
+        YTMULyricsLog(@"lyrics cache read failed key=%@ error=%@", key, error.localizedDescription ?: @"<unknown>");
+        return nil;
+    }
     [self.memoryCache setObject:result forKey:key];
     return result;
 }
