@@ -1,0 +1,106 @@
+#import "YTMUGeminiProvider.h"
+#import "../YTMUPromptBuilder.h"
+
+static NSString *YTMUGeminiDefaultsString(NSString *key, NSString *fallback) {
+    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
+    id value = dict[key];
+    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return value;
+    return fallback ?: @"";
+}
+
+static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message) {
+    return [NSError errorWithDomain:YTMUTranslationErrorDomain
+                               code:code
+                           userInfo:@{NSLocalizedDescriptionKey: message ?: @"Gemini translation failed"}];
+}
+
+@implementation YTMUGeminiProvider
+
+- (NSString *)providerName {
+    return YTMUTranslationProviderGemini;
+}
+
+- (NSString *)modelIdentifier {
+    return YTMUGeminiDefaultsString(@"translationModel_gemini", @"gemini-2.0-flash");
+}
+
+- (void)translateRequest:(YTMUTranslationRequest *)request
+              completion:(void (^)(NSArray<NSString *> * _Nullable, NSError * _Nullable))completion {
+    NSString *apiKey = YTMUGeminiDefaultsString(@"translationApiKey_gemini", @"");
+    NSString *model = [self modelIdentifier];
+    if (!apiKey.length) {
+        completion(nil, YTMUGeminiError(YTMUTranslationErrorMissingAPIKey, @"Gemini API key is empty"));
+        return;
+    }
+
+    NSString *urlString = [NSString stringWithFormat:@"https://generativelanguage.googleapis.com/v1beta/models/%@:generateContent?key=%@",
+                           [model stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]] ?: model,
+                           [apiKey stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: apiKey];
+
+    NSDictionary *body = @{
+        @"systemInstruction": @{
+            @"role": @"system",
+            @"parts": @[@{@"text": [YTMUPromptBuilder systemPromptForRequest:request]}],
+        },
+        @"contents": @[
+            @{
+                @"role": @"user",
+                @"parts": @[@{@"text": [YTMUPromptBuilder userPromptForRequest:request]}],
+            },
+        ],
+        @"generationConfig": @{
+            @"temperature": @0.3,
+            @"responseMimeType": @"application/json",
+        },
+    };
+
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
+    urlRequest.HTTPMethod = @"POST";
+    urlRequest.timeoutInterval = 60.0;
+    urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            completion(nil, error);
+            return;
+        }
+
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        if (status < 200 || status >= 300) {
+            NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+            NSString *message = [NSString stringWithFormat:@"Gemini API %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)300, bodyText.length)] ?: @""];
+            completion(nil, YTMUGeminiError(YTMUTranslationErrorHTTPStatus, message));
+            return;
+        }
+
+        NSError *jsonError = nil;
+        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) {
+            completion(nil, jsonError ?: YTMUGeminiError(YTMUTranslationErrorParse, @"Gemini returned invalid JSON"));
+            return;
+        }
+
+        NSMutableString *text = [NSMutableString string];
+        NSArray *candidates = json[@"candidates"];
+        NSDictionary *candidate = [candidates isKindOfClass:[NSArray class]] && candidates.count ? candidates.firstObject : nil;
+        NSDictionary *content = [candidate isKindOfClass:[NSDictionary class]] ? candidate[@"content"] : nil;
+        NSArray *parts = [content isKindOfClass:[NSDictionary class]] ? content[@"parts"] : nil;
+        if ([parts isKindOfClass:[NSArray class]]) {
+            for (id part in parts) {
+                if (![part isKindOfClass:[NSDictionary class]]) continue;
+                NSString *partText = ((NSDictionary *)part)[@"text"];
+                if ([partText isKindOfClass:[NSString class]]) [text appendString:partText];
+            }
+        }
+
+        NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:text expected:request.lines.count];
+        if (!parsed) {
+            completion(nil, YTMUGeminiError(YTMUTranslationErrorParse, @"Could not parse JSON from Gemini response"));
+            return;
+        }
+        completion(parsed, nil);
+    }] resume];
+}
+
+@end
