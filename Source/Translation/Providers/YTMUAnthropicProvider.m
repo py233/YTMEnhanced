@@ -29,9 +29,11 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     NSString *apiKey = YTMUAnthropicDefaultsString(@"translationApiKey_anthropic", @"");
     NSString *model = [self modelIdentifier];
     if (!apiKey.length) {
+        YTMUTranslationLog(@"anthropic skipped: missing API key model=%@", model.length ? model : @"<empty>");
         completion(nil, YTMUAnthropicError(YTMUTranslationErrorMissingAPIKey, @"Anthropic API key is empty"));
         return;
     }
+    YTMUTranslationLog(@"anthropic start model=%@ lines=%lu", model, (unsigned long)request.lines.count);
 
     NSDictionary *body = @{
         @"model": model,
@@ -63,6 +65,7 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
         if (status < 200 || status >= 300) {
             NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
             NSString *message = [NSString stringWithFormat:@"Anthropic API %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)300, bodyText.length)] ?: @""];
+            YTMUTranslationLog(@"anthropic failed status=%ld", (long)status);
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorHTTPStatus, message));
             return;
         }
@@ -90,10 +93,12 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
             parsed = [YTMUPromptBuilder parseLinesFromJSON:text expected:request.lines.count];
         }
         if (!parsed) {
+            YTMUTranslationLog(@"anthropic parse failed lines=%lu", (unsigned long)request.lines.count);
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorParse, @"Could not parse JSON from Anthropic response"));
             return;
         }
 
+        YTMUTranslationLog(@"anthropic success translatedLines=%lu", (unsigned long)parsed.count);
         completion(parsed, nil);
     }] resume];
 }

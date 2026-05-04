@@ -3,3 +3,4 @@
 .upload.swp
 .vscode/
 packages/
+*.ipa

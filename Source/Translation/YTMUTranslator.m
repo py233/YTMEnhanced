@@ -144,6 +144,10 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 
     dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         if (lineError) {
+            YTMUTranslationLog(@"per-line fallback failed videoId=%@ provider=%@ error=%@",
+                               videoId.length ? videoId : @"<empty>",
+                               [provider providerName],
+                               lineError.localizedDescription ?: @"<unknown>");
             YTMUCompleteOnMain(^{
                 completion(nil, firstError ?: lineError);
             });
@@ -151,6 +155,10 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
         }
 
         NSArray *translated = [results copy];
+        YTMUTranslationLog(@"per-line fallback success videoId=%@ provider=%@ lines=%lu",
+                           videoId.length ? videoId : @"<empty>",
+                           [provider providerName],
+                           (unsigned long)translated.count);
         [self storeTranslatedLines:translated
                           cacheKey:cacheKey
                            videoId:videoId
@@ -185,6 +193,12 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
     NSString *configuredTarget = YTMUSettingsString(@"translationTargetLang", @"auto");
     NSString *language = [YTMUPromptBuilder effectiveTargetCode:configuredTarget];
     NSString *model = [provider modelIdentifier] ?: @"";
+    YTMUTranslationLog(@"request videoId=%@ provider=%@ model=%@ target=%@ lines=%lu",
+                       videoId.length ? videoId : @"<empty>",
+                       [provider providerName],
+                       model.length ? model : @"<empty>",
+                       language,
+                       (unsigned long)lines.count);
     NSString *cacheKey = [YTMUTranslationCache keyForVideoId:videoId
                                                     language:language
                                                     provider:[provider providerName]
@@ -193,11 +207,20 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 
     YTMUTranslationCacheEntry *cached = [[YTMUTranslationCache sharedCache] entryForKey:cacheKey];
     if (cached.translatedLines.count == lines.count) {
+        YTMUTranslationLog(@"cache hit videoId=%@ provider=%@ target=%@ lines=%lu",
+                           videoId.length ? videoId : @"<empty>",
+                           [provider providerName],
+                           language,
+                           (unsigned long)lines.count);
         YTMUCompleteOnMain(^{
             completion(cached.translatedLines, nil);
         });
         return;
     }
+    YTMUTranslationLog(@"cache miss videoId=%@ provider=%@ target=%@",
+                       videoId.length ? videoId : @"<empty>",
+                       [provider providerName],
+                       language);
 
     YTMUTranslationRequest *request = [self requestWithLines:lines title:title artist:artist targetCode:language];
 
@@ -220,20 +243,36 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 
     [provider translateRequest:request completion:^(NSArray<NSString *> *translated, NSError *error) {
         if (!error && translated.count == lines.count) {
+            YTMUTranslationLog(@"provider success videoId=%@ provider=%@ lines=%lu",
+                               videoId.length ? videoId : @"<empty>",
+                               [provider providerName],
+                               (unsigned long)translated.count);
             [self storeTranslatedLines:translated cacheKey:cacheKey videoId:videoId language:language provider:provider lines:lines];
             YTMUCompleteOnMain(^{ completion(translated, nil); });
             return;
         }
 
         NSError *firstError = error ?: [self lineCountErrorForTranslated:translated ?: @[] expected:lines.count];
+        YTMUTranslationLog(@"provider first attempt failed videoId=%@ provider=%@ error=%@",
+                           videoId.length ? videoId : @"<empty>",
+                           [provider providerName],
+                           firstError.localizedDescription ?: @"<unknown>");
         [provider translateRequest:request completion:^(NSArray<NSString *> *retryTranslated, NSError *retryError) {
             if (!retryError && retryTranslated.count == lines.count) {
+                YTMUTranslationLog(@"provider retry success videoId=%@ provider=%@ lines=%lu",
+                                   videoId.length ? videoId : @"<empty>",
+                                   [provider providerName],
+                                   (unsigned long)retryTranslated.count);
                 [self storeTranslatedLines:retryTranslated cacheKey:cacheKey videoId:videoId language:language provider:provider lines:lines];
                 YTMUCompleteOnMain(^{ completion(retryTranslated, nil); });
                 return;
             }
 
             NSError *finalError = retryError ?: [self lineCountErrorForTranslated:retryTranslated ?: @[] expected:lines.count];
+            YTMUTranslationLog(@"provider retry failed videoId=%@ provider=%@ error=%@",
+                               videoId.length ? videoId : @"<empty>",
+                               [provider providerName],
+                               finalError.localizedDescription ?: @"<unknown>");
             handleFailure(finalError ?: firstError);
         }];
     }];

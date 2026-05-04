@@ -65,6 +65,7 @@
     if (dict[@"translationProvider"] == nil) dict[@"translationProvider"] = YTMUTranslationProviderGoogle;
     if (dict[@"translationTargetLang"] == nil) dict[@"translationTargetLang"] = @"auto";
     if (dict[@"translationBaseUrl"] == nil) dict[@"translationBaseUrl"] = @"https://api.openai.com/v1";
+    if (dict[@"translationDebugLogs"] == nil) dict[@"translationDebugLogs"] = @(YES);
     [defaults setObject:dict forKey:@"YTMUltimate"];
 }
 

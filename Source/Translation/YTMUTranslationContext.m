@@ -1,4 +1,5 @@
 #import "YTMUTranslationContext.h"
+#import "YTMUTranslationTypes.h"
 
 @interface YTMUTranslationContext ()
 @property (nonatomic, copy, readwrite) NSString *videoId;
@@ -33,6 +34,10 @@
         _title = [title copy] ?: @"";
         _artist = [artist copy] ?: @"";
     }
+    YTMUTranslationLog(@"context updated videoId=%@ title=%@ artist=%@",
+                       videoId.length ? videoId : @"<empty>",
+                       title.length ? title : @"<empty>",
+                       artist.length ? artist : @"<empty>");
 }
 
 @end

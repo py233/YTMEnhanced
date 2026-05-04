@@ -11,6 +11,9 @@ extern NSString *const YTMUTranslationProviderOpenAI;
 
 extern NSString *const YTMUTranslationErrorDomain;
 
+BOOL YTMUTranslationDebugLoggingEnabled(void);
+void YTMUTranslationLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+
 typedef NS_ENUM(NSInteger, YTMUTranslationErrorCode) {
     YTMUTranslationErrorUnknown        = 1,
     YTMUTranslationErrorNetwork        = 2,

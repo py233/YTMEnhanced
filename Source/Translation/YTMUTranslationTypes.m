@@ -11,3 +11,20 @@ NSString *const YTMUTranslationErrorDomain = @"YTMUTranslationErrorDomain";
 
 @implementation YTMUTranslationRequest
 @end
+
+BOOL YTMUTranslationDebugLoggingEnabled(void) {
+    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
+    id value = dict[@"translationDebugLogs"];
+    return value == nil ? YES : [value boolValue];
+}
+
+void YTMUTranslationLog(NSString *format, ...) {
+    if (!YTMUTranslationDebugLoggingEnabled() || !format.length) return;
+
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+
+    NSLog(@"[YTMUTranslation] %@", message);
+}

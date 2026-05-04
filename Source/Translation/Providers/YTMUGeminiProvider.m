@@ -29,9 +29,11 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
     NSString *apiKey = YTMUGeminiDefaultsString(@"translationApiKey_gemini", @"");
     NSString *model = [self modelIdentifier];
     if (!apiKey.length) {
+        YTMUTranslationLog(@"gemini skipped: missing API key model=%@", model.length ? model : @"<empty>");
         completion(nil, YTMUGeminiError(YTMUTranslationErrorMissingAPIKey, @"Gemini API key is empty"));
         return;
     }
+    YTMUTranslationLog(@"gemini start model=%@ lines=%lu", model, (unsigned long)request.lines.count);
 
     NSString *urlString = [NSString stringWithFormat:@"https://generativelanguage.googleapis.com/v1beta/models/%@:generateContent?key=%@",
                            [model stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]] ?: model,
@@ -70,6 +72,7 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
         if (status < 200 || status >= 300) {
             NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
             NSString *message = [NSString stringWithFormat:@"Gemini API %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)300, bodyText.length)] ?: @""];
+            YTMUTranslationLog(@"gemini failed status=%ld", (long)status);
             completion(nil, YTMUGeminiError(YTMUTranslationErrorHTTPStatus, message));
             return;
         }
@@ -96,9 +99,11 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
 
         NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:text expected:request.lines.count];
         if (!parsed) {
+            YTMUTranslationLog(@"gemini parse failed lines=%lu", (unsigned long)request.lines.count);
             completion(nil, YTMUGeminiError(YTMUTranslationErrorParse, @"Could not parse JSON from Gemini response"));
             return;
         }
+        YTMUTranslationLog(@"gemini success translatedLines=%lu", (unsigned long)parsed.count);
         completion(parsed, nil);
     }] resume];
 }

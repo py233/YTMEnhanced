@@ -139,7 +139,10 @@ static NSAttributedString *YTMUCombinedLyricsAttributedText(UILabel *label,
 
     if (selectableLyrics()) {
         YTFormattedStringLabel *lyrics = [self valueForKey:@"_descriptionLabel"];
-        if (!lyrics || !self.lyrics) return;
+        if (!lyrics || !self.lyrics) {
+            YTMUTranslationLog(@"lyrics hook skipped: missing label/textView");
+            return;
+        }
 
         lyrics.userInteractionEnabled = YES;
         lyrics.hidden = YES;
@@ -151,26 +154,59 @@ static NSAttributedString *YTMUCombinedLyricsAttributedText(UILabel *label,
 
         NSString *text = lyrics.attributedText.string ?: lyrics.text ?: @"";
         NSArray<NSString *> *lines = YTMULinesFromString(text);
-        if (!text.length || !lines.count) return;
+        if (!text.length || !lines.count) {
+            YTMUTranslationLog(@"lyrics hook skipped: empty lyrics text");
+            return;
+        }
 
         NSString *targetLanguage = [YTMUPromptBuilder effectiveTargetCode:YTMUString(@"translationTargetLang", @"auto")];
-        if (YTMUSourceLanguageMatchesTarget(lines, targetLanguage)) return;
+        if (YTMUSourceLanguageMatchesTarget(lines, targetLanguage)) {
+            YTMUTranslationLog(@"lyrics hook skipped: source language matches target=%@", targetLanguage);
+            return;
+        }
 
         YTMUTranslationContext *context = [YTMUTranslationContext sharedContext];
         NSString *videoId = context.videoId ?: @"";
-        if (!videoId.length) return;
+        if (!videoId.length) {
+            YTMUTranslationLog(@"lyrics hook skipped: missing current videoId lines=%lu", (unsigned long)lines.count);
+            return;
+        }
 
         self.translationRequestVideoId = videoId;
+        YTMUTranslationLog(@"lyrics hook requesting translation videoId=%@ target=%@ lines=%lu",
+                           videoId,
+                           targetLanguage,
+                           (unsigned long)lines.count);
         [[YTMUTranslator sharedTranslator] translateLines:lines
                                                   videoId:videoId
                                                     title:context.title
                                                    artist:context.artist
                                                completion:^(NSArray<NSString *> *translatedLines, NSError *error) {
-            if (error || translatedLines.count != lines.count) return;
-            if (![videoId isEqualToString:[YTMUTranslationContext sharedContext].videoId]) return;
-            if (![videoId isEqualToString:self.translationRequestVideoId]) return;
+            if (error || translatedLines.count != lines.count) {
+                YTMUTranslationLog(@"lyrics hook translation failed videoId=%@ error=%@ translatedLines=%lu expected=%lu",
+                                   videoId,
+                                   error.localizedDescription ?: @"<line-count-mismatch>",
+                                   (unsigned long)translatedLines.count,
+                                   (unsigned long)lines.count);
+                return;
+            }
+            if (![videoId isEqualToString:[YTMUTranslationContext sharedContext].videoId]) {
+                YTMUTranslationLog(@"lyrics hook dropped stale result videoId=%@ current=%@",
+                                   videoId,
+                                   [YTMUTranslationContext sharedContext].videoId ?: @"<empty>");
+                return;
+            }
+            if (![videoId isEqualToString:self.translationRequestVideoId]) {
+                YTMUTranslationLog(@"lyrics hook dropped reused cell result videoId=%@ cellVideoId=%@",
+                                   videoId,
+                                   self.translationRequestVideoId ?: @"<empty>");
+                return;
+            }
 
             self.lyrics.attributedText = YTMUCombinedLyricsAttributedText(lyrics, lines, translatedLines);
+            YTMUTranslationLog(@"lyrics hook rendered bilingual lyrics videoId=%@ lines=%lu",
+                               videoId,
+                               (unsigned long)lines.count);
         }];
     }
 }
@@ -215,6 +251,9 @@ static NSAttributedString *YTMUCombinedLyricsAttributedText(UILabel *label,
     }
     if (dict[@"translationBaseUrl"] == nil) {
         dict[@"translationBaseUrl"] = @"https://api.openai.com/v1";
+    }
+    if (dict[@"translationDebugLogs"] == nil) {
+        dict[@"translationDebugLogs"] = @(YES);
     }
 
     [defaults setObject:dict forKey:@"YTMUltimate"];

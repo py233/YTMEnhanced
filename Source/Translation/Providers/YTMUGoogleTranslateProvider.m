@@ -310,11 +310,17 @@ static NSString *YTMUGoogleTranslatedTextFromJSON(id json) {
     }
 
     NSArray *chunks = [self chunksForIndexedLines:indexed];
+    YTMUTranslationLog(@"google translate start target=%@ translatableLines=%lu chunks=%lu",
+                       target,
+                       (unsigned long)indexed.count,
+                       (unsigned long)chunks.count);
     [self translateChunks:chunks target:target index:0 results:[NSMutableArray array] completion:^(NSArray<NSString *> *lines, NSError *error) {
         if (error) {
+            YTMUTranslationLog(@"google translate failed error=%@", error.localizedDescription ?: @"<unknown>");
             completion(nil, error);
             return;
         }
+        YTMUTranslationLog(@"google translate success translatedLines=%lu", (unsigned long)lines.count);
         completion([self mergeSourceLines:request.lines indexed:indexed translated:lines], nil);
     }];
 }

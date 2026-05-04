@@ -92,6 +92,7 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
     if (status < 200 || status >= 300) {
         NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
         if (canRetryNoJSON && [self shouldRetryWithoutJSONModeForStatus:status body:bodyText ?: @""]) {
+            YTMUTranslationLog(@"openai-compatible retrying without JSON mode status=%ld", (long)status);
             [self postRequest:request includeJSONMode:NO completion:^(NSData *retryData, NSURLResponse *retryResponse, NSError *retryError) {
                 [self handleData:retryData response:retryResponse error:retryError request:request canRetryNoJSON:NO completion:completion];
             }];
@@ -99,6 +100,7 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
         }
 
         NSString *message = [NSString stringWithFormat:@"OpenAI-compatible API %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)300, bodyText.length)] ?: @""];
+        YTMUTranslationLog(@"openai-compatible failed status=%ld", (long)status);
         completion(nil, YTMUOpenAIError(YTMUTranslationErrorHTTPStatus, message));
         return;
     }
@@ -116,14 +118,20 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
     NSString *content = [message isKindOfClass:[NSDictionary class]] ? message[@"content"] : nil;
     NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:content ?: @"" expected:request.lines.count];
     if (!parsed) {
+        YTMUTranslationLog(@"openai-compatible parse failed lines=%lu", (unsigned long)request.lines.count);
         completion(nil, YTMUOpenAIError(YTMUTranslationErrorParse, @"Could not parse JSON from OpenAI-compatible response"));
         return;
     }
+    YTMUTranslationLog(@"openai-compatible success translatedLines=%lu", (unsigned long)parsed.count);
     completion(parsed, nil);
 }
 
 - (void)translateRequest:(YTMUTranslationRequest *)request
               completion:(void (^)(NSArray<NSString *> * _Nullable, NSError * _Nullable))completion {
+    YTMUTranslationLog(@"openai-compatible start model=%@ lines=%lu baseUrl=%@",
+                       [self modelIdentifier],
+                       (unsigned long)request.lines.count,
+                       YTMUOpenAIDefaultsString(@"translationBaseUrl", @"https://api.openai.com/v1"));
     [self postRequest:request includeJSONMode:YES completion:^(NSData *data, NSURLResponse *response, NSError *error) {
         [self handleData:data response:response error:error request:request canRetryNoJSON:YES completion:completion];
     }];
