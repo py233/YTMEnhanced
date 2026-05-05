@@ -6,6 +6,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 
 @interface YTMULyricLineView : UIControl
+@property (nonatomic, strong) UILabel *timeLabel;
 @property (nonatomic, strong) UILabel *mainLabel;
 @property (nonatomic, strong) UILabel *romanLabel;
 @property (nonatomic, strong) UILabel *translationLabel;
@@ -22,23 +23,29 @@
 - (instancetype)init {
     self = [super initWithFrame:CGRectZero];
     if (self) {
+        _timeLabel = [[UILabel alloc] init];
         _mainLabel = [[UILabel alloc] init];
         _romanLabel = [[UILabel alloc] init];
         _translationLabel = [[UILabel alloc] init];
-        for (UILabel *label in @[_mainLabel, _romanLabel, _translationLabel]) {
+        for (UILabel *label in @[_timeLabel, _mainLabel, _romanLabel, _translationLabel]) {
             label.numberOfLines = 0;
             label.translatesAutoresizingMaskIntoConstraints = NO;
             [self addSubview:label];
         }
+        _timeLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.42];
+        _timeLabel.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightMedium];
         _romanLabel.textColor = [UIColor secondaryLabelColor];
         _romanLabel.font = [UIFont italicSystemFontOfSize:16];
         _translationLabel.textColor = [UIColor labelColor];
         _translationLabel.alpha = 0.82;
 
         [NSLayoutConstraint activateConstraints:@[
+            [_timeLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:18],
+            [_timeLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-18],
+            [_timeLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:9],
             [_mainLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:18],
             [_mainLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-18],
-            [_mainLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:9],
+            [_mainLabel.topAnchor constraintEqualToAnchor:_timeLabel.bottomAnchor constant:2],
             [_romanLabel.leadingAnchor constraintEqualToAnchor:_mainLabel.leadingAnchor],
             [_romanLabel.trailingAnchor constraintEqualToAnchor:_mainLabel.trailingAnchor],
             [_romanLabel.topAnchor constraintEqualToAnchor:_mainLabel.bottomAnchor constant:3],
@@ -408,12 +415,13 @@
         YTMULyricLine *line = result.isSynced ? synced[i] : [YTMULyricLine lineWithTime:@"" timeInMs:0 durationMs:0 text:plain[i]];
         NSString *text = line.text ?: @"";
         text = [YTMULyricsTextProcessor convertChineseText:text mode:convertMode];
-        if (showTimeCodes && line.time.length) text = [NSString stringWithFormat:@"[%@] %@", line.time, text];
 
         YTMULyricLineView *lineView = [[YTMULyricLineView alloc] init];
         lineView.index = i;
         lineView.timeInMs = line.timeInMs;
         lineView.durationMs = line.durationMs;
+        lineView.timeLabel.hidden = !(showTimeCodes && line.time.length);
+        lineView.timeLabel.text = showTimeCodes && line.time.length ? [NSString stringWithFormat:@"[%@]", line.time] : @"";
         lineView.mainLabel.font = [UIFont systemFontOfSize:base weight:UIFontWeightRegular];
         lineView.mainLabel.textColor = [UIColor whiteColor];
         lineView.mainText = text.length ? text : [self emptyLineStates].firstObject;
