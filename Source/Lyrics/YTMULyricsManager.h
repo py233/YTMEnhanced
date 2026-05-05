@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)sharedManager;
 - (void)refreshWithInfo:(YTMULyricsSearchInfo *)info;
 - (void)clearCurrent;
+- (void)clearRomanizationCache;
 - (NSArray<NSString *> *)displayLineTexts;
 - (NSString *)translationForLineAtIndex:(NSUInteger)index;
 

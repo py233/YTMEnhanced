@@ -4,6 +4,7 @@
 #import "../Translation/YTMUPromptBuilder.h"
 #import "../Translation/YTMUTranslationCache.h"
 #import "../Lyrics/YTMULyricsCache.h"
+#import "../Lyrics/YTMULyricsManager.h"
 #import "../Lyrics/YTMULyricsTypes.h"
 
 @interface YTMUTranslationLanguageController : UITableViewController
@@ -200,14 +201,6 @@
     ];
 }
 
-- (NSArray<NSDictionary *> *)fontSizeOptions {
-    return @[
-        @{@"key": @"small", @"title": LOC(@"LYRICS_FONT_SMALL")},
-        @{@"key": @"medium", @"title": LOC(@"LYRICS_FONT_MEDIUM")},
-        @{@"key": @"large", @"title": LOC(@"LYRICS_FONT_LARGE")},
-    ];
-}
-
 - (NSArray<NSDictionary *> *)defaultTextOptions {
     return @[
         @{@"key": @"♪", @"title": @"♪"},
@@ -305,7 +298,7 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1;
-    if (section == 1) return 5;
+    if (section == 1) return 4;
     if (section == 2) return 3;
     if (section == 3) return 2;
     if (section == 4) return [self providerConfigRows].count;
@@ -333,10 +326,6 @@
             return [self choiceCellWithTitle:LOC(@"LYRICS_LINE_EFFECT") detail:[self titleForKey:key inOptions:[self lineEffectOptions] fallback:key]];
         }
         if (indexPath.row == 2) {
-            NSString *key = [self stringSetting:@"lyricsFontSize" fallback:@"small"];
-            return [self choiceCellWithTitle:LOC(@"LYRICS_FONT_SIZE") detail:[self titleForKey:key inOptions:[self fontSizeOptions] fallback:key]];
-        }
-        if (indexPath.row == 3) {
             NSString *key = [self stringSetting:@"lyricsDefaultText" fallback:@"♪"];
             return [self choiceCellWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") detail:[self titleForKey:key inOptions:[self defaultTextOptions] fallback:key]];
         }
@@ -401,8 +390,7 @@
     if (indexPath.section == 1) {
         if (indexPath.row == 0) [self showOptionPickerWithTitle:LOC(@"LYRICS_SOURCE") key:@"lyricsPreferredSource" options:[self lyricSourceOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
         else if (indexPath.row == 1) [self showOptionPickerWithTitle:LOC(@"LYRICS_LINE_EFFECT") key:@"lyricsLineEffect" options:[self lineEffectOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
-        else if (indexPath.row == 2) [self showOptionPickerWithTitle:LOC(@"LYRICS_FONT_SIZE") key:@"lyricsFontSize" options:[self fontSizeOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
-        else if (indexPath.row == 3) [self showOptionPickerWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") key:@"lyricsDefaultText" options:[self defaultTextOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+        else if (indexPath.row == 2) [self showOptionPickerWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") key:@"lyricsDefaultText" options:[self defaultTextOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
         else [self showOptionPickerWithTitle:LOC(@"LYRICS_CHINESE_CONVERSION") key:@"lyricsConvertChinese" options:[self chineseConversionOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
     } else if (indexPath.section == 3 && indexPath.row == 0) {
         [self showProviderPicker];
@@ -469,9 +457,10 @@
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSUInteger translations = [[YTMUTranslationCache sharedCache] clearAll];
         NSUInteger lyrics = [[YTMULyricsCache sharedCache] clearAll];
+        [[YTMULyricsManager sharedManager] clearRomanizationCache];
         dispatch_async(dispatch_get_main_queue(), ^{
             cell.accessoryView = nil;
-            NSString *message = [NSString stringWithFormat:@"Lyrics: %lu\nTranslations: %lu", (unsigned long)lyrics, (unsigned long)translations];
+            NSString *message = [NSString stringWithFormat:@"Lyrics: %lu\nTranslations: %lu\nRomanization: memory cleared", (unsigned long)lyrics, (unsigned long)translations];
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"DONE") message:message preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DONE") style:UIAlertActionStyleDefault handler:nil]];
             [self presentViewController:alert animated:YES completion:nil];

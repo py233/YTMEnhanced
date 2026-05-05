@@ -3,6 +3,7 @@
 #import "Headers/YTPlayerViewController.h"
 #import "Headers/YTIFormattedString.h"
 #import "Lyrics/YTMULyricsManager.h"
+#import "Lyrics/YTMULyricsPlaybackState.h"
 #import "Lyrics/YTMUSyncedLyricsView.h"
 #import "Lyrics/YTMULyricsTextProcessor.h"
 #import "Translation/YTMUTranslationContext.h"
@@ -111,18 +112,26 @@ static void YTMULyricsPageSetBaseFontSize(CGFloat size) {
 }
 
 static BOOL YTMULyricsPageResultHasCompleteRomanization(YTMULyricsResult *result) {
-    if (!result.isSynced || !result.lines.count) return NO;
+    NSArray<NSString *> *sourceLines = result.lineTexts ?: @[];
+    if (!sourceLines.count) return NO;
 
     BOOL needsRomanization = NO;
-    for (YTMULyricLine *line in result.lines) {
-        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+        NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
         needsRomanization = YES;
-        if (![line.romanizedText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
+        NSString *roman = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
+        if (![roman stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
             return NO;
         }
     }
     return needsRomanization;
+}
+
+static NSString *YTMULyricsPageRomanizedLineAtIndex(YTMULyricsResult *result, NSUInteger idx) {
+    if (idx < result.romanizedLineTexts.count) return result.romanizedLineTexts[idx] ?: @"";
+    if (idx < result.lines.count) return result.lines[idx].romanizedText ?: @"";
+    return @"";
 }
 
 static NSString *YTMULyricsPageLineText(NSString *text) {
@@ -210,8 +219,7 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
         appendLine(source, mainFont, primary, mainParagraph);
 
         if (showRomanization) {
-            NSString *roman = @"";
-            if (idx < result.lines.count) roman = result.lines[idx].romanizedText ?: @"";
+            NSString *roman = YTMULyricsPageRomanizedLineAtIndex(result, idx);
             BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
             if (roman.length && !same) appendLine(roman, romanFont, secondary, secondaryParagraph);
         }
@@ -257,8 +265,7 @@ static NSString *YTMULyricsPagePlainDisplayText(NSString *fallbackText) {
         if (source.length) [lines addObject:source];
 
         if (showRomanization) {
-            NSString *roman = @"";
-            if (idx < result.lines.count) roman = result.lines[idx].romanizedText ?: @"";
+            NSString *roman = YTMULyricsPageRomanizedLineAtIndex(result, idx);
             BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
             if (roman.length && !same) [lines addObject:roman];
         }
@@ -636,6 +643,9 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     self.lyricsTextView.hidden = useSynced;
     self.syncedLyricsView.hidden = !useSynced;
     self.syncedLyricsView.playerViewController = self.playerViewController;
+    if (!self.syncedLyricsView.playerViewController) {
+        self.syncedLyricsView.playerViewController = [YTMULyricsPlaybackState sharedState].playerViewController;
+    }
     if (useSynced) {
         [self.syncedLyricsView reloadFromManager];
     } else {
@@ -839,7 +849,7 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 
     CGFloat bottom = YTMULyricsPageTabContentBottom(self.view);
     self.ytmuLyricsTabOverlayView.hidden = NO;
-    self.ytmuLyricsTabOverlayView.playerViewController = YTMULyricsPagePlayerFromCandidate(self);
+    self.ytmuLyricsTabOverlayView.playerViewController = YTMULyricsPagePlayerFromCandidate(self) ?: [YTMULyricsPlaybackState sharedState].playerViewController;
     self.ytmuLyricsTabOverlayView.frame = CGRectMake(0.0, 0.0, self.view.bounds.size.width, bottom);
     self.ytmuLyricsTabOverlayView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleBottomMargin;
     [self.view bringSubviewToFront:self.ytmuLyricsTabOverlayView];
@@ -1050,7 +1060,7 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
     if ([presenter isKindOfClass:[YTMULyricsPanelViewController class]]) return;
 
     YTMULyricsPanelViewController *controller = [[YTMULyricsPanelViewController alloc] init];
-    controller.playerViewController = YTMULyricsPagePlayerFromCandidate(self);
+    controller.playerViewController = YTMULyricsPagePlayerFromCandidate(self) ?: [YTMULyricsPlaybackState sharedState].playerViewController;
     controller.modalPresentationStyle = UIModalPresentationPageSheet;
     [presenter presentViewController:controller animated:YES completion:nil];
     YTMULyricsLog(@"lyrics panel presented from=%@", NSStringFromClass([presenter class]));

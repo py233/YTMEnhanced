@@ -38,6 +38,7 @@ typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
 @property (nonatomic, copy) NSArray<NSString *> *artists;
 @property (nonatomic, copy) NSString *plainLyrics;
 @property (nonatomic, copy) NSArray<YTMULyricLine *> *lines;
+@property (nonatomic, copy) NSArray<NSString *> *romanizedLineTexts;
 @property (nonatomic, copy) NSArray<NSString *> *officialTranslatedLines;
 @property (nonatomic, copy) NSString *officialTranslationLanguage;
 @property (nonatomic, copy) NSString *officialTranslationProvider;

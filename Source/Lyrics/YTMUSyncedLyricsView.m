@@ -1,5 +1,6 @@
 #import "YTMUSyncedLyricsView.h"
 #import "YTMULyricsManager.h"
+#import "YTMULyricsPlaybackState.h"
 #import "YTMULyricsTextProcessor.h"
 #import "../Headers/YTPlayerViewController.h"
 #import <MediaPlayer/MediaPlayer.h>
@@ -8,6 +9,9 @@
 @property (nonatomic, strong) UILabel *mainLabel;
 @property (nonatomic, strong) UILabel *romanLabel;
 @property (nonatomic, strong) UILabel *translationLabel;
+@property (nonatomic, copy) NSString *mainText;
+@property (nonatomic, copy) NSString *romanText;
+@property (nonatomic, copy) NSString *translationText;
 @property (nonatomic) NSUInteger index;
 @property (nonatomic) NSTimeInterval timeInMs;
 @property (nonatomic) NSTimeInterval durationMs;
@@ -59,6 +63,51 @@
     } else {
         self.transform = CGAffineTransformIdentity;
     }
+}
+
+- (NSAttributedString *)attributedText:(NSString *)text
+                                  font:(UIFont *)font
+                                active:(BOOL)active
+                              progress:(CGFloat)progress
+                          activeColor:(UIColor *)activeColor
+                        inactiveColor:(UIColor *)inactiveColor {
+    if (!text.length) return [[NSAttributedString alloc] initWithString:@""];
+    CGFloat clamped = MIN(1.0, MAX(0.0, progress));
+    NSUInteger split = active ? MIN(text.length, (NSUInteger)ceil((CGFloat)text.length * clamped)) : 0;
+    NSMutableAttributedString *out = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: active ? inactiveColor : activeColor,
+    }];
+    if (active && split > 0) {
+        [out addAttribute:NSForegroundColorAttributeName value:activeColor range:NSMakeRange(0, split)];
+    }
+    return out;
+}
+
+- (void)updateKaraokeProgress:(CGFloat)progress active:(BOOL)active {
+    UIColor *primary = [UIColor whiteColor];
+    UIColor *secondary = [[UIColor whiteColor] colorWithAlphaComponent:0.58];
+    UIColor *translation = [[UIColor whiteColor] colorWithAlphaComponent:0.78];
+    UIColor *dim = [[UIColor whiteColor] colorWithAlphaComponent:0.32];
+
+    self.mainLabel.attributedText = [self attributedText:self.mainText ?: @""
+                                                    font:self.mainLabel.font
+                                                  active:active
+                                                progress:progress
+                                             activeColor:primary
+                                           inactiveColor:dim];
+    self.romanLabel.attributedText = [self attributedText:self.romanText ?: @""
+                                                     font:self.romanLabel.font
+                                                   active:active
+                                                 progress:progress
+                                              activeColor:secondary
+                                            inactiveColor:dim];
+    self.translationLabel.attributedText = [self attributedText:self.translationText ?: @""
+                                                           font:self.translationLabel.font
+                                                         active:active
+                                                       progress:progress
+                                                    activeColor:translation
+                                                  inactiveColor:dim];
 }
 
 @end
@@ -144,7 +193,7 @@
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadFromManager) name:YTMULyricsDidUpdateNotification object:nil];
 
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkTick:)];
-        _displayLink.preferredFramesPerSecond = 2;
+        _displayLink.preferredFramesPerSecond = 10;
         _displayLink.paused = YES;
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
@@ -185,20 +234,19 @@
 
 - (NSTimeInterval)currentPlaybackTimeMs {
     if (self.playerViewController) {
+        [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self.playerViewController];
         @try {
             NSTimeInterval playerTime = self.playerViewController.currentVideoMediaTime;
-            if (isfinite(playerTime) && playerTime >= 0) return playerTime * 1000.0;
+            if (isfinite(playerTime) && playerTime >= 0) {
+                NSTimeInterval timeMs = playerTime * 1000.0;
+                [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
+                return timeMs;
+            }
         } @catch (__unused NSException *exception) {
         }
     }
 
-    NSDictionary *nowPlaying = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo ?: @{};
-    id elapsed = nowPlaying[MPNowPlayingInfoPropertyElapsedPlaybackTime];
-    if ([elapsed respondsToSelector:@selector(doubleValue)]) {
-        NSTimeInterval value = [elapsed doubleValue];
-        if (isfinite(value) && value >= 0) return value * 1000.0;
-    }
-    return 0;
+    return [[YTMULyricsPlaybackState sharedState] currentPlaybackTimeMs];
 }
 
 - (BOOL)hasCompleteRomanizationForLines:(NSArray<YTMULyricLine *> *)lines {
@@ -212,6 +260,26 @@
         }
     }
     return needsRomanization;
+}
+
+- (BOOL)hasCompleteRomanizationForResult:(YTMULyricsResult *)result {
+    NSArray<NSString *> *sourceLines = result.lineTexts ?: @[];
+    BOOL needsRomanization = NO;
+    for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+        NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+        needsRomanization = YES;
+        NSString *roman = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
+        if (![roman stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
+            return NO;
+        }
+    }
+    return needsRomanization;
+}
+
+- (NSString *)romanizedLineForResult:(YTMULyricsResult *)result index:(NSUInteger)index fallbackLine:(YTMULyricLine *)line {
+    if (index < result.romanizedLineTexts.count) return result.romanizedLineTexts[index] ?: @"";
+    return line.romanizedText ?: @"";
 }
 
 - (NSString *)lineEffect {
@@ -277,7 +345,7 @@
     BOOL romanizationEnabled = YTMULyricsSettingsBool(@"lyricsRomanization", YES);
     BOOL showTimeCodes = YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO);
     NSArray<NSString *> *translations = manager.translatedLines ?: @[];
-    BOOL showRomanization = romanizationEnabled && result.isSynced && [self hasCompleteRomanizationForLines:result.lines ?: @[]];
+    BOOL showRomanization = romanizationEnabled && [self hasCompleteRomanizationForResult:result];
 
     NSMutableArray<YTMULyricLineView *> *lineViews = [NSMutableArray array];
     NSArray<YTMULyricLine *> *synced = result.lines;
@@ -294,15 +362,18 @@
         lineView.timeInMs = line.timeInMs;
         lineView.durationMs = line.durationMs;
         lineView.mainLabel.font = [UIFont systemFontOfSize:base weight:UIFontWeightRegular];
-        lineView.mainLabel.textColor = [UIColor labelColor];
-        lineView.mainLabel.text = text.length ? text : [self emptyLineStates].firstObject;
+        lineView.mainLabel.textColor = [UIColor whiteColor];
+        lineView.mainText = text.length ? text : [self emptyLineStates].firstObject;
+        lineView.mainLabel.text = lineView.mainText;
         lineView.romanLabel.font = [UIFont italicSystemFontOfSize:base * 0.78];
-        NSString *roman = showRomanization ? (line.romanizedText ?: @"") : @"";
-        lineView.romanLabel.text = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : roman;
+        NSString *roman = showRomanization ? [self romanizedLineForResult:result index:i fallbackLine:line] : @"";
+        lineView.romanText = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : roman;
+        lineView.romanLabel.text = lineView.romanText;
         lineView.translationLabel.font = [UIFont systemFontOfSize:base * 0.88 weight:UIFontWeightRegular];
         NSString *translation = i < translations.count ? translations[i] : @"";
         translation = [YTMULyricsTextProcessor convertChineseText:translation mode:convertMode];
-        lineView.translationLabel.text = [[YTMULyricsTextProcessor simplifyUnicode:translation] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : translation;
+        lineView.translationText = [[YTMULyricsTextProcessor simplifyUnicode:translation] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : translation;
+        lineView.translationLabel.text = lineView.translationText;
         [lineView addTarget:self action:@selector(lineTapped:) forControlEvents:UIControlEventTouchUpInside];
         [lineView setActive:NO effect:[self lineEffect]];
         [self.stackView addArrangedSubview:lineView];
@@ -354,9 +425,11 @@
         if (!line.mainLabel.text.length || [line.mainLabel.text isEqualToString:[self emptyLineStates].firstObject]) {
             YTMULyricsResult *result = [YTMULyricsManager sharedManager].currentResult;
             if (current < (NSInteger)result.lines.count && !result.lines[current].text.length) {
-                line.mainLabel.text = [self textForEmptyLineAtTime:timeMs line:result.lines[current]];
+                line.mainText = [self textForEmptyLineAtTime:timeMs line:result.lines[current]];
             }
         }
+        CGFloat progress = line.durationMs > 0 ? (CGFloat)((timeMs - line.timeInMs) / line.durationMs) : 1.0;
+        [line updateKaraokeProgress:progress active:YES];
         return;
     }
 
@@ -367,6 +440,15 @@
             [self.lineViews[i] setActive:(NSInteger)i == current effect:effect];
         }
     }];
+
+    for (NSUInteger i = 0; i < self.lineViews.count; i++) {
+        YTMULyricLineView *line = self.lineViews[i];
+        CGFloat progress = 0.0;
+        if ((NSInteger)i == current && line.durationMs > 0) {
+            progress = (CGFloat)((timeMs - line.timeInMs) / line.durationMs);
+        }
+        [line updateKaraokeProgress:progress active:(NSInteger)i == current];
+    }
 
     CGRect target = [self.scrollView convertRect:self.lineViews[current].bounds fromView:self.lineViews[current]];
     CGFloat offsetY = MAX(0, CGRectGetMidY(target) - self.scrollView.bounds.size.height * 0.48);

@@ -21,7 +21,7 @@
 @property (nonatomic, copy, readwrite) NSString *lastErrorMessage;
 @property (nonatomic) NSUInteger requestGeneration;
 @property (nonatomic, strong) YTMULyricsSearchInfo *lastSearchInfo;
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
+@property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
 @end
 
 @implementation YTMULyricsManager
@@ -72,7 +72,8 @@
         _translatedLines = @[];
         _translationAttribution = @"";
         _lastErrorMessage = @"";
-        _romanizationMemoryCache = [NSMutableDictionary dictionary];
+        _romanizationMemoryCache = [[NSCache alloc] init];
+        _romanizationMemoryCache.countLimit = 8;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(settingsDidChange:)
                                                      name:YTMULyricsSettingsDidChangeNotification
@@ -96,11 +97,11 @@
 
 - (NSArray<id<YTMULyricsProvider>> *)orderedProviders {
     NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
-    NSMutableArray *ordered = [NSMutableArray array];
     NSDictionary *byName = self.providersByName;
     if (![preferred isEqualToString:@"auto"] && byName[preferred]) {
-        [ordered addObject:byName[preferred]];
+        return @[byName[preferred]];
     }
+    NSMutableArray *ordered = [NSMutableArray array];
     for (id<YTMULyricsProvider> provider in self.providers) {
         if (![ordered containsObject:provider]) [ordered addObject:provider];
     }
@@ -158,6 +159,11 @@
     [self notify];
 }
 
+- (void)clearRomanizationCache {
+    [self.romanizationMemoryCache removeAllObjects];
+    YTMULyricsLog(@"romanization memory cache cleared");
+}
+
 - (NSArray<NSString *> *)displayLineTexts {
     return [self.currentResult lineTexts] ?: @[];
 }
@@ -196,12 +202,12 @@
             YTMULyricsCompactString([lines componentsJoinedByString:@"|"] ?: @"")];
 }
 
-- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result {
+- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result sourceLines:(NSArray<NSString *> *)sourceLines {
     NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
-    NSArray<YTMULyricLine *> *lines = result.lines ?: @[];
-    [lines enumerateObjectsUsingBlock:^(YTMULyricLine *line, NSUInteger idx, BOOL *stop) {
-        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (!text.length || line.romanizedText.length) return;
+    [sourceLines enumerateObjectsUsingBlock:^(NSString *lineText, NSUInteger idx, BOOL *stop) {
+        NSString *text = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *existing = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
+        if (!text.length || existing.length) return;
         if (![YTMULyricsTextProcessor hasRomanizableText:text]) return;
         [items addObject:@{@"index": @(idx), @"text": text}];
     }];
@@ -209,8 +215,8 @@
 }
 
 - (NSString *)romanizationSourceLanguageForResult:(YTMULyricsResult *)result {
-    for (YTMULyricLine *line in result.lines ?: @[]) {
-        if ([YTMULyricsTextProcessor hasJapaneseKana:line.text ?: @""]) return @"ja";
+    for (NSString *line in result.lineTexts ?: @[]) {
+        if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) return @"ja";
     }
     return @"auto";
 }
@@ -270,11 +276,10 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
         YTMULyricsResult *current = [self.currentResult copy];
-        NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:current.lines.count];
+        NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
         BOOL complete = YES;
-        for (NSUInteger idx = 0; idx < current.lines.count; idx++) {
-            YTMULyricLine *line = current.lines[idx];
-            NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+            NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
             NSString *value = idx < romanized.count ? romanized[idx] : @"";
             if (![value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
@@ -282,6 +287,14 @@
                 break;
             }
         }
+        NSMutableArray<NSString *> *lineTexts = [NSMutableArray arrayWithCapacity:sourceLines.count];
+        for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+            NSString *value = idx < romanized.count ? romanized[idx] : @"";
+            [lineTexts addObject:complete && value.length ? value : @""];
+        }
+        current.romanizedLineTexts = lineTexts;
+
+        NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:current.lines.count];
         for (NSUInteger idx = 0; idx < current.lines.count; idx++) {
             YTMULyricLine *line = [current.lines[idx] copy];
             NSString *value = idx < romanized.count ? romanized[idx] : @"";
@@ -290,7 +303,11 @@
         }
         current.lines = lines;
         self.currentResult = current;
-        if (cacheKey.length) self.romanizationMemoryCache[cacheKey] = romanized ?: @[];
+        if (cacheKey.length) [self.romanizationMemoryCache setObject:romanized ?: @[] forKey:cacheKey];
+        if (current.sourceName.length) {
+            NSString *lyricsCacheKey = [YTMULyricsCache cacheKeyForInfo:info source:current.sourceName];
+            [[YTMULyricsCache sharedCache] storeResult:current forKey:lyricsCacheKey];
+        }
         YTMULyricsLog(@"google romanization applied videoId=%@ lines=%lu complete=%@",
                       info.videoId,
                       (unsigned long)romanized.count,
@@ -302,21 +319,24 @@
 - (void)fetchRomanizationIfNeededForInfo:(YTMULyricsSearchInfo *)info generation:(NSUInteger)generation {
     if (!YTMULyricsSettingsBool(@"lyricsRomanization", YES)) return;
     YTMULyricsResult *result = self.currentResult;
-    if (!result.isSynced || !result.lines.count) return;
+    NSArray<NSString *> *source = [result lineTexts] ?: @[];
+    if (!source.count) return;
 
-    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result];
+    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result sourceLines:source];
     if (!items.count) return;
 
-    NSArray<NSString *> *source = [result lineTexts];
     NSString *cacheKey = [self romanizationCacheKeyForResult:result info:info lines:source];
-    NSArray<NSString *> *cached = self.romanizationMemoryCache[cacheKey];
-    if (cached.count == result.lines.count) {
+    NSArray<NSString *> *cached = [self.romanizationMemoryCache objectForKey:cacheKey];
+    if (cached.count == source.count) {
         [self applyRomanizedLines:cached generation:generation info:info cacheKey:cacheKey];
         return;
     }
 
-    NSMutableArray<NSString *> *romanized = [NSMutableArray arrayWithCapacity:result.lines.count];
-    for (NSUInteger idx = 0; idx < result.lines.count; idx++) [romanized addObject:result.lines[idx].romanizedText ?: @""];
+    NSMutableArray<NSString *> *romanized = [NSMutableArray arrayWithCapacity:source.count];
+    for (NSUInteger idx = 0; idx < source.count; idx++) {
+        NSString *existing = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
+        [romanized addObject:existing ?: @""];
+    }
 
     NSUInteger limit = MIN(items.count, (NSUInteger)80);
     NSString *sourceLanguage = [self romanizationSourceLanguageForResult:result];
