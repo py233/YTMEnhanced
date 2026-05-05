@@ -111,18 +111,22 @@ static void YTMULyricsPageSetBaseFontSize(CGFloat size) {
     YTMULyricsPageSetSetting(@"lyricsFontPointSize", @(llround(YTMULyricsPageClampFontSize(size))));
 }
 
-static NSInteger YTMULyricsPageClampTimingOffsetMs(NSInteger value) {
-    return MIN(10000, MAX(-10000, value));
+static NSString *YTMULyricsPageTimingOffsetKey(void) {
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    YTMULyricsSearchInfo *info = [[YTMULyricsSearchInfo alloc] init];
+    info.videoId = manager.activeVideoId ?: @"";
+    info.title = manager.currentResult.title ?: @"";
+    info.artist = manager.currentResult.artists.count ? [manager.currentResult.artists componentsJoinedByString:@", "] : @"";
+    info.duration = manager.currentResult.duration;
+    return YTMULyricsTimingOffsetKeyForInfo(info);
 }
 
 static NSInteger YTMULyricsPageTimingOffsetMs(void) {
-    id value = YTMULyricsPageSettings()[@"lyricsTimingOffsetMs"];
-    if ([value respondsToSelector:@selector(integerValue)]) return YTMULyricsPageClampTimingOffsetMs([value integerValue]);
-    return 0;
+    return YTMULyricsCurrentTimingOffsetForKey(YTMULyricsPageTimingOffsetKey());
 }
 
 static void YTMULyricsPageSetTimingOffsetMs(NSInteger value) {
-    YTMULyricsPageSetSetting(@"lyricsTimingOffsetMs", @(YTMULyricsPageClampTimingOffsetMs(value)));
+    YTMULyricsSetTimingOffsetForKey(YTMULyricsPageTimingOffsetKey(), value, YES);
 }
 
 static NSString *YTMULyricsPageRomanizationLanguageForResult(YTMULyricsResult *result) {
@@ -1530,6 +1534,8 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", dict[@"bilingualLyrics"] ?: @(NO));
     YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
     YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetActiveKey", @"");
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsets", @{});
     YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
     YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
     YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");

@@ -72,6 +72,12 @@ NSString *YTMULyricsSettingsString(NSString *key, NSString *fallback);
 BOOL YTMULyricsSettingsBool(NSString *key, BOOL fallback);
 NSInteger YTMULyricsSettingsInteger(NSString *key, NSInteger fallback);
 void YTMULyricsSetDefault(NSMutableDictionary *dict, NSString *key, id value);
+NSInteger YTMULyricsClampTimingOffsetMs(NSInteger value);
+NSString *YTMULyricsTimingOffsetKeyForInfo(YTMULyricsSearchInfo *info);
+NSInteger YTMULyricsTimingOffsetForKey(NSString *key);
+NSInteger YTMULyricsCurrentTimingOffsetForKey(NSString *key);
+void YTMULyricsActivateTimingOffsetForInfo(YTMULyricsSearchInfo *info, BOOL notify);
+void YTMULyricsSetTimingOffsetForKey(NSString *key, NSInteger value, BOOL notify);
 
 NSString *YTMULyricsNormalizeLoose(NSString *value);
 NSString *YTMULyricsCompactString(NSString *value);

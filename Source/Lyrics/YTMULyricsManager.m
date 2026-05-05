@@ -117,11 +117,14 @@
     NSString *key = notification.userInfo[YTMULyricsSettingChangedKey] ?: @"";
     YTMULyricsLog(@"settings notification key=%@", key.length ? key : @"<unknown>");
 
+    if ([key isEqualToString:@"lyricsTimingOffsetMs"]) {
+        return;
+    }
+
     NSSet *visualKeys = [NSSet setWithObjects:
                          @"lyricsLineEffect",
                          @"lyricsFontSize",
                          @"lyricsFontPointSize",
-                         @"lyricsTimingOffsetMs",
                          @"lyricsDefaultText",
                          @"lyricsConvertChinese",
                          @"lyricsShowTimeCodes",
@@ -564,6 +567,7 @@
     self.requestGeneration++;
     NSUInteger generation = self.requestGeneration;
     self.activeVideoId = info.videoId ?: @"";
+    YTMULyricsActivateTimingOffsetForInfo(info, NO);
     self.currentResult = nil;
     self.translatedLines = @[];
     self.translationAttribution = @"";
