@@ -43,17 +43,6 @@ jobs:
         with:
           exclude_inputs: bundle_id,display_name
 
-      - name: Validate IPA URL
-        run: |
-          curl -L -r 0-1023 -o sample.part "${{ inputs.ipa_url }}" > /dev/null 2>&1
-          
-          file_type=$(file --mime-type -b sample.part)
-
-          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
-            echo "::error::Validation failed: The file is not a valid IPA file. Detected type: $file_type."
-            exit 1
-          fi
-
       - name: Install Dependencies
         run: brew install make ldid pipx
 
@@ -99,6 +88,14 @@ jobs:
 
       - name: Download YouTube Music
         run: curl -L --fail --retry 3 --retry-delay 2 "${{ inputs.ipa_url }}" -o ytm.ipa
+
+      - name: Validate IPA
+        run: |
+          file_type=$(file --mime-type -b ytm.ipa)
+          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
+            echo "::error::Validation failed: The file is not a valid IPA file. Detected type: $file_type."
+            exit 1
+          fi
 
       - name: Build and Inject Tweak
         run: |
