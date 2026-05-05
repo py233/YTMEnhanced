@@ -1513,20 +1513,6 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 
 %end
 
-%hook YTPlayerViewController
-
-- (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
-    %orig;
-
-    NSString *videoId = self.currentVideoID ?: self.contentVideoID ?: @"";
-    YTIVideoDetails *details = self.playerResponse.playerData.videoDetails;
-    [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId
-                                                        title:details.title
-                                                       artist:details.author];
-}
-
-%end
-
 %ctor {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
