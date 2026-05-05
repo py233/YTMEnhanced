@@ -154,7 +154,7 @@ jobs:
             "${{ inputs.bundle_id }}"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2.5.0
+        uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ytmusicultimate-action-${{ github.run_number }}
           name: YTMusicUltimate (${{ github.run_number }})
