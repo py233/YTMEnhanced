@@ -521,6 +521,8 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 - (void)ytmu_updateSourceButtons;
 - (void)ytmu_updateFontControls;
 - (void)ytmu_updateTimingControls;
+- (void)ytmu_handleLyricsSettingsDidChange:(NSNotification *)notification;
+- (void)ytmu_applyTimingOffsetChange;
 - (void)ytmu_scrollSourceButtonIntoView:(UIButton *)button animated:(BOOL)animated;
 - (void)ytmu_selectLyricsSource:(UIButton *)sender;
 - (void)ytmu_cycleLyricsSource:(UISwipeGestureRecognizer *)gesture;
@@ -644,7 +646,7 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
                                                      name:YTMULyricsDidUpdateNotification
                                                    object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(ytmu_renderTabOverlay)
+                                                 selector:@selector(ytmu_handleLyricsSettingsDidChange:)
                                                      name:YTMULyricsSettingsDidChangeNotification
                                                    object:nil];
         [self ytmu_updateSourceButtons];
@@ -749,6 +751,22 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     self.offsetIncreaseButton.alpha = self.offsetIncreaseButton.enabled ? 1.0 : 0.38;
 }
 
+- (void)ytmu_handleLyricsSettingsDidChange:(NSNotification *)notification {
+    NSString *key = notification.userInfo[YTMULyricsSettingChangedKey];
+    if ([key isEqualToString:@"lyricsTimingOffsetMs"]) {
+        [self ytmu_applyTimingOffsetChange];
+        return;
+    }
+    [self ytmu_renderTabOverlay];
+}
+
+- (void)ytmu_applyTimingOffsetChange {
+    [self ytmu_updateTimingControls];
+    if (!self.syncedLyricsView.hidden) {
+        [self.syncedLyricsView updatePlaybackTimeMs:[[YTMULyricsPlaybackState sharedState] currentPlaybackTimeMs]];
+    }
+}
+
 - (void)ytmu_layoutSourceButtons {
     CGFloat x = 0.0;
     for (UIButton *button in self.sourceButtons) {
@@ -819,15 +837,13 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 - (void)ytmu_adjustLyricsTiming:(UIButton *)sender {
     NSInteger next = YTMULyricsPageTimingOffsetMs() + sender.tag;
     YTMULyricsPageSetTimingOffsetMs(next);
-    [self ytmu_updateTimingControls];
-    [self ytmu_renderTabOverlay];
+    [self ytmu_applyTimingOffsetChange];
     YTMULyricsLog(@"lyrics page timing offset=%ldms", (long)YTMULyricsPageTimingOffsetMs());
 }
 
 - (void)ytmu_resetLyricsTiming:(UITapGestureRecognizer *)gesture {
     YTMULyricsPageSetTimingOffsetMs(0);
-    [self ytmu_updateTimingControls];
-    [self ytmu_renderTabOverlay];
+    [self ytmu_applyTimingOffsetChange];
     YTMULyricsLog(@"lyrics page timing offset reset");
 }
 
@@ -1037,8 +1053,15 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
                     [text containsString:@"live chat"] ||
                     [text containsString:@"replay"] ||
                     [text containsString:@"comment"] ||
+                    [text containsString:@"related"] ||
+                    [text containsString:@"up next"] ||
+                    [text containsString:@"queue"] ||
                     [text containsString:@"混音"] ||
-                    [text containsString:@"聊天"];
+                    [text containsString:@"聊天"] ||
+                    [text containsString:@"相关"] ||
+                    [text containsString:@"相關"] ||
+                    [text containsString:@"队列"] ||
+                    [text containsString:@"佇列"];
     if (chipSized && chipText) best = view;
 
     for (UIView *subview in view.subviews) {
@@ -1050,7 +1073,7 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
         }
         CGRect bestFrame = [best convertRect:best.bounds toView:root];
         CGRect candidateFrame = [candidate convertRect:candidate.bounds toView:root];
-        if (CGRectGetMaxX(candidateFrame) > CGRectGetMaxX(bestFrame)) best = candidate;
+        if (CGRectGetMinX(candidateFrame) < CGRectGetMinX(bestFrame)) best = candidate;
     }
     return best;
 }
@@ -1111,8 +1134,10 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
     } else {
         UIView *anchor = YTMULyricsPageFindChipAnchor(self.view, self.view, 0);
         if (anchor) {
-            CGRect anchorFrame = [YTMULyricsPageActionTargetForView(anchor) convertRect:YTMULyricsPageActionTargetForView(anchor).bounds toView:self.view];
-            CGFloat x = CGRectGetMaxX(anchorFrame) + 8.0;
+            UIView *anchorTarget = YTMULyricsPageActionTargetForView(anchor);
+            CGRect anchorFrame = [anchorTarget convertRect:anchorTarget.bounds toView:self.view];
+            BOOL anchorIsLate = CGRectGetMidX(anchorFrame) > self.view.bounds.size.width * 0.55;
+            CGFloat x = anchorIsLate ? CGRectGetMinX(anchorFrame) - width - 8.0 : CGRectGetMaxX(anchorFrame) + 8.0;
             if (x + width > self.view.bounds.size.width - safe.right - 12.0) {
                 x = self.view.bounds.size.width - safe.right - width - 12.0;
             }
@@ -1122,7 +1147,9 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
                                height);
         } else {
             CGFloat y = self.view.bounds.size.height * 0.64;
-            frame = CGRectMake(self.view.bounds.size.width - safe.right - width - 16.0,
+            CGFloat x = self.view.bounds.size.width * 0.52 - width / 2.0;
+            x = MIN(x, self.view.bounds.size.width - safe.right - width - 12.0);
+            frame = CGRectMake(MAX(safe.left + 12.0, x),
                                y,
                                width,
                                height);
