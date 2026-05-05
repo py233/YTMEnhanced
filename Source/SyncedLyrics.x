@@ -207,7 +207,9 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
         @synchronized (missingSources) {
             if (![missingSources containsObject:source ?: @"<unknown>"]) {
                 [missingSources addObject:source ?: @"<unknown>"];
-                NSLog(@"[YTMULyrics] player metadata unavailable source=%@ player=%@", source, YTMUClassAndPointer(player));
+                if (YTMULyricsDebugLoggingEnabled()) {
+                    YTMULyricsLog(@"player metadata unavailable source=%@ player=%@", source, YTMUClassAndPointer(player));
+                }
             }
         }
         return NO;
@@ -226,19 +228,21 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
 
     [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId title:title artist:artist];
 
-    NSDictionary *flags = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    NSLog(@"[YTMULyrics] player metadata source=%@ player=%@ videoId=%@ title=%@ alt=%@ artist=%@ duration=%.1f tags=%lu master=%@ synced=%@ bilingual=%@",
-          source ?: @"<unknown>",
-          YTMUClassAndPointer(player),
-          videoId.length ? videoId : @"<empty>",
-          title.length ? title : @"<empty>",
-          alternativeTitle.length ? alternativeTitle : @"<empty>",
-          artist.length ? artist : @"<empty>",
-          duration,
-          (unsigned long)tags.count,
-          [flags[@"YTMUltimateIsEnabled"] boolValue] ? @"YES" : @"NO",
-          [flags[@"syncedLyricsEnabled"] boolValue] ? @"YES" : @"NO",
-          ([flags[@"lyricsTranslationEnabled"] boolValue] || [flags[@"bilingualLyrics"] boolValue]) ? @"YES" : @"NO");
+    if (YTMULyricsDebugLoggingEnabled()) {
+        NSDictionary *flags = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
+        YTMULyricsLog(@"player metadata source=%@ player=%@ videoId=%@ title=%@ alt=%@ artist=%@ duration=%.1f tags=%lu master=%@ synced=%@ bilingual=%@",
+                      source ?: @"<unknown>",
+                      YTMUClassAndPointer(player),
+                      videoId.length ? videoId : @"<empty>",
+                      title.length ? title : @"<empty>",
+                      alternativeTitle.length ? alternativeTitle : @"<empty>",
+                      artist.length ? artist : @"<empty>",
+                      duration,
+                      (unsigned long)tags.count,
+                      [flags[@"YTMUltimateIsEnabled"] boolValue] ? @"YES" : @"NO",
+                      [flags[@"syncedLyricsEnabled"] boolValue] ? @"YES" : @"NO",
+                      ([flags[@"lyricsTranslationEnabled"] boolValue] || [flags[@"bilingualLyrics"] boolValue]) ? @"YES" : @"NO");
+    }
 
     YTMULyricsSearchInfo *info = [[YTMULyricsSearchInfo alloc] init];
     info.videoId = videoId;
@@ -263,7 +267,9 @@ static void YTMUHandlePlayerCandidate(id candidate, NSString *source, BOOL force
         @synchronized (missingSources) {
             if (![missingSources containsObject:source ?: @"<unknown>"]) {
                 [missingSources addObject:source ?: @"<unknown>"];
-                NSLog(@"[YTMULyrics] no player candidate source=%@ object=%@", source, YTMUClassAndPointer(candidate));
+                if (YTMULyricsDebugLoggingEnabled()) {
+                    YTMULyricsLog(@"no player candidate source=%@ object=%@", source, YTMUClassAndPointer(candidate));
+                }
             }
         }
         return;
@@ -281,6 +287,7 @@ static NSString *YTMUHasSelector(Class cls, SEL selector) {
 }
 
 static void YTMULogInterestingSelectors(Class cls) {
+    if (!YTMULyricsDebugLoggingEnabled()) return;
     if (!cls) return;
 
     unsigned int count = 0;
@@ -299,14 +306,15 @@ static void YTMULogInterestingSelectors(Class cls) {
     }
     free(methods);
 
-    NSLog(@"[YTMULyrics] runtime selectors class=%@ count=%u interesting=%@",
-          NSStringFromClass(cls),
-          count,
-          names.count ? [names componentsJoinedByString:@", "] : @"<none>");
+    YTMULyricsLog(@"runtime selectors class=%@ count=%u interesting=%@",
+                  NSStringFromClass(cls),
+                  count,
+                  names.count ? [names componentsJoinedByString:@", "] : @"<none>");
 }
 
 static void YTMULogRuntimeDiagnostics(void) {
-    NSLog(@"[YTMULyrics] build stamp %s %s", __DATE__, __TIME__);
+    if (!YTMULyricsDebugLoggingEnabled()) return;
+    YTMULyricsLog(@"build stamp %s %s", __DATE__, __TIME__);
 
     NSArray<NSString *> *classes = @[
         @"YTPlayerViewController",
@@ -317,16 +325,16 @@ static void YTMULogRuntimeDiagnostics(void) {
     ];
     for (NSString *name in classes) {
         Class cls = NSClassFromString(name);
-        NSLog(@"[YTMULyrics] runtime class %@ present=%@ viewDidAppear=%@ viewDidLayout=%@ playerVC=%@ didActivate3=%@ pvDidActivate=%@ timeSingle=%@ timePotential=%@",
-              name,
-              cls ? @"YES" : @"NO",
-              YTMUHasSelector(cls, @selector(viewDidAppear:)),
-              YTMUHasSelector(cls, @selector(viewDidLayoutSubviews)),
-              YTMUHasSelector(cls, @selector(playerViewController)),
-              YTMUHasSelector(cls, @selector(playbackController:didActivateVideo:withPlaybackData:)),
-              YTMUHasSelector(cls, @selector(playerViewController:didActivateVideo:)),
-              YTMUHasSelector(cls, @selector(singleVideo:currentVideoTimeDidChange:)),
-              YTMUHasSelector(cls, @selector(potentiallyMutatedSingleVideo:currentVideoTimeDidChange:)));
+        YTMULyricsLog(@"runtime class %@ present=%@ viewDidAppear=%@ viewDidLayout=%@ playerVC=%@ didActivate3=%@ pvDidActivate=%@ timeSingle=%@ timePotential=%@",
+                      name,
+                      cls ? @"YES" : @"NO",
+                      YTMUHasSelector(cls, @selector(viewDidAppear:)),
+                      YTMUHasSelector(cls, @selector(viewDidLayoutSubviews)),
+                      YTMUHasSelector(cls, @selector(playerViewController)),
+                      YTMUHasSelector(cls, @selector(playbackController:didActivateVideo:withPlaybackData:)),
+                      YTMUHasSelector(cls, @selector(playerViewController:didActivateVideo:)),
+                      YTMUHasSelector(cls, @selector(singleVideo:currentVideoTimeDidChange:)),
+                      YTMUHasSelector(cls, @selector(potentiallyMutatedSingleVideo:currentVideoTimeDidChange:)));
         YTMULogInterestingSelectors(cls);
     }
 }
@@ -336,7 +344,7 @@ static void YTMUHookYTPlayerPlaybackControllerDidActivateVideoWithPlayerResponse
     if (YTMUOrigYTPlayerPlaybackControllerDidActivateVideoWithPlayerResponse) {
         YTMUOrigYTPlayerPlaybackControllerDidActivateVideoWithPlayerResponse(self, _cmd, arg1, arg2);
     }
-    NSLog(@"[YTMULyrics] dynamic callback %@ class=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]));
+    if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLog(@"dynamic callback %@ class=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]));
     YTMUHandlePlayerCandidate(self, NSStringFromSelector(_cmd), YES);
 }
 
@@ -345,7 +353,7 @@ static void YTMUHookYTPlayerPlaybackControllerDidActivateVideo(id self, SEL _cmd
     if (YTMUOrigYTPlayerPlaybackControllerDidActivateVideo) {
         YTMUOrigYTPlayerPlaybackControllerDidActivateVideo(self, _cmd, arg1);
     }
-    NSLog(@"[YTMULyrics] dynamic callback %@ class=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]));
+    if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLog(@"dynamic callback %@ class=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]));
     YTMUHandlePlayerCandidate(self, NSStringFromSelector(_cmd), YES);
 }
 
@@ -354,7 +362,7 @@ static void YTMUHookWatchPlayerDidActivate(id self, SEL _cmd, id player, id vide
     if (YTMUOrigWatchPlayerDidActivate) {
         YTMUOrigWatchPlayerDidActivate(self, _cmd, player, video);
     }
-    NSLog(@"[YTMULyrics] dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
+    if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLog(@"dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
     YTMUHandlePlayerCandidate(player ?: self, NSStringFromSelector(_cmd), YES);
 }
 
@@ -363,7 +371,7 @@ static void YTMUHookWatchPlayerActivatedWithVideo(id self, SEL _cmd, id player, 
     if (YTMUOrigWatchPlayerActivatedWithVideo) {
         YTMUOrigWatchPlayerActivatedWithVideo(self, _cmd, player, video);
     }
-    NSLog(@"[YTMULyrics] dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
+    if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLog(@"dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
     YTMUHandlePlayerCandidate(player ?: self, NSStringFromSelector(_cmd), YES);
 }
 
@@ -372,7 +380,7 @@ static void YTMUHookWatchPlayerDidActivateNewPlayback(id self, SEL _cmd, id play
     if (YTMUOrigWatchPlayerDidActivateNewPlayback) {
         YTMUOrigWatchPlayerDidActivateNewPlayback(self, _cmd, player, video);
     }
-    NSLog(@"[YTMULyrics] dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
+    if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLog(@"dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
     YTMUHandlePlayerCandidate(player ?: self, NSStringFromSelector(_cmd), YES);
 }
 
@@ -381,16 +389,16 @@ static void YTMUHookWatchPlayerWillActivate(id self, SEL _cmd, id player, id vid
     if (YTMUOrigWatchPlayerWillActivate) {
         YTMUOrigWatchPlayerWillActivate(self, _cmd, player, video);
     }
-    NSLog(@"[YTMULyrics] dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
+    if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLog(@"dynamic callback %@ class=%@ player=%@", NSStringFromSelector(_cmd), NSStringFromClass([self class]), YTMUClassAndPointer(player));
     YTMUHandlePlayerCandidate(player ?: self, NSStringFromSelector(_cmd), NO);
 }
 
 static void YTMUInstallMessageHook(Class cls, SEL selector, IMP replacement, IMP *original, NSString *label) {
     BOOL hasMethod = cls && class_getInstanceMethod(cls, selector) != NULL;
-    NSLog(@"[YTMULyrics] dynamic hook candidate %@ %@ installed=%@",
-          label ?: NSStringFromClass(cls),
-          NSStringFromSelector(selector),
-          hasMethod ? @"YES" : @"NO");
+    YTMULyricsLog(@"dynamic hook candidate %@ %@ installed=%@",
+                  label ?: NSStringFromClass(cls),
+                  NSStringFromSelector(selector),
+                  hasMethod ? @"YES" : @"NO");
     if (hasMethod) {
         MSHookMessageEx(cls, selector, replacement, original);
     }
@@ -451,7 +459,7 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSLog(@"[YTMULyrics] hook YTPlayerViewController.viewDidAppear fired (class=%@)", NSStringFromClass([self class]));
+        YTMULyricsLog(@"hook YTPlayerViewController.viewDidAppear fired (class=%@)", NSStringFromClass([self class]));
     });
     [self ytmu_attachSyncedLyricsViewIfNeeded];
 }
@@ -460,14 +468,14 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSLog(@"[YTMULyrics] hook YTPlayerViewController.viewDidLayoutSubviews fired");
+        YTMULyricsLog(@"hook YTPlayerViewController.viewDidLayoutSubviews fired");
     });
     [self ytmu_layoutSyncedLyricsView];
 }
 
 - (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
     %orig;
-    NSLog(@"[YTMULyrics] hook didActivateVideo class=%@", NSStringFromClass([self class]));
+    YTMULyricsLog(@"hook didActivateVideo class=%@", NSStringFromClass([self class]));
     YTMUHandlePlayerCandidate(self, @"YTPlayerViewController.didActivateVideo", YES);
 }
 
@@ -506,7 +514,7 @@ static void YTMUInstallDynamicHooks(void) {
         self.ytmuSyncedLyricsView.playerViewController = self;
         self.ytmuSyncedLyricsView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
         [self.view addSubview:self.ytmuSyncedLyricsView];
-        NSLog(@"[YTMULyrics] synced lyrics view attached player=%@ container=%@", YTMUClassAndPointer(self), YTMUClassAndPointer(self.view));
+        YTMULyricsLog(@"synced lyrics view attached player=%@ container=%@", YTMUClassAndPointer(self), YTMUClassAndPointer(self.view));
         [self ytmu_layoutSyncedLyricsView];
         [self.ytmuSyncedLyricsView reloadFromManager];
     }
@@ -530,7 +538,7 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[YTMULyrics] hook YTMWatchViewController.viewDidAppear fired class=%@", NSStringFromClass([self class]));
+        YTMULyricsLog(@"hook YTMWatchViewController.viewDidAppear fired class=%@", NSStringFromClass([self class]));
     });
     YTMUHandlePlayerCandidate(self, @"YTMWatchViewController.viewDidAppear", YES);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -542,7 +550,7 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[YTMULyrics] hook YTMWatchViewController.viewDidLayoutSubviews fired class=%@", NSStringFromClass([self class]));
+        YTMULyricsLog(@"hook YTMWatchViewController.viewDidLayoutSubviews fired class=%@", NSStringFromClass([self class]));
     });
     YTMUHandlePlayerCandidate(self, @"YTMWatchViewController.viewDidLayoutSubviews", NO);
 }
@@ -551,7 +559,7 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[YTMULyrics] hook YTMWatchViewController.playbackControllerStateDidChange fired class=%@", NSStringFromClass([self class]));
+        YTMULyricsLog(@"hook YTMWatchViewController.playbackControllerStateDidChange fired class=%@", NSStringFromClass([self class]));
     });
     YTMUHandlePlayerCandidate(self, @"YTMWatchViewController.playbackControllerStateDidChange", NO);
 }
@@ -564,7 +572,7 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[YTMULyrics] hook YTMNowPlayingViewController.viewDidAppear fired class=%@", NSStringFromClass([self class]));
+        YTMULyricsLog(@"hook YTMNowPlayingViewController.viewDidAppear fired class=%@", NSStringFromClass([self class]));
     });
     YTMUHandlePlayerCandidate(self, @"YTMNowPlayingViewController.viewDidAppear", NO);
 }
@@ -573,7 +581,7 @@ static void YTMUInstallDynamicHooks(void) {
     %orig;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[YTMULyrics] hook YTMNowPlayingViewController.viewDidLayoutSubviews fired class=%@", NSStringFromClass([self class]));
+        YTMULyricsLog(@"hook YTMNowPlayingViewController.viewDidLayoutSubviews fired class=%@", NSStringFromClass([self class]));
     });
     YTMUHandlePlayerCandidate(self, @"YTMNowPlayingViewController.viewDidLayoutSubviews", NO);
 }

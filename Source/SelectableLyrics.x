@@ -43,7 +43,6 @@ static void YTMULyricsPageSetSetting(NSString *key, id value) {
     NSMutableDictionary *settings = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
     settings[key] = value ?: @"";
     [defaults setObject:settings forKey:@"YTMUltimate"];
-    [defaults synchronize];
     [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification
                                                         object:nil
                                                       userInfo:@{YTMULyricsSettingChangedKey: key}];
@@ -489,21 +488,15 @@ static void YTMULyricsPageCollectTabSelection(UIView *view,
     }
 }
 
-static CGFloat YTMULyricsPageTabContentBottom(UIView *root) {
+static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom) {
     BOOL lyricsSelected = NO;
     BOOL otherSelected = NO;
     CGFloat tabTop = CGFLOAT_MAX;
     YTMULyricsPageCollectTabSelection(root, root, &lyricsSelected, &otherSelected, &tabTop, 0);
-    if (tabTop == CGFLOAT_MAX) return MAX(0.0, root.bounds.size.height - 72.0);
-    return MAX(0.0, tabTop - 6.0);
-}
-
-static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
-    BOOL lyricsSelected = NO;
-    BOOL otherSelected = NO;
-    CGFloat tabTop = CGFLOAT_MAX;
-    YTMULyricsPageCollectTabSelection(root, root, &lyricsSelected, &otherSelected, &tabTop, 0);
-    return lyricsSelected && !otherSelected;
+    if (selected) *selected = lyricsSelected && !otherSelected;
+    if (bottom) {
+        *bottom = tabTop == CGFLOAT_MAX ? MAX(0.0, root.bounds.size.height - 72.0) : MAX(0.0, tabTop - 6.0);
+    }
 }
 
 @interface YTMULyricsTabOverlayView : UIView
@@ -710,6 +703,23 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     if (!self.syncedLyricsView.playerViewController) {
         self.syncedLyricsView.playerViewController = [YTMULyricsPlaybackState sharedState].playerViewController;
     }
+
+    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%@|%.0f|%ld|%@|%@|%@|%@|%@|%@",
+                           (long)manager.state,
+                           (void *)manager.currentResult,
+                           (void *)manager.translatedLines,
+                           YTMULyricsPageString(@"lyricsPreferredSource", @"auto"),
+                           YTMULyricsPageBaseFontSize(),
+                           (long)YTMULyricsPageTimingOffsetMs(),
+                           YTMULyricsPageString(@"lyricsConvertChinese", @"disabled"),
+                           YTMULyricsPageString(@"lyricsLineEffect", @"fancy"),
+                           YTMULyricsPageString(@"lyricsDefaultText", @"♪"),
+                           YTMULyricsPageBool(@"lyricsRomanization") ? @"1" : @"0",
+                           YTMULyricsPageBool(@"lyricsShowTimeCodes") ? @"1" : @"0",
+                           manager.translationAttribution ?: @""];
+    if ([signature isEqualToString:self.lastRenderSignature]) return;
+    self.lastRenderSignature = signature;
+
     if (useSynced) {
         [self.syncedLyricsView reloadFromManager];
     } else {
@@ -721,22 +731,11 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     [self ytmu_updateTimingControls];
     [self setNeedsLayout];
 
-    NSString *signature = [NSString stringWithFormat:@"%ld|%@|%lu|%lu|%@|%.0f|%ld",
-                           (long)manager.state,
-                           manager.currentResult.sourceName ?: @"<none>",
-                           (unsigned long)manager.displayLineTexts.count,
-                           (unsigned long)manager.translatedLines.count,
-                           YTMULyricsPageString(@"lyricsPreferredSource", @"auto"),
-                           YTMULyricsPageBaseFontSize(),
-                           (long)YTMULyricsPageTimingOffsetMs()];
-    if (![signature isEqualToString:self.lastRenderSignature]) {
-        self.lastRenderSignature = signature;
-        YTMULyricsLog(@"lyrics tab overlay rendered state=%ld source=%@ lines=%lu translated=%lu",
-                      (long)manager.state,
-                      manager.currentResult.sourceName ?: @"<none>",
-                      (unsigned long)manager.displayLineTexts.count,
-                      (unsigned long)manager.translatedLines.count);
-    }
+    YTMULyricsLog(@"lyrics tab overlay rendered state=%ld source=%@ lines=%lu translated=%lu",
+                  (long)manager.state,
+                  manager.currentResult.sourceName ?: @"<none>",
+                  (unsigned long)manager.displayLineTexts.count,
+                  (unsigned long)manager.translatedLines.count);
 }
 
 - (void)ytmu_updateFontControls {
@@ -938,7 +937,12 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
         return;
     }
 
-    BOOL selected = YTMULyricsPageReplacementEnabled() && YTMULyricsPageOfficialLyricsTabSelected(self.view);
+    BOOL tabSelected = NO;
+    CGFloat bottom = 0.0;
+    if (YTMULyricsPageReplacementEnabled()) {
+        YTMULyricsPageTabState(self.view, &tabSelected, &bottom);
+    }
+    BOOL selected = YTMULyricsPageReplacementEnabled() && tabSelected;
     if (!selected) {
         self.ytmuLyricsTabOverlayView.hidden = YES;
         return;
@@ -950,7 +954,6 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
         YTMULyricsLog(@"lyrics tab overlay attached controller=%@", NSStringFromClass([self class]));
     }
 
-    CGFloat bottom = YTMULyricsPageTabContentBottom(self.view);
     self.ytmuLyricsTabOverlayView.hidden = NO;
     self.ytmuLyricsTabOverlayView.playerViewController = YTMULyricsPagePlayerFromCandidate(self) ?: [YTMULyricsPlaybackState sharedState].playerViewController;
     self.ytmuLyricsTabOverlayView.frame = CGRectMake(0.0, 0.0, self.view.bounds.size.width, bottom);
@@ -1244,6 +1247,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 @property (retain, nonatomic) NSArray *ytmuSourceButtons;
 @property (retain, nonatomic) UILabel *ytmuAttributionLabel;
 @property (copy, nonatomic) NSString *ytmuFallbackLyricsText;
+@property (copy, nonatomic) NSString *ytmuRenderSignature;
 - (void)ytmu_ensureLyricsReplacementViews;
 - (void)ytmu_renderLyricsPage;
 - (void)ytmu_layoutSourceButtons;
@@ -1261,6 +1265,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 %property (retain, nonatomic) NSArray *ytmuSourceButtons;
 %property (retain, nonatomic) UILabel *ytmuAttributionLabel;
 %property (copy, nonatomic) NSString *ytmuFallbackLyricsText;
+%property (copy, nonatomic) NSString *ytmuRenderSignature;
 
 - (id)initWithFrame:(CGRect)frame {
     self = %orig;
@@ -1415,6 +1420,23 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 - (void)ytmu_renderLyricsPage {
     if (!YTMULyricsPageReplacementEnabled()) return;
     [self ytmu_ensureLyricsReplacementViews];
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%lu|%@|%.0f|%@|%@|%@|%@|%@|%@",
+                           (long)manager.state,
+                           (void *)manager.currentResult,
+                           (void *)manager.translatedLines,
+                           (unsigned long)(self.ytmuFallbackLyricsText ?: @"").hash,
+                           YTMULyricsPageString(@"lyricsPreferredSource", @"auto"),
+                           YTMULyricsPageBaseFontSize(),
+                           YTMULyricsPageString(@"lyricsConvertChinese", @"disabled"),
+                           YTMULyricsPageString(@"lyricsDefaultText", @"♪"),
+                           YTMULyricsPageBool(@"lyricsRomanization") ? @"1" : @"0",
+                           YTMULyricsPageBool(@"lyricsShowTimeCodes") ? @"1" : @"0",
+                           manager.translationAttribution ?: @"",
+                           self.lyrics.textColor.description ?: @""];
+    if ([signature isEqualToString:self.ytmuRenderSignature]) return;
+    self.ytmuRenderSignature = signature;
+
     self.lyrics.attributedText = YTMULyricsPageAttributedText(self.lyrics, self.ytmuFallbackLyricsText ?: @"");
     self.ytmuAttributionLabel.text = YTMULyricsPageAttributionText();
     [self ytmu_updateSourceButtons];
@@ -1432,7 +1454,6 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
         resize(delegate, selector, self);
     }
 
-    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     YTMULyricsLog(@"lyrics page rendered state=%ld source=%@ lines=%lu translated=%lu",
                   (long)manager.state,
                   manager.currentResult.sourceName ?: @"<none>",
