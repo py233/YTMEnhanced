@@ -20,6 +20,12 @@ on:
         required: true
         type: string
 
+      changelog:
+        description: "Release changelog (optional; recent commits are used when empty)"
+        default: ""
+        required: false
+        type: string
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -153,11 +159,33 @@ jobs:
             "${{ inputs.display_name }}" \
             "${{ inputs.bundle_id }}"
 
+      - name: Prepare Release Notes
+        env:
+          CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$CHANGELOG" ]]; then
+            printf "%s\n" "$CHANGELOG" > RELEASE_NOTES.md
+          else
+            {
+              echo "### Changes"
+              git -C main log --pretty=format:'- %s (`%h`)' -20
+              echo
+            } > RELEASE_NOTES.md
+          fi
+          {
+            echo
+            echo "### Build"
+            echo "- Workflow run: ${{ github.run_number }}"
+            echo "- Commit: \`${{ github.sha }}\`"
+          } >> RELEASE_NOTES.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ytmusicultimate-action-${{ github.run_number }}
           name: YTMusicUltimate (${{ github.run_number }})
+          body_path: RELEASE_NOTES.md
           files: YTMusicUltimate.ipa
           draft: true
 
