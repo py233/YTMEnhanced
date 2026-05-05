@@ -251,9 +251,16 @@
 
 - (BOOL)hasCompleteRomanizationForLines:(NSArray<YTMULyricLine *> *)lines {
     BOOL needsRomanization = NO;
+    NSString *sourceLanguage = @"auto";
+    for (YTMULyricLine *line in lines) {
+        if ([YTMULyricsTextProcessor hasJapaneseKana:line.text ?: @""]) {
+            sourceLanguage = @"ja";
+            break;
+        }
+    }
     for (YTMULyricLine *line in lines) {
         NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
         needsRomanization = YES;
         if (![line.romanizedText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
             return NO;
@@ -265,9 +272,16 @@
 - (BOOL)hasCompleteRomanizationForResult:(YTMULyricsResult *)result {
     NSArray<NSString *> *sourceLines = result.lineTexts ?: @[];
     BOOL needsRomanization = NO;
+    NSString *sourceLanguage = @"auto";
+    for (NSString *line in sourceLines) {
+        if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) {
+            sourceLanguage = @"ja";
+            break;
+        }
+    }
     for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
         NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
         needsRomanization = YES;
         NSString *roman = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
         if (![roman stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {

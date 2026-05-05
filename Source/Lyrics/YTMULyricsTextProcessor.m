@@ -37,9 +37,38 @@
     return [text rangeOfString:@"[\\u3040-\\u30ff]" options:NSRegularExpressionSearch].location != NSNotFound;
 }
 
++ (BOOL)hasCJKIdeograph:(NSString *)text {
+    return [text rangeOfString:@"[\\u3400-\\u9fff]" options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
 + (BOOL)hasRomanizableText:(NSString *)text {
     return [text rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]"
                       options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
++ (BOOL)looksLikeLyricsHeader:(NSString *)text {
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!trimmed.length) return YES;
+    if ([trimmed rangeOfString:@"^\\[[^\\]]+\\]$" options:NSRegularExpressionSearch].location != NSNotFound) return YES;
+    if ([trimmed rangeOfString:@"^\\([^\\)]+\\)$" options:NSRegularExpressionSearch].location != NSNotFound) return YES;
+    return NO;
+}
+
++ (BOOL)needsRomanizationForText:(NSString *)text preferredLanguage:(NSString *)language {
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (![self hasRomanizableText:trimmed] || [self looksLikeLyricsHeader:trimmed]) return NO;
+
+    NSString *lang = language.lowercaseString ?: @"";
+    if ([lang hasPrefix:@"ja"]) {
+        return [self hasJapaneseKana:trimmed] || [self hasCJKIdeograph:trimmed];
+    }
+
+    if ([self hasJapaneseKana:trimmed]) return YES;
+    if ([trimmed rangeOfString:@"[\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]"
+                       options:NSRegularExpressionSearch].location != NSNotFound) {
+        return YES;
+    }
+    return NO;
 }
 
 + (NSString *)convertChineseText:(NSString *)text mode:(NSString *)mode {
