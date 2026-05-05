@@ -46,6 +46,7 @@
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
+    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.view addSubview:self.tableView];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -54,6 +55,61 @@
         [self.tableView.widthAnchor constraintEqualToAnchor:self.view.widthAnchor],
         [self.tableView.heightAnchor constraintEqualToAnchor:self.view.heightAnchor]
     ]];
+
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    [nc addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
+    [nc addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#pragma mark - Keyboard avoidance
+
+- (void)keyboardWillShow:(NSNotification *)note {
+    NSDictionary *info = note.userInfo;
+    CGRect endFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect endInView = [self.view convertRect:endFrame fromView:nil];
+    CGFloat overlap = MAX(0, CGRectGetMaxY(self.tableView.frame) - CGRectGetMinY(endInView));
+    NSTimeInterval duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    UIViewAnimationCurve curve = (UIViewAnimationCurve)[info[UIKeyboardAnimationCurveUserInfoKey] integerValue];
+
+    [UIView animateWithDuration:duration delay:0 options:(UIViewAnimationOptions)(curve << 16) animations:^{
+        UIEdgeInsets inset = self.tableView.contentInset;
+        inset.bottom = overlap;
+        self.tableView.contentInset = inset;
+        UIEdgeInsets indicator = self.tableView.verticalScrollIndicatorInsets;
+        indicator.bottom = overlap;
+        self.tableView.verticalScrollIndicatorInsets = indicator;
+    } completion:nil];
+
+    UITextField *active = self.activeTextField;
+    if (active) {
+        UITableViewCell *cell = (UITableViewCell *)active.superview;
+        while (cell && ![cell isKindOfClass:[UITableViewCell class]]) cell = (UITableViewCell *)cell.superview;
+        NSIndexPath *indexPath = cell ? [self.tableView indexPathForCell:cell] : nil;
+        if (indexPath) {
+            [self.tableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+        }
+    }
+}
+
+- (void)keyboardWillHide:(NSNotification *)note {
+    NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    UIViewAnimationCurve curve = (UIViewAnimationCurve)[note.userInfo[UIKeyboardAnimationCurveUserInfoKey] integerValue];
+    [UIView animateWithDuration:duration delay:0 options:(UIViewAnimationOptions)(curve << 16) animations:^{
+        UIEdgeInsets inset = self.tableView.contentInset;
+        inset.bottom = 0;
+        self.tableView.contentInset = inset;
+        UIEdgeInsets indicator = self.tableView.verticalScrollIndicatorInsets;
+        indicator.bottom = 0;
+        self.tableView.verticalScrollIndicatorInsets = indicator;
+    } completion:nil];
+}
+
+- (void)textFieldDidBeginEditing:(UITextField *)textField {
+    self.activeTextField = textField;
 }
 
 - (void)ensureDefaults {
@@ -430,6 +486,7 @@
 }
 
 - (void)textFieldDidEndEditing:(UITextField *)textField {
+    if (self.activeTextField == textField) self.activeTextField = nil;
     NSString *key = textField.accessibilityIdentifier;
     if (!key.length) return;
     NSString *value = [textField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";

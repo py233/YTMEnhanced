@@ -291,6 +291,11 @@
 }
 
 - (void)refreshWithInfo:(YTMULyricsSearchInfo *)info {
+    NSLog(@"[YTMULyrics] refreshWithInfo videoId=%@ title=%@ enabled=%@",
+          info.videoId ?: @"",
+          info.title ?: @"",
+          [self isLyricsEnabled] ? @"YES" : @"NO");
+
     if (!info.videoId.length && !info.title.length) {
         [self clearCurrent];
         return;
@@ -298,6 +303,7 @@
     self.lastSearchInfo = [info copy];
 
     if (![self isLyricsEnabled]) {
+        NSLog(@"[YTMULyrics] feature disabled - enable Synced lyrics or Bilingual lyrics in Translation settings");
         [self clearCurrent];
         return;
     }
