@@ -87,7 +87,54 @@ jobs:
           pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Download YouTube Music
-        run: curl -L --fail --retry 3 --retry-delay 2 "${{ inputs.ipa_url }}" -o ytm.ipa
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
+        run: |
+          set -euo pipefail
+
+          url="$IPA_URL"
+          if [[ "$url" =~ drive\.google\.com/file/d/([^/]+) ]]; then
+            url="https://drive.google.com/uc?export=download&id=${BASH_REMATCH[1]}"
+          fi
+
+          curl -L --fail --retry 3 --retry-delay 2 -c cookies.txt -b cookies.txt "$url" -o ytm.ipa
+          file_type=$(file --mime-type -b ytm.ipa)
+          if [[ "$file_type" == "text/html" ]] && grep -qi "Google Drive" ytm.ipa; then
+            confirm_url=$(python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import urlencode
+
+          class DownloadFormParser(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.in_download_form = False
+                  self.action = ""
+                  self.inputs = {}
+
+              def handle_starttag(self, tag, attrs):
+                  attrs = dict(attrs)
+                  if tag == "form" and attrs.get("id") == "download-form":
+                      self.in_download_form = True
+                      self.action = attrs.get("action", "")
+                  elif tag == "input" and self.in_download_form:
+                      name = attrs.get("name")
+                      if name:
+                          self.inputs[name] = attrs.get("value", "")
+
+              def handle_endtag(self, tag):
+                  if tag == "form":
+                      self.in_download_form = False
+
+          parser = DownloadFormParser()
+          parser.feed(Path("ytm.ipa").read_text(errors="replace"))
+          if not parser.action or not parser.inputs:
+              raise SystemExit("Google Drive confirmation form not found")
+          print(f"{parser.action}?{urlencode(parser.inputs)}")
+          PY
+          )
+            curl -L --fail --retry 3 --retry-delay 2 -b cookies.txt "$confirm_url" -o ytm.ipa
+          fi
 
       - name: Validate IPA
         run: |
