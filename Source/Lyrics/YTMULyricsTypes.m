@@ -387,5 +387,13 @@ NSString *YTMULyricsJSONStringAtPath(id object, NSArray *path) {
 
 NSNumber *YTMULyricsJSONNumberAtPath(id object, NSArray *path) {
     id value = YTMULyricsJSONValueAtPath(object, path);
-    return [value isKindOfClass:[NSNumber class]] ? value : nil;
+    if ([value isKindOfClass:[NSNumber class]]) return value;
+    if ([value isKindOfClass:[NSString class]]) {
+        NSString *text = [(NSString *)value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!text.length) return nil;
+        NSScanner *scanner = [NSScanner scannerWithString:text];
+        double parsed = 0;
+        if ([scanner scanDouble:&parsed] && scanner.isAtEnd && isfinite(parsed)) return @(parsed);
+    }
+    return nil;
 }
