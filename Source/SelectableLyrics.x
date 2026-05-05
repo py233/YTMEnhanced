@@ -239,6 +239,8 @@ static void YTMULyricsPageHideOfficialActionsInView(UIView *view, UIView *replac
 
 static const NSInteger YTMULyricsPageOverlayTag = 0x59544D55;
 static char YTMULyricsPageOverlayKey;
+static char YTMULyricsPageWindowOverlayKey;
+static CFTimeInterval YTMULyricsPageWindowOverlayForcedUntil = 0;
 
 static BOOL YTMULyricsPageViewIsVisible(UIView *view) {
     return view && !view.hidden && view.alpha > 0.03 && view.window;
@@ -260,6 +262,27 @@ static BOOL YTMULyricsPageLooksLikeActionText(NSString *text) {
            [value containsString:@"翻译"] ||
            [value containsString:@"共有"] ||
            [value containsString:@"翻訳"];
+}
+
+static NSString *YTMULyricsPageRecursiveViewText(UIView *view, NSUInteger depth) {
+    if (!view || view.tag == YTMULyricsPageOverlayTag || depth > 6) return @"";
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    NSString *ownText = YTMULyricsPageViewText(view);
+    if (ownText.length) [parts addObject:ownText];
+    for (UIView *subview in view.subviews) {
+        NSString *subtext = YTMULyricsPageRecursiveViewText(subview, depth + 1);
+        if (subtext.length) [parts addObject:subtext];
+    }
+    return [parts componentsJoinedByString:@" "];
+}
+
+static BOOL YTMULyricsPageLooksLikeCloseText(NSString *text) {
+    NSString *value = [text ?: @"" lowercaseString];
+    return [value containsString:@"close"] ||
+           [value containsString:@"dismiss"] ||
+           [value containsString:@"关闭"] ||
+           [value containsString:@"關閉"] ||
+           [value containsString:@"閉じる"];
 }
 
 static void YTMULyricsPageCollectSheetSignals(UIView *view,
@@ -334,6 +357,16 @@ static CGFloat YTMULyricsPageOverlayTopForSheet(UIView *sheet) {
     CGFloat top = titleBottom > 0.0 ? titleBottom + 28.0 : 108.0;
     CGFloat maxTop = MAX(88.0, MIN(154.0, sheet.bounds.size.height * 0.24));
     return MIN(MAX(top, 88.0), maxTop);
+}
+
+static CGFloat YTMULyricsPageOverlayTopForWindow(UIWindow *window) {
+    CGFloat titleBottom = 0.0;
+    YTMULyricsPageFindTitleBottom(window, window, &titleBottom, 0);
+    CGFloat safeTop = 0.0;
+    if (@available(iOS 11.0, *)) safeTop = window.safeAreaInsets.top;
+    CGFloat fallback = MAX(safeTop + 132.0, window.bounds.size.height * 0.21);
+    CGFloat top = titleBottom > 0.0 ? titleBottom + 22.0 : fallback;
+    return MIN(MAX(top, fallback - 18.0), window.bounds.size.height * 0.34);
 }
 
 static void YTMULyricsPageCollectFallbackLines(UIView *view,
@@ -587,6 +620,54 @@ static void YTMULyricsPageAttachOverlayToSheet(UIView *sheet, UIWindow *window) 
     YTMULyricsPageHideOfficialActionsInView(sheet, overlay);
 }
 
+static BOOL YTMULyricsPageWindowHasLyricsSignals(UIWindow *window, BOOL requireAction, BOOL *hasTitleOut, BOOL *hasActionOut, NSUInteger *textCountOut) {
+    BOOL hasTitle = NO;
+    BOOL hasAction = NO;
+    NSUInteger textNodeCount = 0;
+    YTMULyricsPageCollectSheetSignals(window, &hasTitle, &hasAction, &textNodeCount, 0);
+    if (hasTitleOut) *hasTitleOut = hasTitle;
+    if (hasActionOut) *hasActionOut = hasAction;
+    if (textCountOut) *textCountOut = textNodeCount;
+    return hasTitle && (requireAction ? hasAction : textNodeCount >= 12);
+}
+
+static void YTMULyricsPageAttachOverlayToWindow(UIWindow *window) {
+    if (!window) return;
+    CGFloat overlayTop = YTMULyricsPageOverlayTopForWindow(window);
+    CGFloat height = MAX(180.0, window.bounds.size.height - overlayTop);
+
+    YTMULyricsPageOverlayView *overlay = objc_getAssociatedObject(window, &YTMULyricsPageWindowOverlayKey);
+    if (!overlay) {
+        overlay = [[YTMULyricsPageOverlayView alloc] initWithFrame:CGRectZero];
+        objc_setAssociatedObject(window, &YTMULyricsPageWindowOverlayKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [window addSubview:overlay];
+        YTMULyricsLog(@"lyrics window overlay attached window=%@ top=%.1f frame={%.1f,%.1f,%.1f,%.1f}",
+                      NSStringFromClass([window class]),
+                      overlayTop,
+                      window.bounds.origin.x,
+                      window.bounds.origin.y,
+                      window.bounds.size.width,
+                      window.bounds.size.height);
+    }
+
+    NSMutableArray<NSString *> *fallbackLines = [NSMutableArray array];
+    YTMULyricsPageCollectFallbackLines(window, window, overlay, overlayTop, fallbackLines, 0);
+    overlay.fallbackLyricsText = [fallbackLines componentsJoinedByString:@"\n"];
+    overlay.frame = CGRectMake(0.0, overlayTop, window.bounds.size.width, height);
+    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [window bringSubviewToFront:overlay];
+    [overlay ytmu_renderSheetOverlay];
+}
+
+static void YTMULyricsPageHideWindowOverlay(UIWindow *window) {
+    YTMULyricsPageOverlayView *overlay = objc_getAssociatedObject(window, &YTMULyricsPageWindowOverlayKey);
+    if (overlay) overlay.hidden = YES;
+}
+
+static BOOL YTMULyricsPageWindowOverlayForced(void) {
+    return [[NSDate date] timeIntervalSinceReferenceDate] < YTMULyricsPageWindowOverlayForcedUntil;
+}
+
 static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -604,6 +685,7 @@ static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
     }
 
     BOOL attached = NO;
+    NSMutableArray<NSString *> *windowDiagnostics = forced ? [NSMutableArray array] : nil;
     for (UIWindow *window in windows) {
         if (!YTMULyricsPageViewIsVisible(window)) continue;
         CGFloat bestArea = CGFLOAT_MAX;
@@ -614,7 +696,30 @@ static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
         }
         if (sheet) {
             attached = YES;
+            YTMULyricsPageHideWindowOverlay(window);
             YTMULyricsPageAttachOverlayToSheet(sheet, window);
+        } else {
+            BOOL hasTitle = NO;
+            BOOL hasAction = NO;
+            NSUInteger textNodeCount = 0;
+            BOOL forcedWindowOverlay = YTMULyricsPageWindowOverlayForced();
+            BOOL windowLooksLikeLyrics = YTMULyricsPageWindowHasLyricsSignals(window, YES, &hasTitle, &hasAction, &textNodeCount) ||
+                                         forcedWindowOverlay;
+            if (forced && windowDiagnostics.count < 4) {
+                [windowDiagnostics addObject:[NSString stringWithFormat:@"%@ title=%@ action=%@ text=%lu forced=%@ subviews=%lu",
+                                              NSStringFromClass([window class]),
+                                              hasTitle ? @"YES" : @"NO",
+                                              hasAction ? @"YES" : @"NO",
+                                              (unsigned long)textNodeCount,
+                                              forcedWindowOverlay ? @"YES" : @"NO",
+                                              (unsigned long)window.subviews.count]];
+            }
+            if (windowLooksLikeLyrics) {
+                attached = YES;
+                YTMULyricsPageAttachOverlayToWindow(window);
+            } else {
+                YTMULyricsPageHideWindowOverlay(window);
+            }
         }
     }
 
@@ -623,9 +728,31 @@ static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
         CFTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
         if (now - lastMissLogTime > 4.0) {
             lastMissLogTime = now;
-            YTMULyricsLog(@"lyrics sheet scan no visible official sheet found");
+            YTMULyricsLog(@"lyrics sheet scan no visible official sheet found windows=%@",
+                          windowDiagnostics.count ? [windowDiagnostics componentsJoinedByString:@"; "] : @"<none>");
         }
     }
+}
+
+static void YTMULyricsPageForceWindowOverlayFromLyricsTap(void) {
+    CFTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
+    YTMULyricsPageWindowOverlayForcedUntil = now + 90.0;
+    YTMULyricsLog(@"lyrics page trigger tapped forcing window overlay");
+    NSArray<NSNumber *> *delays = @[@0.15, @0.45, @0.9, @1.6];
+    for (NSNumber *delay in delays) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            YTMULyricsPageScanVisibleLyricsSheets(YES);
+        });
+    }
+}
+
+static void YTMULyricsPageClearForcedWindowOverlay(void) {
+    if (!YTMULyricsPageWindowOverlayForced()) return;
+    YTMULyricsPageWindowOverlayForcedUntil = 0;
+    YTMULyricsLog(@"lyrics page close tapped clearing window overlay");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        YTMULyricsPageScanVisibleLyricsSheets(YES);
+    });
 }
 
 static void YTMULyricsPageStartWindowScanner(void) {
@@ -660,6 +787,20 @@ static void YTMULyricsPageStartWindowScanner(void) {
         });
     });
 }
+
+%hook UIControl
+
+- (BOOL)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
+    NSString *text = YTMULyricsPageRecursiveViewText(self, 0);
+    if (YTMULyricsPageLooksLikeTitleText(text)) {
+        YTMULyricsPageForceWindowOverlayFromLyricsTap();
+    } else if (YTMULyricsPageLooksLikeCloseText(text)) {
+        YTMULyricsPageClearForcedWindowOverlay();
+    }
+    return %orig;
+}
+
+%end
 
 @interface YTFormattedStringLabel : UILabel
 @end
