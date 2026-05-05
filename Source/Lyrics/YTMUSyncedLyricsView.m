@@ -152,6 +152,7 @@
 @property (nonatomic, copy) NSArray<YTMULyricLineView *> *lineViews;
 @property (nonatomic) NSInteger activeIndex;
 @property (nonatomic, strong) CADisplayLink *displayLink;
+- (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs animated:(BOOL)animated;
 @end
 
 @implementation YTMUSyncedLyricsView
@@ -416,7 +417,7 @@
     self.scrollView.hidden = YES;
     self.stateLabel.hidden = NO;
 
-    if (manager.state == YTMULyricsFetchStateFetching) {
+    if (manager.state == YTMULyricsFetchStateFetching && !manager.currentResult.hasText) {
         self.stateLabel.text = @"Searching lyrics...";
         return;
     }
@@ -493,7 +494,11 @@
     }
 
     self.lineViews = lineViews;
-    [self updatePlaybackTimeMs:[self currentPlaybackTimeMs]];
+    [self setNeedsLayout];
+    [self layoutIfNeeded];
+    [self.scrollView layoutIfNeeded];
+    [self.stackView layoutIfNeeded];
+    [self updatePlaybackTimeMs:[self currentPlaybackTimeMs] animated:NO];
 }
 
 - (void)lineTapped:(YTMULyricLineView *)sender {
@@ -502,6 +507,10 @@
 }
 
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs {
+    [self updatePlaybackTimeMs:timeMs animated:YES];
+}
+
+- (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs animated:(BOOL)animated {
     if (self.hidden || !self.lineViews.count) return;
     timeMs += (NSTimeInterval)YTMULyricsSettingsInteger(@"lyricsTimingOffsetMs", 0);
     if (timeMs < 0) timeMs = 0;
@@ -534,11 +543,16 @@
 
     self.activeIndex = current;
     NSString *effect = [self lineEffect];
-    [UIView animateWithDuration:0.25 animations:^{
+    void (^stateUpdates)(void) = ^{
         for (NSUInteger i = 0; i < self.lineViews.count; i++) {
             [self.lineViews[i] setActive:(NSInteger)i == current effect:effect];
         }
-    }];
+    };
+    if (animated) {
+        [UIView animateWithDuration:0.25 animations:stateUpdates];
+    } else {
+        [UIView performWithoutAnimation:stateUpdates];
+    }
 
     for (NSUInteger i = 0; i < self.lineViews.count; i++) {
         YTMULyricLineView *line = self.lineViews[i];
@@ -553,6 +567,12 @@
     CGFloat offsetY = MAX(0, CGRectGetMidY(target) - self.scrollView.bounds.size.height * 0.48);
     CGFloat maxOffset = MAX(0, self.scrollView.contentSize.height - self.scrollView.bounds.size.height);
     CGPoint contentOffset = CGPointMake(0, MIN(offsetY, maxOffset));
+    if (!animated) {
+        [UIView performWithoutAnimation:^{
+            self.scrollView.contentOffset = contentOffset;
+        }];
+        return;
+    }
     [UIView animateWithDuration:0.45
                           delay:0
                         options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseInOut

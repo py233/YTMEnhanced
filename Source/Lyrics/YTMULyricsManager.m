@@ -556,6 +556,16 @@
         [self clearCurrent];
         return;
     }
+
+    NSString *incomingTitle = info.title ?: @"";
+    NSString *incomingArtist = info.artist ?: @"";
+    NSString *lastTitle = self.lastSearchInfo.title ?: @"";
+    NSString *lastArtist = self.lastSearchInfo.artist ?: @"";
+    BOOL sameActiveSong = self.currentResult.hasText &&
+                          ((info.videoId.length && [info.videoId isEqualToString:self.activeVideoId]) ||
+                           (!info.videoId.length &&
+                            [incomingTitle isEqualToString:lastTitle] &&
+                            [incomingArtist isEqualToString:lastArtist]));
     self.lastSearchInfo = [info copy];
 
     if (![self isLyricsEnabled]) {
@@ -568,9 +578,11 @@
     NSUInteger generation = self.requestGeneration;
     self.activeVideoId = info.videoId ?: @"";
     YTMULyricsActivateTimingOffsetForInfo(info, NO);
-    self.currentResult = nil;
-    self.translatedLines = @[];
-    self.translationAttribution = @"";
+    if (!sameActiveSong) {
+        self.currentResult = nil;
+        self.translatedLines = @[];
+        self.translationAttribution = @"";
+    }
     self.lastErrorMessage = @"";
     [self setStateAndNotify:YTMULyricsFetchStateFetching];
 

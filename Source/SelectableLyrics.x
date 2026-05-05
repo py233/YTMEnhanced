@@ -210,7 +210,7 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
         }]];
     };
 
-    if (manager.state == YTMULyricsFetchStateFetching) {
+    if (manager.state == YTMULyricsFetchStateFetching && !manager.currentResult.hasText) {
         appendLine(@"Searching lyrics...", statusFont, secondary, mainParagraph);
         return output;
     }
@@ -263,7 +263,7 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
 
 static NSString *YTMULyricsPagePlainDisplayText(NSString *fallbackText) {
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
-    if (manager.state == YTMULyricsFetchStateFetching) return @"Searching lyrics...";
+    if (manager.state == YTMULyricsFetchStateFetching && !manager.currentResult.hasText) return @"Searching lyrics...";
     if (manager.state == YTMULyricsFetchStateError) {
         return manager.lastErrorMessage.length ? manager.lastErrorMessage : (fallbackText.length ? fallbackText : @"No lyrics found");
     }
@@ -701,7 +701,9 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     }
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
-    BOOL useSynced = manager.currentResult.isSynced && manager.state == YTMULyricsFetchStateDone;
+    BOOL canDisplayResult = manager.currentResult.hasText &&
+                            (manager.state == YTMULyricsFetchStateDone || manager.state == YTMULyricsFetchStateFetching);
+    BOOL useSynced = manager.currentResult.isSynced && canDisplayResult;
     self.lyricsTextView.hidden = useSynced;
     self.syncedLyricsView.hidden = !useSynced;
     self.syncedLyricsView.playerViewController = self.playerViewController;
@@ -834,7 +836,6 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     CGFloat next = YTMULyricsPageBaseFontSize() + (sender.tag < 0 ? -2.0 : 2.0);
     YTMULyricsPageSetBaseFontSize(next);
     [self ytmu_updateFontControls];
-    [self ytmu_renderTabOverlay];
     YTMULyricsLog(@"lyrics page font size=%.0f", YTMULyricsPageBaseFontSize());
 }
 
