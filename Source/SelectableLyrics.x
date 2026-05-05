@@ -801,7 +801,6 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 
 @interface YTMNowPlayingViewController : UIViewController
 @property (retain, nonatomic) UIButton *ytmuLyricsEntryButton;
-@property (assign, nonatomic) UIView *ytmuOfficialLyricsEntryView;
 - (void)ytmu_updateLyricsEntryButton;
 - (void)ytmu_openLyricsPanel:(id)sender;
 @end
@@ -873,7 +872,6 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
 %hook YTMNowPlayingViewController
 
 %property (retain, nonatomic) UIButton *ytmuLyricsEntryButton;
-%property (assign, nonatomic) UIView *ytmuOfficialLyricsEntryView;
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
@@ -889,9 +887,6 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
 - (void)ytmu_updateLyricsEntryButton {
     if (!YTMULyricsPageCustomSourceEnabled()) {
         self.ytmuLyricsEntryButton.hidden = YES;
-        self.ytmuOfficialLyricsEntryView.hidden = NO;
-        self.ytmuOfficialLyricsEntryView.alpha = 1.0;
-        self.ytmuOfficialLyricsEntryView.userInteractionEnabled = YES;
         return;
     }
 
@@ -915,16 +910,10 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
     if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
     CGFloat width = 86.0;
     CGFloat height = 34.0;
-    if (self.ytmuOfficialLyricsEntryView && [self.ytmuOfficialLyricsEntryView isDescendantOfView:self.view]) {
-        self.ytmuOfficialLyricsEntryView.hidden = NO;
-        self.ytmuOfficialLyricsEntryView.alpha = 1.0;
-        self.ytmuOfficialLyricsEntryView.userInteractionEnabled = YES;
-    }
     UIView *official = YTMULyricsPageFindOfficialLyricsEntry(self.view, self.view, 0);
     CGRect frame = CGRectZero;
     if (official) {
         UIView *target = YTMULyricsPageActionTargetForView(official);
-        self.ytmuOfficialLyricsEntryView = target;
         CGRect officialFrame = [target convertRect:target.bounds toView:self.view];
         frame = officialFrame;
         if (frame.size.width < 72.0 || frame.size.width > 180.0) {
@@ -958,11 +947,6 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
     self.ytmuLyricsEntryButton.frame = frame;
     self.ytmuLyricsEntryButton.layer.cornerRadius = MIN(18.0, frame.size.height / 2.0);
     [self.view bringSubviewToFront:self.ytmuLyricsEntryButton];
-    if (self.ytmuOfficialLyricsEntryView && [self.ytmuOfficialLyricsEntryView isDescendantOfView:self.view]) {
-        self.ytmuOfficialLyricsEntryView.hidden = YES;
-        self.ytmuOfficialLyricsEntryView.alpha = 0.0;
-        self.ytmuOfficialLyricsEntryView.userInteractionEnabled = NO;
-    }
 }
 
 %new
