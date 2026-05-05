@@ -202,7 +202,6 @@ jobs:
             echo "- Commit: \`${{ github.sha }}\`"
             echo "- IPA size: ${{ steps.ipa.outputs.size }} bytes"
             echo "- SHA-256: \`${{ steps.ipa.outputs.sha256 }}\`"
-            echo "- Action artifact: ${{ steps.upload_ipa.outputs.artifact-url }}"
           } >> RELEASE_NOTES.md
 
       - name: Create Release
