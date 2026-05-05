@@ -7,6 +7,14 @@ static NSString *const YTMUNetEaseAESKey = @"e82ckenh8dichen8";
 static NSString *const YTMUNetEaseEncodeKey = @"3go8&$8*3*3h0k(2)2";
 static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85dba908ca4d74da9ac8ea2d44e938f9eadc66da5a8979af572a5a9b68ac12af0feaec3b92aa69af9b1d372f6b8adccb35e968b9bb6c14f908d0099fb6ff48efdacd361f5b6ee9e";
 
+static BOOL YTMUNetEaseHasJapaneseOrCJK(NSString *value) {
+    return [value rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff]" options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
+static BOOL YTMUNetEaseHasLatin(NSString *value) {
+    return [value rangeOfString:@"[A-Za-z]" options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
 @interface YTMUNetEaseProvider ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *cookies;
 @property (nonatomic) BOOL initialized;
@@ -220,20 +228,45 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
 }
 
 - (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info {
+    NSArray *artists = YTMULyricsSplitArtists(info.artist, info.tags);
     NSMutableArray *titles = [NSMutableArray array];
+    NSRegularExpression *quoted = [NSRegularExpression regularExpressionWithPattern:@"[「『](.+?)[」』]"
+                                                                            options:0
+                                                                              error:nil];
     for (NSString *candidate in @[info.title ?: @"", info.alternativeTitle ?: @""]) {
         NSString *clean = YTMULyricsStripSearchNoise(candidate);
         if (!clean.length) continue;
         [titles addObject:clean];
+
+        NSArray<NSTextCheckingResult *> *quoteMatches = [quoted matchesInString:clean options:0 range:NSMakeRange(0, clean.length)];
+        for (NSTextCheckingResult *match in quoteMatches) {
+            if (match.numberOfRanges < 2) continue;
+            NSString *part = [clean substringWithRange:[match rangeAtIndex:1]];
+            NSString *partClean = YTMULyricsStripSearchNoise(part);
+            if (partClean.length > 1) [titles addObject:partClean];
+        }
+
         NSArray *parts = [clean componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-–—/|:：／｜│"]];
         for (NSString *part in parts) {
             NSString *partClean = YTMULyricsStripSearchNoise(part);
-            if (partClean.length > 1) [titles addObject:partClean];
+            if (partClean.length <= 1) continue;
+            BOOL artistLike = NO;
+            for (NSString *artist in artists) {
+                CGFloat sim = YTMULyricsSimilarity(partClean, artist);
+                NSString *partKey = YTMULyricsCompactString(partClean);
+                NSString *artistKey = YTMULyricsCompactString(artist);
+                if (sim >= 0.90 ||
+                    (partKey.length >= 3 && [artistKey containsString:partKey]) ||
+                    (artistKey.length >= 3 && [partKey containsString:artistKey])) {
+                    artistLike = YES;
+                    break;
+                }
+            }
+            if (!artistLike) [titles addObject:partClean];
         }
     }
     NSMutableArray *keywords = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, info.tags);
     for (NSString *title in titles) {
         NSString *key = YTMULyricsCompactString(title);
         if (key.length && ![seen containsObject:key]) {
@@ -267,6 +300,7 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
 
 - (NSDictionary *)bestSongFromSongs:(NSArray<NSDictionary *> *)songs info:(YTMULyricsSearchInfo *)info {
     NSArray *artists = YTMULyricsSplitArtists(info.artist, info.tags);
+    NSArray *titleCandidates = [self keywordsForInfo:info];
     NSDictionary *best = nil;
     CGFloat bestScore = 0;
     BOOL hasDuration = isfinite(info.duration) && info.duration > 0;
@@ -274,13 +308,27 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
         if (![candidate isKindOfClass:[NSDictionary class]]) continue;
         NSDictionary *song = candidate;
         NSString *name = YTMULyricsJSONStringAtPath(song, @[@"name"]) ?: @"";
-        CGFloat titleScore = MAX(YTMULyricsSimilarity(info.title, name), YTMULyricsSimilarity(info.alternativeTitle, name));
+        NSString *cleanName = YTMULyricsStripSearchNoise(name);
+        CGFloat titleScore = MAX(YTMULyricsSimilarity(info.title, cleanName), YTMULyricsSimilarity(info.alternativeTitle, cleanName));
+        NSString *bestTitle = @"";
+        for (NSString *title in titleCandidates) {
+            CGFloat score = YTMULyricsSimilarity(title, cleanName);
+            if (score > titleScore) {
+                titleScore = score;
+                bestTitle = title;
+            }
+        }
         CGFloat artistScore = [self artistScoreForSong:song artistNames:artists];
         NSTimeInterval duration = [YTMULyricsJSONNumberAtPath(song, @[@"duration"]) doubleValue] / 1000.0;
         NSTimeInterval delta = hasDuration ? fabs(duration - info.duration) : 0;
-        if (titleScore < 0.70) continue;
+        BOOL latinOnlyTitle = YTMUNetEaseHasLatin(bestTitle.length ? bestTitle : info.title) && !YTMUNetEaseHasJapaneseOrCJK(bestTitle.length ? bestTitle : info.title);
+        BOOL ambiguousLatinTitle = latinOnlyTitle && YTMULyricsCompactString(bestTitle.length ? bestTitle : info.title).length <= 6;
+        if (titleScore < 0.72) continue;
         if (hasDuration && delta > 25) continue;
+        if (hasDuration && delta > 15 && titleScore < 0.90) continue;
         if (artistScore < 0.32 && titleScore < 0.92) continue;
+        if (latinOnlyTitle && artists.count > 0 && artistScore < 0.35) continue;
+        if (ambiguousLatinTitle && artistScore < 0.55) continue;
         CGFloat durationScore = hasDuration ? MAX(0, 1 - delta / 25.0) : 0.2;
         CGFloat score = titleScore * 1.65 + artistScore * 0.7 + durationScore * 0.4;
         if (score > bestScore) {

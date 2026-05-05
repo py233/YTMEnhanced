@@ -21,6 +21,7 @@
 @property (nonatomic, copy, readwrite) NSString *lastErrorMessage;
 @property (nonatomic) NSUInteger requestGeneration;
 @property (nonatomic, strong) YTMULyricsSearchInfo *lastSearchInfo;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
 @end
 
 @implementation YTMULyricsManager
@@ -71,6 +72,7 @@
         _translatedLines = @[];
         _translationAttribution = @"";
         _lastErrorMessage = @"";
+        _romanizationMemoryCache = [NSMutableDictionary dictionary];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(settingsDidChange:)
                                                      name:YTMULyricsSettingsDidChangeNotification
@@ -119,7 +121,6 @@
                          @"lyricsFontSize",
                          @"lyricsDefaultText",
                          @"lyricsConvertChinese",
-                         @"lyricsRomanization",
                          @"lyricsShowTimeCodes",
                          @"translationDebugLogs",
                          nil];
@@ -172,6 +173,130 @@
 
 - (BOOL)translationEnabled {
     return YTMULyricsSettingsBool(@"lyricsTranslationEnabled", YTMULyricsSettingsBool(@"bilingualLyrics", NO));
+}
+
+- (NSString *)googleFormEncode:(NSString *)value {
+    static NSCharacterSet *allowed;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSMutableCharacterSet *set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+        [set removeCharactersInString:@"!*'();:@&=+$,/?%#[]"];
+        allowed = [set copy];
+    });
+    NSString *encoded = [value stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
+    return [encoded stringByReplacingOccurrencesOfString:@"%20" withString:@"+"];
+}
+
+- (NSString *)romanizationCacheKeyForResult:(YTMULyricsResult *)result info:(YTMULyricsSearchInfo *)info lines:(NSArray<NSString *> *)lines {
+    return [NSString stringWithFormat:@"%@::%@::%lu::%@",
+            info.videoId ?: @"",
+            result.sourceName ?: @"",
+            (unsigned long)lines.count,
+            YTMULyricsCompactString([lines componentsJoinedByString:@"|"] ?: @"")];
+}
+
+- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result {
+    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+    NSArray<YTMULyricLine *> *lines = result.lines ?: @[];
+    [lines enumerateObjectsUsingBlock:^(YTMULyricLine *line, NSUInteger idx, BOOL *stop) {
+        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!text.length || line.romanizedText.length) return;
+        if (![YTMULyricsTextProcessor hasRomanizableText:text]) return;
+        [items addObject:@{@"index": @(idx), @"text": text}];
+    }];
+    return items;
+}
+
+- (void)fetchGoogleRomanizationForText:(NSString *)text completion:(void(^)(NSString *romanized))completion {
+    if (!text.length) {
+        completion(@"");
+        return;
+    }
+    NSURL *url = [NSURL URLWithString:@"https://translate.google.com/translate_a/single?client=at&dt=rm&dj=1"];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    request.timeoutInterval = 15.0;
+    [request setValue:@"application/x-www-form-urlencoded;charset=utf-8" forHTTPHeaderField:@"Content-Type"];
+    NSString *body = [NSString stringWithFormat:@"sl=auto&tl=en&q=%@", [self googleFormEncode:text]];
+    request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            completion(@"");
+            return;
+        }
+        NSError *jsonError = nil;
+        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
+        NSString *romanized = json ? [YTMULyricsTextProcessor googleTransliterationFromJSON:json] : @"";
+        completion(romanized ?: @"");
+    }] resume];
+}
+
+- (void)fetchGoogleRomanizationItems:(NSArray<NSDictionary *> *)items
+                             position:(NSUInteger)position
+                                limit:(NSUInteger)limit
+                            romanized:(NSMutableArray<NSString *> *)romanized
+                           completion:(void(^)(NSArray<NSString *> *romanized))completion {
+    if (position >= limit || position >= items.count) {
+        completion([romanized copy]);
+        return;
+    }
+
+    NSDictionary *item = items[position];
+    NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
+    NSString *text = item[@"text"] ?: @"";
+    [self fetchGoogleRomanizationForText:text completion:^(NSString *value) {
+        if (lineIndex < romanized.count && value.length) romanized[lineIndex] = value;
+        [self fetchGoogleRomanizationItems:items
+                                  position:position + 1
+                                     limit:limit
+                                 romanized:romanized
+                                completion:completion];
+    }];
+}
+
+- (void)applyRomanizedLines:(NSArray<NSString *> *)romanized generation:(NSUInteger)generation info:(YTMULyricsSearchInfo *)info cacheKey:(NSString *)cacheKey {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+        YTMULyricsResult *current = [self.currentResult copy];
+        NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:current.lines.count];
+        for (NSUInteger idx = 0; idx < current.lines.count; idx++) {
+            YTMULyricLine *line = [current.lines[idx] copy];
+            NSString *value = idx < romanized.count ? romanized[idx] : @"";
+            if (value.length) line.romanizedText = value;
+            [lines addObject:line];
+        }
+        current.lines = lines;
+        self.currentResult = current;
+        if (cacheKey.length) self.romanizationMemoryCache[cacheKey] = romanized ?: @[];
+        YTMULyricsLog(@"google romanization applied videoId=%@ lines=%lu", info.videoId, (unsigned long)romanized.count);
+        [self notify];
+    });
+}
+
+- (void)fetchRomanizationIfNeededForInfo:(YTMULyricsSearchInfo *)info generation:(NSUInteger)generation {
+    if (!YTMULyricsSettingsBool(@"lyricsRomanization", YES)) return;
+    YTMULyricsResult *result = self.currentResult;
+    if (!result.isSynced || !result.lines.count) return;
+
+    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result];
+    if (!items.count) return;
+
+    NSArray<NSString *> *source = [result lineTexts];
+    NSString *cacheKey = [self romanizationCacheKeyForResult:result info:info lines:source];
+    NSArray<NSString *> *cached = self.romanizationMemoryCache[cacheKey];
+    if (cached.count == result.lines.count) {
+        [self applyRomanizedLines:cached generation:generation info:info cacheKey:cacheKey];
+        return;
+    }
+
+    NSMutableArray<NSString *> *romanized = [NSMutableArray arrayWithCapacity:result.lines.count];
+    for (NSUInteger idx = 0; idx < result.lines.count; idx++) [romanized addObject:result.lines[idx].romanizedText ?: @""];
+
+    NSUInteger limit = MIN(items.count, (NSUInteger)80);
+    [self fetchGoogleRomanizationItems:items position:0 limit:limit romanized:romanized completion:^(NSArray<NSString *> *values) {
+        [self applyRomanizedLines:values generation:generation info:info cacheKey:cacheKey];
+    }];
 }
 
 - (void)applyOfficialTranslationIfAvailableForInfo:(YTMULyricsSearchInfo *)info generation:(NSUInteger)generation {
@@ -265,6 +390,7 @@
                   result.isSynced,
                   (unsigned long)result.lineTexts.count);
     [self notify];
+    [self fetchRomanizationIfNeededForInfo:info generation:generation];
     [self fetchTranslationForInfo:info generation:generation];
 }
 
@@ -272,9 +398,16 @@
                index:(NSUInteger)index
                 info:(YTMULyricsSearchInfo *)info
           generation:(NSUInteger)generation
-          lastErrors:(NSMutableArray<NSString *> *)lastErrors {
+          lastErrors:(NSMutableArray<NSString *> *)lastErrors
+      fallbackResult:(YTMULyricsResult *)fallbackResult
+     fallbackProvider:(id<YTMULyricsProvider>)fallbackProvider {
     if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
     if (index >= providers.count) {
+        if (fallbackResult.hasText) {
+            YTMULyricsLog(@"lyrics using plain fallback videoId=%@ source=%@", info.videoId, fallbackResult.sourceName);
+            [self finishWithResult:fallbackResult info:info provider:fallbackProvider generation:generation];
+            return;
+        }
         self.state = YTMULyricsFetchStateError;
         self.lastErrorMessage = lastErrors.count ? [lastErrors componentsJoinedByString:@" | "] : @"No lyrics found";
         YTMULyricsLog(@"lyrics lookup exhausted videoId=%@ errors=%@", info.videoId, self.lastErrorMessage);
@@ -287,6 +420,21 @@
     YTMULyricsResult *cached = [[YTMULyricsCache sharedCache] resultForKey:cacheKey];
     if (cached.hasText) {
         YTMULyricsLog(@"lyrics cache hit videoId=%@ source=%@", info.videoId, [provider providerName]);
+        NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
+        BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
+                                          YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) &&
+                                          !cached.isSynced &&
+                                          index + 1 < providers.count;
+        if (shouldKeepLookingForSynced) {
+            [self tryProviders:providers
+                         index:index + 1
+                          info:info
+                    generation:generation
+                    lastErrors:lastErrors
+                fallbackResult:fallbackResult ?: cached
+               fallbackProvider:fallbackProvider ?: provider];
+            return;
+        }
         [self finishWithResult:cached info:info provider:provider generation:generation];
         return;
     }
@@ -302,13 +450,35 @@
             if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
             if (result.hasText) {
                 [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
+                NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
+                BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
+                                                  YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) &&
+                                                  !result.isSynced &&
+                                                  index + 1 < providers.count;
+                if (shouldKeepLookingForSynced) {
+                    YTMULyricsLog(@"lyrics plain candidate source=%@; continuing for synced source", [provider providerName]);
+                    [self tryProviders:providers
+                                 index:index + 1
+                                  info:info
+                            generation:generation
+                            lastErrors:lastErrors
+                        fallbackResult:fallbackResult ?: result
+                       fallbackProvider:fallbackProvider ?: provider];
+                    return;
+                }
                 [self finishWithResult:result info:info provider:provider generation:generation];
                 return;
             }
             NSString *message = error.localizedDescription ?: @"no match";
             [lastErrors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
             YTMULyricsLog(@"lyrics source miss videoId=%@ source=%@ reason=%@", info.videoId, [provider providerName], message);
-            [self tryProviders:providers index:index + 1 info:info generation:generation lastErrors:lastErrors];
+            [self tryProviders:providers
+                         index:index + 1
+                          info:info
+                    generation:generation
+                    lastErrors:lastErrors
+                fallbackResult:fallbackResult
+               fallbackProvider:fallbackProvider];
         });
     }];
 }
@@ -347,7 +517,13 @@
                   info.artist,
                   YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto"),
                   (unsigned long)providers.count);
-    [self tryProviders:providers index:0 info:[info copy] generation:generation lastErrors:[NSMutableArray array]];
+    [self tryProviders:providers
+                 index:0
+                  info:[info copy]
+            generation:generation
+            lastErrors:[NSMutableArray array]
+        fallbackResult:nil
+       fallbackProvider:nil];
 }
 
 @end

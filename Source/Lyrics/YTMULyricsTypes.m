@@ -26,6 +26,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     line.timeInMs = timeInMs;
     line.durationMs = durationMs;
     line.text = text ?: @"";
+    line.romanizedText = @"";
     return line;
 }
 
@@ -35,6 +36,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     copy.timeInMs = self.timeInMs;
     copy.durationMs = self.durationMs;
     copy.text = self.text ?: @"";
+    copy.romanizedText = self.romanizedText ?: @"";
     return copy;
 }
 
@@ -43,6 +45,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     [coder encodeDouble:self.timeInMs forKey:@"timeInMs"];
     [coder encodeDouble:self.durationMs forKey:@"durationMs"];
     [coder encodeObject:self.text ?: @"" forKey:@"text"];
+    [coder encodeObject:self.romanizedText ?: @"" forKey:@"romanizedText"];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder {
@@ -52,6 +55,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
         _timeInMs = [coder decodeDoubleForKey:@"timeInMs"];
         _durationMs = [coder decodeDoubleForKey:@"durationMs"];
         _text = [coder decodeObjectOfClass:[NSString class] forKey:@"text"] ?: @"";
+        _romanizedText = [coder decodeObjectOfClass:[NSString class] forKey:@"romanizedText"] ?: @"";
     }
     return self;
 }
@@ -231,6 +235,7 @@ NSString *YTMULyricsNormalizeLoose(NSString *value) {
     if (!value.length) return @"";
     NSMutableString *mutable = [[value stringByFoldingWithOptions:NSWidthInsensitiveSearch | NSCaseInsensitiveSearch
                                                            locale:[NSLocale currentLocale]] mutableCopy];
+    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformStripCombiningMarks, NO);
     NSString *lower = [mutable.lowercaseString stringByReplacingOccurrencesOfString:@"_" withString:@" "];
     NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
@@ -289,6 +294,7 @@ NSString *YTMULyricsStripSearchNoise(NSString *value) {
     NSString *out = value;
     NSArray<NSString *> *patterns = @[
         @"[\\s\\u3000]*[\\(\\[\\{（【［][^\\)\\]\\}）】］]*(?:feat|ft|featuring)\\.?\\s+[^\\)\\]\\}）】］]*[\\)\\]\\}）】］]",
+        @"[\\s\\u3000]*[\\(\\[\\{（【［][^\\)\\]\\}）】］]*(?:official|music\\s*video|mv|pv|lyric\\s*video|lyrics?|audio|visualizer)[^\\)\\]\\}）】］]*[\\)\\]\\}）】］]",
         @"(?:official|music\\s*video|mv|pv|lyric\\s*video|lyrics?|audio|visualizer|full\\s*ver\\.?|short\\s*ver\\.?)",
         @"(?:公式|オフィシャル|ミュージックビデオ|歌詞付き|字幕|中文字幕|中日字幕|ＭＶ|ＰＶ)",
         @"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+.+$"

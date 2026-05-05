@@ -14,14 +14,14 @@ static NSError *YTMUOpenAIError(YTMUTranslationErrorCode code, NSString *message
                            userInfo:@{NSLocalizedDescriptionKey: message ?: @"OpenAI-compatible translation failed"}];
 }
 
-static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
+static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
     NSString *trimmed = [baseURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     while ([trimmed hasSuffix:@"/"]) {
         trimmed = [trimmed substringToIndex:trimmed.length - 1];
     }
     if (!trimmed.length) trimmed = @"https://api.openai.com/v1";
-    if ([[trimmed lowercaseString] hasSuffix:@"/chat/completions"]) return trimmed;
-    return [trimmed stringByAppendingString:@"/chat/completions"];
+    if ([trimmed.lowercaseString hasSuffix:@"/responses"]) return trimmed;
+    return [trimmed stringByAppendingString:@"/responses"];
 }
 
 @implementation YTMUOpenAIProvider
@@ -37,15 +37,12 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
 - (NSDictionary *)requestBodyForRequest:(YTMUTranslationRequest *)request includeJSONMode:(BOOL)includeJSONMode {
     NSMutableDictionary *body = [@{
         @"model": [self modelIdentifier],
-        @"messages": @[
-            @{@"role": @"system", @"content": [YTMUPromptBuilder systemPromptForRequest:request]},
-            @{@"role": @"user", @"content": [YTMUPromptBuilder userPromptForRequest:request]},
-        ],
-        @"temperature": @0.3,
+        @"instructions": [YTMUPromptBuilder systemPromptForRequest:request],
+        @"input": [YTMUPromptBuilder userPromptForRequest:request],
     } mutableCopy];
 
     if (includeJSONMode) {
-        body[@"response_format"] = @{@"type": @"json_object"};
+        body[@"text"] = @{@"format": @{@"type": @"json_object"}};
     }
     return body;
 }
@@ -56,7 +53,7 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
     NSString *baseURL = YTMUOpenAIDefaultsString(@"translationBaseUrl", @"https://api.openai.com/v1");
     NSString *apiKey = YTMUOpenAIDefaultsString(@"translationApiKey_openai-compatible", @"");
 
-    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUOpenAIChatCompletionsURL(baseURL)]];
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUOpenAIResponsesURL(baseURL)]];
     urlRequest.HTTPMethod = @"POST";
     urlRequest.timeoutInterval = 60.0;
     urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:[self requestBodyForRequest:request includeJSONMode:includeJSONMode]
@@ -72,9 +69,28 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
 
 - (BOOL)shouldRetryWithoutJSONModeForStatus:(NSInteger)status body:(NSString *)body {
     if (status != 400) return NO;
-    NSRange range = [body rangeOfString:@"response_format|json_object|json"
+    NSRange range = [body rangeOfString:@"response_format|json_object|text\\.format|json"
                                 options:NSRegularExpressionSearch | NSCaseInsensitiveSearch];
     return range.location != NSNotFound;
+}
+
+- (NSString *)responseTextFromJSON:(NSDictionary *)json {
+    NSString *outputText = [json[@"output_text"] isKindOfClass:[NSString class]] ? json[@"output_text"] : @"";
+    if (outputText.length) return outputText;
+
+    NSArray *output = [json[@"output"] isKindOfClass:[NSArray class]] ? json[@"output"] : @[];
+    NSMutableString *combined = [NSMutableString string];
+    for (id item in output) {
+        NSDictionary *itemDict = [item isKindOfClass:[NSDictionary class]] ? item : nil;
+        NSArray *content = [itemDict[@"content"] isKindOfClass:[NSArray class]] ? itemDict[@"content"] : @[];
+        for (id part in content) {
+            NSDictionary *partDict = [part isKindOfClass:[NSDictionary class]] ? part : nil;
+            NSString *text = [partDict[@"text"] isKindOfClass:[NSString class]] ? partDict[@"text"] : @"";
+            if (!text.length) text = [partDict[@"output_text"] isKindOfClass:[NSString class]] ? partDict[@"output_text"] : @"";
+            if (text.length) [combined appendString:text];
+        }
+    }
+    return combined;
 }
 
 - (void)handleData:(NSData *)data
@@ -112,23 +128,20 @@ static NSString *YTMUOpenAIChatCompletionsURL(NSString *baseURL) {
         return;
     }
 
-    NSArray *choices = json[@"choices"];
-    NSDictionary *choice = [choices isKindOfClass:[NSArray class]] && choices.count ? choices.firstObject : nil;
-    NSDictionary *message = [choice isKindOfClass:[NSDictionary class]] ? choice[@"message"] : nil;
-    NSString *content = [message isKindOfClass:[NSDictionary class]] ? message[@"content"] : nil;
+    NSString *content = [self responseTextFromJSON:json];
     NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:content ?: @"" expected:request.lines.count];
     if (!parsed) {
-        YTMUTranslationLog(@"openai-compatible parse failed lines=%lu", (unsigned long)request.lines.count);
-        completion(nil, YTMUOpenAIError(YTMUTranslationErrorParse, @"Could not parse JSON from OpenAI-compatible response"));
+        YTMUTranslationLog(@"openai-compatible responses parse failed lines=%lu", (unsigned long)request.lines.count);
+        completion(nil, YTMUOpenAIError(YTMUTranslationErrorParse, @"Could not parse JSON from Responses API response"));
         return;
     }
-    YTMUTranslationLog(@"openai-compatible success translatedLines=%lu", (unsigned long)parsed.count);
+    YTMUTranslationLog(@"openai-compatible responses success translatedLines=%lu", (unsigned long)parsed.count);
     completion(parsed, nil);
 }
 
 - (void)translateRequest:(YTMUTranslationRequest *)request
               completion:(void (^)(NSArray<NSString *> * _Nullable, NSError * _Nullable))completion {
-    YTMUTranslationLog(@"openai-compatible start model=%@ lines=%lu baseUrl=%@",
+    YTMUTranslationLog(@"openai-compatible responses start model=%@ lines=%lu baseUrl=%@",
                        [self modelIdentifier],
                        (unsigned long)request.lines.count,
                        YTMUOpenAIDefaultsString(@"translationBaseUrl", @"https://api.openai.com/v1"));

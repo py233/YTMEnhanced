@@ -266,7 +266,7 @@
         lineView.mainLabel.textColor = [UIColor labelColor];
         lineView.mainLabel.text = text.length ? text : [self emptyLineStates].firstObject;
         lineView.romanLabel.font = [UIFont italicSystemFontOfSize:base * 0.78];
-        NSString *roman = romanizationEnabled ? [YTMULyricsTextProcessor romanizeText:text] : @"";
+        NSString *roman = romanizationEnabled ? (line.romanizedText.length ? line.romanizedText : [YTMULyricsTextProcessor romanizeText:text]) : @"";
         lineView.romanLabel.text = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : roman;
         lineView.translationLabel.font = [UIFont systemFontOfSize:base * 0.88 weight:UIFontWeightRegular];
         NSString *translation = i < translations.count ? translations[i] : @"";
