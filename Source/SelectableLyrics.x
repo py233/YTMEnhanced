@@ -561,8 +561,8 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         self.sourceButtons = buttons;
 
         self.offsetDecreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.offsetDecreaseButton.tag = -500;
-        [self.offsetDecreaseButton setTitle:@"-0.5s" forState:UIControlStateNormal];
+        self.offsetDecreaseButton.tag = -100;
+        [self.offsetDecreaseButton setTitle:@"-0.1s" forState:UIControlStateNormal];
         [self.offsetDecreaseButton addTarget:self action:@selector(ytmu_adjustLyricsTiming:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.offsetDecreaseButton];
 
@@ -576,8 +576,8 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         [self addSubview:self.offsetLabel];
 
         self.offsetIncreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.offsetIncreaseButton.tag = 500;
-        [self.offsetIncreaseButton setTitle:@"+0.5s" forState:UIControlStateNormal];
+        self.offsetIncreaseButton.tag = 100;
+        [self.offsetIncreaseButton setTitle:@"+0.1s" forState:UIControlStateNormal];
         [self.offsetIncreaseButton addTarget:self action:@selector(ytmu_adjustLyricsTiming:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.offsetIncreaseButton];
 
