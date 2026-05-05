@@ -7,6 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, readonly) YTMULyricsFetchState state;
 @property (nonatomic, copy, readonly) NSString *activeVideoId;
+@property (nonatomic, strong, readonly, nullable) YTMULyricsSearchInfo *lastSearchInfo;
 @property (nonatomic, strong, readonly, nullable) YTMULyricsResult *currentResult;
 @property (nonatomic, copy, readonly) NSArray<NSString *> *translatedLines;
 @property (nonatomic, copy, readonly) NSString *translationAttribution;
