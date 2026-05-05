@@ -3,6 +3,7 @@
 #import "YTMULyricsTextProcessor.h"
 #import "../Translation/YTMUTranslator.h"
 #import "../Translation/YTMUPromptBuilder.h"
+#import "../Translation/YTMUTranslationTypes.h"
 #import "Providers/YTMUYTMusicProvider.h"
 #import "Providers/YTMULRCLibProvider.h"
 #import "Providers/YTMUNetEaseProvider.h"
@@ -23,6 +24,15 @@
 @end
 
 @implementation YTMULyricsManager
+
+- (NSString *)translationProviderDisplayName {
+    NSString *provider = YTMULyricsSettingsString(@"translationProvider", YTMUTranslationProviderGoogle);
+    if ([provider isEqualToString:YTMUTranslationProviderGoogle]) return @"Google Translate";
+    if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) return @"Anthropic";
+    if ([provider isEqualToString:YTMUTranslationProviderGemini]) return @"Gemini";
+    if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) return @"OpenAI-compatible";
+    return provider.length ? provider : @"translator";
+}
 
 + (instancetype)sharedManager {
     static YTMULyricsManager *manager;
@@ -180,7 +190,7 @@
     if (aligned.count != source.count) return;
 
     self.translatedLines = aligned;
-    self.translationAttribution = [NSString stringWithFormat:@"Official %@ translation", self.currentResult.officialTranslationProvider.length ? self.currentResult.officialTranslationProvider : self.currentResult.sourceName];
+    self.translationAttribution = [NSString stringWithFormat:@"%@ official", self.currentResult.officialTranslationProvider.length ? self.currentResult.officialTranslationProvider : self.currentResult.sourceName];
     YTMULyricsLog(@"official translation applied videoId=%@ source=%@ lines=%lu",
                   info.videoId,
                   self.currentResult.sourceName,
@@ -223,7 +233,7 @@
             return;
         }
         self.translatedLines = translatedLines;
-        self.translationAttribution = @"Translated";
+        self.translationAttribution = [self translationProviderDisplayName];
         [self notify];
     }];
 }

@@ -1,110 +1,239 @@
 #import <UIKit/UIKit.h>
-#import <NaturalLanguage/NaturalLanguage.h>
 #import "Headers/YTPlayerViewController.h"
+#import "Lyrics/YTMULyricsManager.h"
+#import "Lyrics/YTMULyricsTextProcessor.h"
 #import "Translation/YTMUTranslationContext.h"
-#import "Translation/YTMUTranslator.h"
-#import "Translation/YTMUPromptBuilder.h"
+#import "Translation/YTMUTranslationTypes.h"
 
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    return [YTMUltimateDict[key] boolValue];
+static NSDictionary *YTMULyricsPageSettings(void) {
+    return [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
 }
 
-static NSString *YTMUString(NSString *key, NSString *fallback) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    id value = YTMUltimateDict[key];
+static BOOL YTMULyricsPageBool(NSString *key) {
+    return [YTMULyricsPageSettings()[key] boolValue];
+}
+
+static NSString *YTMULyricsPageString(NSString *key, NSString *fallback) {
+    id value = YTMULyricsPageSettings()[key];
     if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return value;
     return fallback ?: @"";
 }
 
-static BOOL selectableLyrics(void) {
-    return YTMU(@"YTMUltimateIsEnabled") && YTMU(@"selectableLyrics");
+static BOOL YTMULyricsPageReplacementEnabled(void) {
+    NSDictionary *settings = YTMULyricsPageSettings();
+    return [settings[@"YTMUltimateIsEnabled"] boolValue] &&
+           ([settings[@"selectableLyrics"] boolValue] ||
+            [settings[@"syncedLyricsEnabled"] boolValue] ||
+            [settings[@"lyricsTranslationEnabled"] boolValue] ||
+            [settings[@"bilingualLyrics"] boolValue]);
 }
 
-static BOOL bilingualLyrics(void) {
-    return selectableLyrics() && YTMU(@"bilingualLyrics");
+static void YTMULyricsPageSetSetting(NSString *key, id value) {
+    if (!key.length) return;
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *settings = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
+    settings[key] = value ?: @"";
+    [defaults setObject:settings forKey:@"YTMUltimate"];
+    [defaults synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification
+                                                        object:nil
+                                                      userInfo:@{YTMULyricsSettingChangedKey: key}];
 }
 
-static NSArray<NSString *> *YTMULinesFromString(NSString *text) {
-    NSArray *raw = [text componentsSeparatedByString:@"\n"];
-    NSMutableArray *lines = [NSMutableArray arrayWithCapacity:raw.count];
-    for (NSString *line in raw) {
-        [lines addObject:[line stringByReplacingOccurrencesOfString:@"\r" withString:@""]];
+static NSArray<NSDictionary *> *YTMULyricsPageSourceOptions(void) {
+    static NSArray<NSDictionary *> *options;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        options = @[
+            @{@"key": @"auto", @"title": @"Auto"},
+            @{@"key": YTMULyricsSourceYTMusic, @"title": @"YTMusic"},
+            @{@"key": YTMULyricsSourceLRCLib, @"title": @"LRCLib"},
+            @{@"key": YTMULyricsSourceNetEase, @"title": @"NetEase"},
+            @{@"key": YTMULyricsSourceMusixMatch, @"title": @"MusixMatch"},
+            @{@"key": YTMULyricsSourceGenius, @"title": @"Genius"},
+        ];
+    });
+    return options;
+}
+
+static NSString *YTMULyricsPageSourceTitle(NSString *key) {
+    for (NSDictionary *option in YTMULyricsPageSourceOptions()) {
+        if ([option[@"key"] isEqualToString:key]) return option[@"title"];
     }
-    return lines;
+    return key.length ? key : @"Auto";
 }
 
-static NSString *YTMULanguageFamily(NSString *language) {
-    NSString *normalized = [[language ?: @"" lowercaseString] stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
-    NSString *primary = [normalized componentsSeparatedByString:@"-"].firstObject ?: normalized;
-    if ([primary isEqualToString:@"cmn"] || [primary isEqualToString:@"yue"]) return @"zh";
-    if ([primary isEqualToString:@"nb"] || [primary isEqualToString:@"nn"]) return @"no";
-    if ([primary isEqualToString:@"tl"]) return @"fil";
-    return primary;
-}
-
-static BOOL YTMUSourceLanguageMatchesTarget(NSArray<NSString *> *lines, NSString *targetLanguage) {
-    NSMutableArray *parts = [NSMutableArray array];
-    for (NSString *line in lines) {
-        NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (trimmed.length) [parts addObject:trimmed];
+static NSUInteger YTMULyricsPageSourceIndex(NSString *key) {
+    NSArray *options = YTMULyricsPageSourceOptions();
+    for (NSUInteger idx = 0; idx < options.count; idx++) {
+        if ([options[idx][@"key"] isEqualToString:key]) return idx;
     }
-
-    NSString *text = [parts componentsJoinedByString:@"\n"];
-    if (text.length < 24) return NO;
-
-    NLLanguageRecognizer *recognizer = [[NLLanguageRecognizer alloc] init];
-    [recognizer processString:text];
-    NSString *detected = recognizer.dominantLanguage;
-    if (!detected.length) return NO;
-
-    return [YTMULanguageFamily(detected) isEqualToString:YTMULanguageFamily(targetLanguage)];
+    return 0;
 }
 
-static NSAttributedString *YTMUCombinedLyricsAttributedText(UILabel *label,
-                                                           NSArray<NSString *> *sourceLines,
-                                                           NSArray<NSString *> *translatedLines) {
-    UIFont *font = label.font ?: [UIFont systemFontOfSize:15.0];
-    UIColor *textColor = label.textColor ?: [UIColor labelColor];
-    UIFont *translationFont = [font fontWithSize:font.pointSize * 0.92];
-    UIColor *translationColor = [textColor colorWithAlphaComponent:0.72];
+static NSString *YTMULyricsPageTranslationProviderTitle(void) {
+    NSString *provider = YTMULyricsPageString(@"translationProvider", YTMUTranslationProviderGoogle);
+    if ([provider isEqualToString:YTMUTranslationProviderGoogle]) return @"Google Translate";
+    if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) return @"Anthropic";
+    if ([provider isEqualToString:YTMUTranslationProviderGemini]) return @"Gemini";
+    if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) return @"OpenAI-compatible";
+    return provider.length ? provider : @"translator";
+}
 
-    NSMutableParagraphStyle *normalParagraph = [[NSMutableParagraphStyle alloc] init];
-    normalParagraph.paragraphSpacing = 0.0;
+static NSString *YTMULyricsPageLineText(NSString *text) {
+    NSString *value = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (value.length) return value;
+    NSString *mode = YTMULyricsPageString(@"lyricsDefaultText", @"♪");
+    if ([mode isEqualToString:@"dots"]) return @"...";
+    if ([mode isEqualToString:@"bullets"]) return @"•••";
+    if ([mode isEqualToString:@"dash"]) return @"---";
+    if ([mode isEqualToString:@"space"]) return @" ";
+    return @"♪";
+}
+
+static UIColor *YTMULyricsPageSecondaryTextColor(void) {
+    if (@available(iOS 13.0, *)) return [UIColor secondaryLabelColor];
+    return [[UIColor whiteColor] colorWithAlphaComponent:0.58];
+}
+
+static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NSString *fallbackText) {
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    UIColor *primary = textView.textColor ?: [UIColor labelColor];
+    UIColor *secondary = [primary colorWithAlphaComponent:0.58];
+    UIColor *translationColor = [primary colorWithAlphaComponent:0.78];
+    UIFont *mainFont = [UIFont systemFontOfSize:30.0 weight:UIFontWeightHeavy];
+    UIFont *romanFont = [UIFont italicSystemFontOfSize:20.0];
+    UIFont *translationFont = [UIFont systemFontOfSize:23.0 weight:UIFontWeightSemibold];
+    UIFont *statusFont = [UIFont systemFontOfSize:22.0 weight:UIFontWeightSemibold];
+
+    NSMutableParagraphStyle *mainParagraph = [[NSMutableParagraphStyle alloc] init];
+    mainParagraph.paragraphSpacing = 12.0;
+    mainParagraph.lineSpacing = 2.0;
+
+    NSMutableParagraphStyle *secondaryParagraph = [[NSMutableParagraphStyle alloc] init];
+    secondaryParagraph.paragraphSpacing = 2.0;
+    secondaryParagraph.lineSpacing = 1.0;
 
     NSMutableParagraphStyle *pairEndParagraph = [[NSMutableParagraphStyle alloc] init];
-    pairEndParagraph.paragraphSpacing = 8.0;
+    pairEndParagraph.paragraphSpacing = 16.0;
+    pairEndParagraph.lineSpacing = 2.0;
 
-    NSMutableAttributedString *combined = [[NSMutableAttributedString alloc] init];
-    for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
-        NSString *source = sourceLines[idx] ?: @"";
-        NSString *translated = idx < translatedLines.count ? translatedLines[idx] : @"";
-        BOOL shouldShowTranslation = translated.length &&
-            ![YTMUPromptBuilder isSkippableLine:source] &&
-            ![[YTMUPromptBuilder simplifyUnicode:source] isEqualToString:[YTMUPromptBuilder simplifyUnicode:translated]];
-
-        NSDictionary *sourceAttributes = @{
+    NSMutableAttributedString *output = [[NSMutableAttributedString alloc] init];
+    void (^appendLine)(NSString *, UIFont *, UIColor *, NSParagraphStyle *) = ^(NSString *line, UIFont *font, UIColor *color, NSParagraphStyle *paragraph) {
+        if (output.length) [output appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
+        [output appendAttributedString:[[NSAttributedString alloc] initWithString:line ?: @""
+                                                                       attributes:@{
             NSFontAttributeName: font,
-            NSForegroundColorAttributeName: textColor,
-            NSParagraphStyleAttributeName: shouldShowTranslation ? normalParagraph : pairEndParagraph,
-        };
-        NSDictionary *translationAttributes = @{
-            NSFontAttributeName: translationFont,
-            NSForegroundColorAttributeName: translationColor,
-            NSParagraphStyleAttributeName: pairEndParagraph,
-        };
+            NSForegroundColorAttributeName: color,
+            NSParagraphStyleAttributeName: paragraph,
+        }]];
+    };
 
-        [combined appendAttributedString:[[NSAttributedString alloc] initWithString:source attributes:sourceAttributes]];
-        if (shouldShowTranslation) {
-            [combined appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n" attributes:sourceAttributes]];
-            [combined appendAttributedString:[[NSAttributedString alloc] initWithString:translated attributes:translationAttributes]];
+    if (manager.state == YTMULyricsFetchStateFetching) {
+        appendLine(@"Searching lyrics...", statusFont, secondary, mainParagraph);
+        return output;
+    }
+    if (manager.state == YTMULyricsFetchStateError) {
+        appendLine(manager.lastErrorMessage.length ? manager.lastErrorMessage : @"No lyrics found", statusFont, secondary, mainParagraph);
+        return output;
+    }
+
+    YTMULyricsResult *result = manager.currentResult;
+    NSArray<NSString *> *sourceLines = result.lineTexts ?: @[];
+    if (!sourceLines.count && fallbackText.length) {
+        sourceLines = [fallbackText componentsSeparatedByString:@"\n"];
+    }
+    if (!sourceLines.count) {
+        appendLine(@"Open a song to load lyrics.", statusFont, secondary, mainParagraph);
+        return output;
+    }
+
+    NSArray<NSString *> *translations = manager.translatedLines ?: @[];
+    NSString *convertMode = YTMULyricsPageString(@"lyricsConvertChinese", @"disabled");
+    BOOL romanization = YTMULyricsPageBool(@"lyricsRomanization");
+    BOOL showTimeCodes = YTMULyricsPageBool(@"lyricsShowTimeCodes");
+
+    for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+        NSString *source = YTMULyricsPageLineText(sourceLines[idx]);
+        source = [YTMULyricsTextProcessor convertChineseText:source mode:convertMode];
+        if (showTimeCodes && idx < result.lines.count && result.lines[idx].time.length) {
+            source = [NSString stringWithFormat:@"[%@] %@", result.lines[idx].time, source];
         }
-        if (idx + 1 < sourceLines.count) {
-            [combined appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n" attributes:translationAttributes]];
+
+        appendLine(source, mainFont, primary, mainParagraph);
+
+        if (romanization) {
+            NSString *roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
+            BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
+            if (roman.length && !same) appendLine(roman, romanFont, secondary, secondaryParagraph);
+        }
+
+        NSString *translated = idx < translations.count ? translations[idx] : @"";
+        translated = [YTMULyricsTextProcessor convertChineseText:translated mode:convertMode];
+        BOOL sameTranslation = [[YTMULyricsTextProcessor simplifyUnicode:translated] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
+        if (translated.length && !sameTranslation) {
+            appendLine(translated, translationFont, translationColor, pairEndParagraph);
         }
     }
 
-    return combined;
+    return output;
+}
+
+static NSString *YTMULyricsPageAttributionText(void) {
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (manager.currentResult.sourceName.length) {
+        [parts addObject:[NSString stringWithFormat:@"Lyrics via %@", manager.currentResult.sourceName]];
+    }
+    if (manager.translatedLines.count) {
+        NSString *provider = manager.translationAttribution.length ? manager.translationAttribution : YTMULyricsPageTranslationProviderTitle();
+        [parts addObject:[NSString stringWithFormat:@"Translated via %@", provider]];
+    }
+    return [parts componentsJoinedByString:@" · "];
+}
+
+static NSString *YTMULyricsPageViewText(UIView *view) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    NSString *accessibility = view.accessibilityLabel;
+    if ([accessibility isKindOfClass:[NSString class]] && accessibility.length) [parts addObject:accessibility];
+    if ([view isKindOfClass:[UIButton class]]) {
+        NSString *title = [(UIButton *)view currentTitle];
+        if (title.length) [parts addObject:title];
+    }
+    if ([view isKindOfClass:[UILabel class]]) {
+        NSString *text = [(UILabel *)view text];
+        if (text.length) [parts addObject:text];
+    }
+    return [[parts componentsJoinedByString:@" "] lowercaseString];
+}
+
+static UIView *YTMULyricsPageActionTargetForView(UIView *view) {
+    UIView *candidate = view;
+    for (NSUInteger depth = 0; candidate && depth < 4; depth++) {
+        if ([candidate isKindOfClass:[UIControl class]]) return candidate;
+        candidate = candidate.superview;
+    }
+    return view;
+}
+
+static void YTMULyricsPageHideOfficialActionsInView(UIView *view, UIView *replacementRoot) {
+    if (!view || view == replacementRoot || [view isDescendantOfView:replacementRoot]) return;
+    NSString *text = YTMULyricsPageViewText(view);
+    BOOL looksLikeAction = [text containsString:@"share"] ||
+                           [text containsString:@"translate"] ||
+                           [text containsString:@"分享"] ||
+                           [text containsString:@"翻译"] ||
+                           [text containsString:@"共有"] ||
+                           [text containsString:@"翻訳"];
+    if (looksLikeAction) {
+        UIView *target = YTMULyricsPageActionTargetForView(view);
+        target.hidden = YES;
+        target.alpha = 0.0;
+        target.userInteractionEnabled = NO;
+    }
+    for (UIView *subview in view.subviews) {
+        YTMULyricsPageHideOfficialActionsInView(subview, replacementRoot);
+    }
 }
 
 @interface YTFormattedStringLabel : UILabel
@@ -112,112 +241,268 @@ static NSAttributedString *YTMUCombinedLyricsAttributedText(UILabel *label,
 
 @interface YTMLightweightMusicDescriptionShelfCell : UIView
 @property (retain, nonatomic) UITextView *lyrics;
-@property (copy, nonatomic) NSString *translationRequestVideoId;
+@property (retain, nonatomic) UIScrollView *ytmuSourceScrollView;
+@property (retain, nonatomic) NSArray *ytmuSourceButtons;
+@property (retain, nonatomic) UILabel *ytmuAttributionLabel;
+@property (copy, nonatomic) NSString *ytmuFallbackLyricsText;
+- (void)ytmu_ensureLyricsReplacementViews;
+- (void)ytmu_renderLyricsPage;
+- (void)ytmu_layoutSourceButtons;
+- (void)ytmu_updateSourceButtons;
+- (void)ytmu_selectLyricsSource:(UIButton *)sender;
+- (void)ytmu_cycleLyricsSource:(UISwipeGestureRecognizer *)gesture;
+- (void)ytmu_hideOfficialLyricsActions;
 @end
 
 %hook YTMLightweightMusicDescriptionShelfCell
 
 %property (retain, nonatomic) UITextView *lyrics;
-%property (copy, nonatomic) NSString *translationRequestVideoId;
+%property (retain, nonatomic) UIScrollView *ytmuSourceScrollView;
+%property (retain, nonatomic) NSArray *ytmuSourceButtons;
+%property (retain, nonatomic) UILabel *ytmuAttributionLabel;
+%property (copy, nonatomic) NSString *ytmuFallbackLyricsText;
 
 - (id)initWithFrame:(CGRect)frame {
     self = %orig;
-    if (self && selectableLyrics()) {
-        UIView *container = [self valueForKey:@"_descriptionContainer"];
-        self.lyrics = [[UITextView alloc] init];
-        self.lyrics.backgroundColor = [UIColor clearColor];
-        self.lyrics.editable = NO;
-        self.lyrics.scrollEnabled = NO;
-        self.lyrics.showsVerticalScrollIndicator = NO;
-        [container addSubview:self.lyrics];
+    if (self) {
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(ytmu_renderLyricsPage)
+                                                     name:YTMULyricsDidUpdateNotification
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(ytmu_renderLyricsPage)
+                                                     name:YTMULyricsSettingsDidChangeNotification
+                                                   object:nil];
+        [self ytmu_ensureLyricsReplacementViews];
     }
     return self;
 }
 
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    %orig;
+}
+
 - (void)setRenderer:(id)renderer {
     %orig;
+    [self ytmu_ensureLyricsReplacementViews];
 
-    if (selectableLyrics()) {
-        YTFormattedStringLabel *lyrics = [self valueForKey:@"_descriptionLabel"];
-        if (!lyrics || !self.lyrics) {
-            YTMUTranslationLog(@"lyrics hook skipped: missing label/textView");
-            return;
-        }
-
-        lyrics.userInteractionEnabled = YES;
-        lyrics.hidden = YES;
-        self.lyrics.font = lyrics.font;
-        self.lyrics.textColor = lyrics.textColor;
-        self.lyrics.attributedText = lyrics.attributedText;
-
-        if (!bilingualLyrics()) return;
-
-        NSString *text = lyrics.attributedText.string ?: lyrics.text ?: @"";
-        NSArray<NSString *> *lines = YTMULinesFromString(text);
-        if (!text.length || !lines.count) {
-            YTMUTranslationLog(@"lyrics hook skipped: empty lyrics text");
-            return;
-        }
-
-        NSString *targetLanguage = [YTMUPromptBuilder effectiveTargetCode:YTMUString(@"translationTargetLang", @"auto")];
-        if (YTMUSourceLanguageMatchesTarget(lines, targetLanguage)) {
-            YTMUTranslationLog(@"lyrics hook skipped: source language matches target=%@", targetLanguage);
-            return;
-        }
-
-        YTMUTranslationContext *context = [YTMUTranslationContext sharedContext];
-        NSString *videoId = context.videoId ?: @"";
-        if (!videoId.length) {
-            YTMUTranslationLog(@"lyrics hook skipped: missing current videoId lines=%lu", (unsigned long)lines.count);
-            return;
-        }
-
-        self.translationRequestVideoId = videoId;
-        YTMUTranslationLog(@"lyrics hook requesting translation videoId=%@ target=%@ lines=%lu",
-                           videoId,
-                           targetLanguage,
-                           (unsigned long)lines.count);
-        [[YTMUTranslator sharedTranslator] translateLines:lines
-                                                  videoId:videoId
-                                                    title:context.title
-                                                   artist:context.artist
-                                               completion:^(NSArray<NSString *> *translatedLines, NSError *error) {
-            if (error || translatedLines.count != lines.count) {
-                YTMUTranslationLog(@"lyrics hook translation failed videoId=%@ error=%@ translatedLines=%lu expected=%lu",
-                                   videoId,
-                                   error.localizedDescription ?: @"<line-count-mismatch>",
-                                   (unsigned long)translatedLines.count,
-                                   (unsigned long)lines.count);
-                return;
-            }
-            if (![videoId isEqualToString:[YTMUTranslationContext sharedContext].videoId]) {
-                YTMUTranslationLog(@"lyrics hook dropped stale result videoId=%@ current=%@",
-                                   videoId,
-                                   [YTMUTranslationContext sharedContext].videoId ?: @"<empty>");
-                return;
-            }
-            if (![videoId isEqualToString:self.translationRequestVideoId]) {
-                YTMUTranslationLog(@"lyrics hook dropped reused cell result videoId=%@ cellVideoId=%@",
-                                   videoId,
-                                   self.translationRequestVideoId ?: @"<empty>");
-                return;
-            }
-
-            self.lyrics.attributedText = YTMUCombinedLyricsAttributedText(lyrics, lines, translatedLines);
-            YTMUTranslationLog(@"lyrics hook rendered bilingual lyrics videoId=%@ lines=%lu",
-                               videoId,
-                               (unsigned long)lines.count);
-        }];
+    YTFormattedStringLabel *officialLyrics = nil;
+    @try {
+        officialLyrics = [self valueForKey:@"_descriptionLabel"];
+    } @catch (__unused NSException *exception) {
+        officialLyrics = nil;
     }
+    self.ytmuFallbackLyricsText = officialLyrics.attributedText.string ?: officialLyrics.text ?: @"";
+
+    if (!YTMULyricsPageReplacementEnabled()) {
+        officialLyrics.hidden = NO;
+        self.lyrics.hidden = YES;
+        self.ytmuSourceScrollView.hidden = YES;
+        self.ytmuAttributionLabel.hidden = YES;
+        return;
+    }
+
+    officialLyrics.hidden = YES;
+    self.lyrics.hidden = NO;
+    self.ytmuSourceScrollView.hidden = NO;
+    self.ytmuAttributionLabel.hidden = NO;
+    [self ytmu_renderLyricsPage];
+    [self ytmu_hideOfficialLyricsActions];
 }
 
 - (void)layoutSubviews {
     %orig;
+    if (!YTMULyricsPageReplacementEnabled()) return;
+    [self ytmu_ensureLyricsReplacementViews];
 
-    if (selectableLyrics()) {
-        YTFormattedStringLabel *lyrics = [self valueForKey:@"_descriptionLabel"];
-        self.lyrics.frame = lyrics.frame;
+    YTFormattedStringLabel *officialLyrics = nil;
+    @try {
+        officialLyrics = [self valueForKey:@"_descriptionLabel"];
+    } @catch (__unused NSException *exception) {
+        officialLyrics = nil;
     }
+
+    CGRect baseFrame = officialLyrics ? officialLyrics.frame : UIEdgeInsetsInsetRect(self.bounds, UIEdgeInsetsMake(12, 32, 24, 32));
+    CGFloat sourceHeight = 34.0;
+    CGFloat attributionHeight = self.ytmuAttributionLabel.text.length ? 22.0 : 0.0;
+    self.ytmuSourceScrollView.frame = CGRectMake(baseFrame.origin.x,
+                                                baseFrame.origin.y,
+                                                baseFrame.size.width,
+                                                sourceHeight);
+
+    CGFloat textY = CGRectGetMaxY(self.ytmuSourceScrollView.frame) + 12.0;
+    CGFloat textHeight = MAX(180.0, baseFrame.size.height - sourceHeight - attributionHeight - 24.0);
+    self.lyrics.frame = CGRectMake(baseFrame.origin.x, textY, baseFrame.size.width, textHeight);
+
+    self.ytmuAttributionLabel.frame = CGRectMake(baseFrame.origin.x,
+                                                CGRectGetMaxY(self.lyrics.frame) + 8.0,
+                                                baseFrame.size.width,
+                                                attributionHeight);
+    [self ytmu_layoutSourceButtons];
+    [self ytmu_hideOfficialLyricsActions];
+}
+
+%new
+- (void)ytmu_ensureLyricsReplacementViews {
+    UIView *container = nil;
+    @try {
+        container = [self valueForKey:@"_descriptionContainer"];
+    } @catch (__unused NSException *exception) {
+        container = nil;
+    }
+    if (!container) container = self;
+
+    if (!self.ytmuSourceScrollView) {
+        self.ytmuSourceScrollView = [[UIScrollView alloc] initWithFrame:CGRectZero];
+        self.ytmuSourceScrollView.backgroundColor = [UIColor clearColor];
+        self.ytmuSourceScrollView.showsHorizontalScrollIndicator = NO;
+        self.ytmuSourceScrollView.alwaysBounceHorizontal = YES;
+        [container addSubview:self.ytmuSourceScrollView];
+
+        NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+        NSArray *options = YTMULyricsPageSourceOptions();
+        for (NSUInteger idx = 0; idx < options.count; idx++) {
+            UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+            button.tag = idx;
+            [button setTitle:options[idx][@"title"] forState:UIControlStateNormal];
+            button.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
+            button.contentEdgeInsets = UIEdgeInsetsMake(6, 13, 6, 13);
+            button.layer.cornerRadius = 15.0;
+            button.clipsToBounds = YES;
+            [button addTarget:self action:@selector(ytmu_selectLyricsSource:) forControlEvents:UIControlEventTouchUpInside];
+            [self.ytmuSourceScrollView addSubview:button];
+            [buttons addObject:button];
+        }
+        self.ytmuSourceButtons = buttons;
+    }
+
+    if (!self.lyrics) {
+        self.lyrics = [[UITextView alloc] initWithFrame:CGRectZero];
+        self.lyrics.backgroundColor = [UIColor clearColor];
+        self.lyrics.editable = NO;
+        self.lyrics.selectable = YES;
+        self.lyrics.scrollEnabled = YES;
+        self.lyrics.showsVerticalScrollIndicator = NO;
+        self.lyrics.textContainerInset = UIEdgeInsetsZero;
+        self.lyrics.textContainer.lineFragmentPadding = 0;
+        if (@available(iOS 13.0, *)) self.lyrics.textColor = [UIColor labelColor];
+        [container addSubview:self.lyrics];
+
+        UISwipeGestureRecognizer *left = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_cycleLyricsSource:)];
+        left.direction = UISwipeGestureRecognizerDirectionLeft;
+        [self.lyrics addGestureRecognizer:left];
+        UISwipeGestureRecognizer *right = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_cycleLyricsSource:)];
+        right.direction = UISwipeGestureRecognizerDirectionRight;
+        [self.lyrics addGestureRecognizer:right];
+    }
+
+    if (!self.ytmuAttributionLabel) {
+        self.ytmuAttributionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        self.ytmuAttributionLabel.backgroundColor = [UIColor clearColor];
+        self.ytmuAttributionLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        self.ytmuAttributionLabel.textColor = YTMULyricsPageSecondaryTextColor();
+        self.ytmuAttributionLabel.numberOfLines = 1;
+        [container addSubview:self.ytmuAttributionLabel];
+    }
+
+    [self ytmu_updateSourceButtons];
+}
+
+%new
+- (void)ytmu_renderLyricsPage {
+    if (!YTMULyricsPageReplacementEnabled()) return;
+    [self ytmu_ensureLyricsReplacementViews];
+    self.lyrics.attributedText = YTMULyricsPageAttributedText(self.lyrics, self.ytmuFallbackLyricsText ?: @"");
+    self.ytmuAttributionLabel.text = YTMULyricsPageAttributionText();
+    [self ytmu_updateSourceButtons];
+    [self setNeedsLayout];
+
+    id delegate = nil;
+    @try {
+        delegate = [self valueForKey:@"_delegate"] ?: [self valueForKey:@"delegate"];
+    } @catch (__unused NSException *exception) {
+        delegate = nil;
+    }
+    if ([delegate respondsToSelector:@selector(lightweightMusicDescriptionShelfCellNeedsResize:)]) {
+        SEL selector = @selector(lightweightMusicDescriptionShelfCellNeedsResize:);
+        void (*resize)(id, SEL, id) = (void (*)(id, SEL, id))[delegate methodForSelector:selector];
+        resize(delegate, selector, self);
+    }
+
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    YTMULyricsLog(@"lyrics page rendered state=%ld source=%@ lines=%lu translated=%lu",
+                  (long)manager.state,
+                  manager.currentResult.sourceName ?: @"<none>",
+                  (unsigned long)manager.displayLineTexts.count,
+                  (unsigned long)manager.translatedLines.count);
+}
+
+%new
+- (void)ytmu_layoutSourceButtons {
+    CGFloat x = 0.0;
+    NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
+    for (UIButton *button in self.ytmuSourceButtons) {
+        [button sizeToFit];
+        CGFloat width = MAX(64.0, button.bounds.size.width + 22.0);
+        button.frame = CGRectMake(x, 2.0, width, 30.0);
+        x += width + 8.0;
+        NSString *key = YTMULyricsPageSourceOptions()[button.tag][@"key"];
+        if ([key isEqualToString:selected]) {
+            [self.ytmuSourceScrollView scrollRectToVisible:CGRectInset(button.frame, -18, 0) animated:NO];
+        }
+    }
+    self.ytmuSourceScrollView.contentSize = CGSizeMake(MAX(x, self.ytmuSourceScrollView.bounds.size.width + 1), self.ytmuSourceScrollView.bounds.size.height);
+}
+
+%new
+- (void)ytmu_updateSourceButtons {
+    NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
+    for (UIButton *button in self.ytmuSourceButtons) {
+        NSString *key = YTMULyricsPageSourceOptions()[button.tag][@"key"];
+        BOOL active = [key isEqualToString:selected];
+        UIColor *titleColor = active ? [UIColor whiteColor] : YTMULyricsPageSecondaryTextColor();
+        UIColor *background = active ? [[UIColor whiteColor] colorWithAlphaComponent:0.22] : [[UIColor whiteColor] colorWithAlphaComponent:0.10];
+        [button setTitleColor:titleColor forState:UIControlStateNormal];
+        button.backgroundColor = background;
+    }
+}
+
+%new
+- (void)ytmu_selectLyricsSource:(UIButton *)sender {
+    NSArray *options = YTMULyricsPageSourceOptions();
+    if (sender.tag >= options.count) return;
+    NSString *key = options[sender.tag][@"key"];
+    YTMULyricsPageSetSetting(@"lyricsPreferredSource", key);
+    [self ytmu_updateSourceButtons];
+    YTMULyricsLog(@"lyrics page source selected=%@", YTMULyricsPageSourceTitle(key));
+}
+
+%new
+- (void)ytmu_cycleLyricsSource:(UISwipeGestureRecognizer *)gesture {
+    NSArray *options = YTMULyricsPageSourceOptions();
+    if (!options.count) return;
+    NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
+    NSInteger index = (NSInteger)YTMULyricsPageSourceIndex(selected);
+    if (gesture.direction == UISwipeGestureRecognizerDirectionLeft) {
+        index = (index + 1) % (NSInteger)options.count;
+    } else if (gesture.direction == UISwipeGestureRecognizerDirectionRight) {
+        index = (index - 1 + (NSInteger)options.count) % (NSInteger)options.count;
+    }
+    NSString *key = options[(NSUInteger)index][@"key"];
+    YTMULyricsPageSetSetting(@"lyricsPreferredSource", key);
+    [self ytmu_updateSourceButtons];
+    [self ytmu_layoutSourceButtons];
+    YTMULyricsLog(@"lyrics page source swiped=%@", YTMULyricsPageSourceTitle(key));
+}
+
+%new
+- (void)ytmu_hideOfficialLyricsActions {
+    UIView *root = self;
+    for (NSUInteger depth = 0; depth < 8 && root.superview && ![root.superview isKindOfClass:[UIWindow class]]; depth++) {
+        root = root.superview;
+    }
+    YTMULyricsPageHideOfficialActionsInView(root, self);
 }
 
 %end
@@ -239,22 +524,12 @@ static NSAttributedString *YTMUCombinedLyricsAttributedText(UILabel *label,
 %ctor {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
-
-    if (dict[@"bilingualLyrics"] == nil) {
-        dict[@"bilingualLyrics"] = @(NO);
-    }
-    if (dict[@"translationProvider"] == nil) {
-        dict[@"translationProvider"] = YTMUTranslationProviderGoogle;
-    }
-    if (dict[@"translationTargetLang"] == nil) {
-        dict[@"translationTargetLang"] = @"auto";
-    }
-    if (dict[@"translationBaseUrl"] == nil) {
-        dict[@"translationBaseUrl"] = @"https://api.openai.com/v1";
-    }
-    if (dict[@"translationDebugLogs"] == nil) {
-        dict[@"translationDebugLogs"] = @(YES);
-    }
-
+    YTMULyricsSetDefault(dict, @"bilingualLyrics", @(NO));
+    YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", dict[@"bilingualLyrics"] ?: @(NO));
+    YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
+    YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
+    YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
+    YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
+    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(YES));
     [defaults setObject:dict forKey:@"YTMUltimate"];
 }
