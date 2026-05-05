@@ -2,6 +2,7 @@
 #import "../YTMULRCParser.h"
 #import <CommonCrypto/CommonCrypto.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <float.h>
 
 static NSString *const YTMUNetEaseAESKey = @"e82ckenh8dichen8";
 static NSString *const YTMUNetEaseEncodeKey = @"3go8&$8*3*3h0k(2)2";
@@ -450,6 +451,46 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     }];
 }
 
+- (NSArray<NSString *> *)romanizedTextsFromLyrics:(NSString *)romanizedLyrics sourceLines:(NSArray<YTMULyricLine *> *)sourceLines {
+    if (!romanizedLyrics.length || !sourceLines.count) return @[];
+    NSArray<YTMULyricLine *> *romanizedLines = [YTMULRCParser parseLRC:romanizedLyrics];
+    if (!romanizedLines.count) return @[];
+
+    NSMutableArray<NSString *> *aligned = [NSMutableArray arrayWithCapacity:sourceLines.count];
+    for (NSUInteger i = 0; i < sourceLines.count; i++) [aligned addObject:@""];
+
+    if (romanizedLines.count == sourceLines.count) {
+        for (NSUInteger i = 0; i < sourceLines.count; i++) {
+            aligned[i] = romanizedLines[i].text ?: @"";
+        }
+        return aligned;
+    }
+
+    NSMutableSet<NSNumber *> *used = [NSMutableSet set];
+    for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+        YTMULyricLine *source = sourceLines[idx];
+        if (![source.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) continue;
+        NSUInteger bestIndex = NSNotFound;
+        NSTimeInterval bestDelta = DBL_MAX;
+        for (NSUInteger r = 0; r < romanizedLines.count; r++) {
+            if ([used containsObject:@(r)]) continue;
+            YTMULyricLine *roman = romanizedLines[r];
+            NSString *text = [roman.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (!text.length) continue;
+            NSTimeInterval delta = fabs(roman.timeInMs - source.timeInMs);
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                bestIndex = r;
+            }
+        }
+        if (bestIndex != NSNotFound && bestDelta <= 500.0) {
+            aligned[idx] = romanizedLines[bestIndex].text ?: @"";
+            [used addObject:@(bestIndex)];
+        }
+    }
+    return aligned;
+}
+
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     [self registerIfNeeded:^{
         NSArray *keywords = [self keywordsForInfo:info];
@@ -499,6 +540,18 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                 result.plainLyrics = rawLyrics;
                 result.lines = [YTMULRCParser parseLRC:rawLyrics];
                 result.duration = [YTMULyricsJSONNumberAtPath(best, @[@"duration"]) doubleValue] / 1000.0;
+                NSString *romanized = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"romalrc", @"lyric"]) ?: @""];
+                NSArray<NSString *> *romanizedTexts = [self romanizedTextsFromLyrics:romanized sourceLines:result.lines];
+                if (romanizedTexts.count == result.lines.count) {
+                    result.romanizedLineTexts = romanizedTexts;
+                    NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:result.lines.count];
+                    for (NSUInteger idx = 0; idx < result.lines.count; idx++) {
+                        YTMULyricLine *line = [result.lines[idx] copy];
+                        line.romanizedText = idx < romanizedTexts.count ? romanizedTexts[idx] : @"";
+                        [lines addObject:line];
+                    }
+                    result.lines = lines;
+                }
                 if (translation.length) {
                     NSArray *translatedSynced = [YTMULRCParser parseLRC:translation];
                     NSMutableArray *translatedTexts = [NSMutableArray array];

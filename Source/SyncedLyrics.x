@@ -67,6 +67,62 @@ static NSString *YTMUStringFromObject(id object) {
     return @"";
 }
 
+static id YTMUObjectForKey(id object, NSString *key) {
+    if (!object || !key.length) return nil;
+    if ([object isKindOfClass:[NSDictionary class]]) return ((NSDictionary *)object)[key];
+    return YTMUSafeValueForKey(object, key);
+}
+
+static NSArray *YTMUArrayFromObject(id object) {
+    if ([object isKindOfClass:[NSArray class]]) return object;
+    if ([object isKindOfClass:[NSSet class]]) return [(NSSet *)object allObjects];
+    return nil;
+}
+
+static id YTMUFirstObjectAtKeys(id root, NSArray<NSString *> *keys) {
+    id current = root;
+    for (NSString *key in keys) {
+        current = YTMUObjectForKey(current, key);
+        if (!current) return nil;
+    }
+    return current;
+}
+
+static id YTMUMicroformatRendererFromPlayerResponse(id playerResponse) {
+    id playerData = YTMUObjectForKey(playerResponse, @"playerData");
+    id microformat = YTMUFirstObjectAtKeys(playerData, @[@"microformat", @"microformatDataRenderer"]) ?:
+                     YTMUFirstObjectAtKeys(playerResponse, @[@"microformat", @"microformatDataRenderer"]) ?:
+                     YTMUObjectForKey(playerData, @"microformat") ?:
+                     YTMUObjectForKey(playerResponse, @"microformat");
+    return microformat;
+}
+
+static NSString *YTMUAlternativeTitleFromMicroformat(id microformat, NSString *currentTitle) {
+    NSArray *linkAlternates = YTMUArrayFromObject(YTMUObjectForKey(microformat, @"linkAlternates"));
+    for (id link in linkAlternates ?: @[]) {
+        NSString *title = YTMUStringFromObject(YTMUObjectForKey(link, @"title"));
+        if (!title.length) continue;
+        if (currentTitle.length && [YTMULyricsCompactString(title) isEqualToString:YTMULyricsCompactString(currentTitle)]) continue;
+        return title;
+    }
+    return @"";
+}
+
+static NSArray<NSString *> *YTMUTagsFromMicroformat(id microformat) {
+    NSArray *rawTags = YTMUArrayFromObject(YTMUObjectForKey(microformat, @"tags"));
+    NSMutableArray<NSString *> *tags = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (id raw in rawTags ?: @[]) {
+        NSString *tag = YTMUStringFromObject(raw);
+        NSString *key = YTMULyricsCompactString(tag);
+        if (!tag.length || !key.length || [seen containsObject:key]) continue;
+        [seen addObject:key];
+        [tags addObject:tag];
+        if (tags.count >= 12) break;
+    }
+    return tags;
+}
+
 static YTPlayerViewController *YTMUPlayerFromCandidate(id candidate) {
     Class playerClass = NSClassFromString(@"YTPlayerViewController");
     if (playerClass && [candidate isKindOfClass:playerClass]) {
@@ -116,9 +172,15 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     id details = YTMUSafeValueForKey(playerData, @"videoDetails");
     NSString *title = YTMUStringFromObject(YTMUSafeValueForKey(details, @"title"));
     NSString *artist = YTMUStringFromObject(YTMUSafeValueForKey(details, @"author"));
+    NSString *album = YTMUStringFromObject(YTMUSafeValueForKey(details, @"album"));
+    id microformat = YTMUMicroformatRendererFromPlayerResponse(playerResponse);
+    NSString *alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
+    NSArray<NSString *> *tags = YTMUTagsFromMicroformat(microformat);
     NSDictionary *nowPlaying = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo ?: @{};
     if (!title.length) title = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyTitle]);
     if (!artist.length) artist = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyArtist]);
+    if (!album.length) album = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyAlbumTitle]);
+    if (!alternativeTitle.length) alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
     if (duration <= 0) duration = [nowPlaying[MPMediaItemPropertyPlaybackDuration] doubleValue];
 
     if (!videoId.length && !title.length) {
@@ -150,13 +212,15 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId title:title artist:artist];
 
     NSDictionary *flags = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    NSLog(@"[YTMULyrics] player metadata source=%@ player=%@ videoId=%@ title=%@ artist=%@ duration=%.1f master=%@ synced=%@ bilingual=%@",
+    NSLog(@"[YTMULyrics] player metadata source=%@ player=%@ videoId=%@ title=%@ alt=%@ artist=%@ duration=%.1f tags=%lu master=%@ synced=%@ bilingual=%@",
           source ?: @"<unknown>",
           YTMUClassAndPointer(player),
           videoId.length ? videoId : @"<empty>",
           title.length ? title : @"<empty>",
+          alternativeTitle.length ? alternativeTitle : @"<empty>",
           artist.length ? artist : @"<empty>",
           duration,
+          (unsigned long)tags.count,
           [flags[@"YTMUltimateIsEnabled"] boolValue] ? @"YES" : @"NO",
           [flags[@"syncedLyricsEnabled"] boolValue] ? @"YES" : @"NO",
           ([flags[@"lyricsTranslationEnabled"] boolValue] || [flags[@"bilingualLyrics"] boolValue]) ? @"YES" : @"NO");
@@ -164,9 +228,11 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     YTMULyricsSearchInfo *info = [[YTMULyricsSearchInfo alloc] init];
     info.videoId = videoId;
     info.title = title;
-    info.alternativeTitle = title;
+    info.alternativeTitle = alternativeTitle.length ? alternativeTitle : title;
     info.artist = artist;
+    info.album = album;
     info.duration = duration;
+    info.tags = tags ?: @[];
     [[YTMULyricsManager sharedManager] refreshWithInfo:info];
     return YES;
 }

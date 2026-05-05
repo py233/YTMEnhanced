@@ -239,7 +239,7 @@
 
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
-            completion(@"");
+            completion([YTMULyricsTextProcessor romanizeText:text]);
             return;
         }
         NSError *jsonError = nil;
@@ -282,10 +282,21 @@
         NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
         BOOL complete = YES;
         NSString *sourceLanguage = [self romanizationSourceLanguageForResult:current];
+        NSMutableArray<NSString *> *filledRomanized = [NSMutableArray arrayWithCapacity:sourceLines.count];
+        for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+            NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSString *value = idx < romanized.count ? romanized[idx] : @"";
+            if (![value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length &&
+                [YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) {
+                value = [YTMULyricsTextProcessor romanizeText:text];
+                if (!value.length) value = text;
+            }
+            [filledRomanized addObject:value ?: @""];
+        }
         for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
             NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
-            NSString *value = idx < romanized.count ? romanized[idx] : @"";
+            NSString *value = idx < filledRomanized.count ? filledRomanized[idx] : @"";
             if (![value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
                 complete = NO;
                 break;
@@ -293,7 +304,7 @@
         }
         NSMutableArray<NSString *> *lineTexts = [NSMutableArray arrayWithCapacity:sourceLines.count];
         for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
-            NSString *value = idx < romanized.count ? romanized[idx] : @"";
+            NSString *value = idx < filledRomanized.count ? filledRomanized[idx] : @"";
             [lineTexts addObject:complete && value.length ? value : @""];
         }
         current.romanizedLineTexts = lineTexts;
@@ -301,13 +312,13 @@
         NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:current.lines.count];
         for (NSUInteger idx = 0; idx < current.lines.count; idx++) {
             YTMULyricLine *line = [current.lines[idx] copy];
-            NSString *value = idx < romanized.count ? romanized[idx] : @"";
+            NSString *value = idx < filledRomanized.count ? filledRomanized[idx] : @"";
             line.romanizedText = complete && value.length ? value : @"";
             [lines addObject:line];
         }
         current.lines = lines;
         self.currentResult = current;
-        if (cacheKey.length) [self.romanizationMemoryCache setObject:romanized ?: @[] forKey:cacheKey];
+        if (cacheKey.length) [self.romanizationMemoryCache setObject:filledRomanized ?: @[] forKey:cacheKey];
         if (current.sourceName.length) {
             NSString *lyricsCacheKey = [YTMULyricsCache cacheKeyForInfo:info source:current.sourceName];
             [[YTMULyricsCache sharedCache] storeResult:current forKey:lyricsCacheKey];

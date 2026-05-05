@@ -33,6 +33,9 @@
                                                                                   error:nil];
     for (NSString *raw in rawLines) {
         NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        while ([line hasSuffix:@"\\"]) {
+            line = [[line substringToIndex:line.length - 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        }
         if (!line.length) continue;
         if ([line isEqualToString:@"\\"]) continue;
         if ([boilerplate firstMatchInString:line options:0 range:NSMakeRange(0, line.length)]) continue;

@@ -11,15 +11,23 @@
     return @{@"client": @{@"clientName": @"WEB_REMIX", @"clientVersion": @"1.20240501.01.00"}};
 }
 
+- (NSDictionary *)timedLyricsContext {
+    return @{@"client": @{@"clientName": @"26", @"clientVersion": @"7.01.05"}};
+}
+
 - (void)postPath:(NSString *)path body:(NSDictionary *)body completion:(void(^)(NSDictionary *json, NSError *error))completion {
     NSString *url = [NSString stringWithFormat:@"https://music.youtube.com/youtubei/v1/%@?prettyPrint=false", path];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    [self postURL:[NSURL URLWithString:url] body:body context:[self context] completion:completion];
+}
+
+- (void)postURL:(NSURL *)url body:(NSDictionary *)body context:(NSDictionary *)context completion:(void(^)(NSDictionary *json, NSError *error))completion {
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     request.HTTPMethod = @"POST";
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
     [request setValue:@"https://music.youtube.com/" forHTTPHeaderField:@"Referer"];
     NSMutableDictionary *full = [body mutableCopy];
-    full[@"context"] = [self context];
+    full[@"context"] = context ?: [self context];
     request.HTTPBody = [NSJSONSerialization dataWithJSONObject:full options:0 error:nil];
 
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -35,6 +43,22 @@
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         completion([json isKindOfClass:[NSDictionary class]] ? json : nil, error);
     }] resume];
+}
+
+- (void)fetchBrowse:(NSString *)browseId completion:(void(^)(NSDictionary *json, NSError *error))completion {
+    if (!browseId.length) {
+        completion(nil, nil);
+        return;
+    }
+
+    NSURL *proxyURL = [NSURL URLWithString:@"https://ytmbrowseproxy.zvz.be/browse?prettyPrint=false"];
+    [self postURL:proxyURL body:@{@"browseId": browseId} context:[self timedLyricsContext] completion:^(NSDictionary *json, NSError *error) {
+        if (json && !error) {
+            completion(json, nil);
+            return;
+        }
+        [self postPath:@"browse" body:@{@"browseId": browseId} completion:completion];
+    }];
 }
 
 - (NSString *)lyricsBrowseIdFromNext:(NSDictionary *)json {
@@ -148,7 +172,7 @@
             completion(nil, error);
             return;
         }
-        [self postPath:@"browse" body:@{@"browseId": browseId} completion:^(NSDictionary *browseJSON, NSError *browseError) {
+        [self fetchBrowse:browseId completion:^(NSDictionary *browseJSON, NSError *browseError) {
             YTMULyricsResult *result = browseError ? nil : [self resultFromBrowse:browseJSON info:info];
             if (result) {
                 YTMULyricsLog(@"YTMusic lyrics match videoId=%@ synced=%d lines=%lu",
