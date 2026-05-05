@@ -202,13 +202,15 @@
             YTMULyricsCompactString([lines componentsJoinedByString:@"|"] ?: @"")];
 }
 
-- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result sourceLines:(NSArray<NSString *> *)sourceLines {
+- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result
+                                                sourceLines:(NSArray<NSString *> *)sourceLines
+                                             sourceLanguage:(NSString *)sourceLanguage {
     NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
     [sourceLines enumerateObjectsUsingBlock:^(NSString *lineText, NSUInteger idx, BOOL *stop) {
         NSString *text = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         NSString *existing = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
         if (!text.length || existing.length) return;
-        if (![YTMULyricsTextProcessor hasRomanizableText:text]) return;
+        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) return;
         [items addObject:@{@"index": @(idx), @"text": text}];
     }];
     return items;
@@ -243,6 +245,7 @@
         NSError *jsonError = nil;
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
         NSString *romanized = json ? [YTMULyricsTextProcessor googleTransliterationFromJSON:json] : @"";
+        if (!romanized.length) romanized = [YTMULyricsTextProcessor romanizeText:text];
         completion(romanized ?: @"");
     }] resume];
 }
@@ -278,9 +281,10 @@
         YTMULyricsResult *current = [self.currentResult copy];
         NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
         BOOL complete = YES;
+        NSString *sourceLanguage = [self romanizationSourceLanguageForResult:current];
         for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
             NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+            if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
             NSString *value = idx < romanized.count ? romanized[idx] : @"";
             if (![value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
                 complete = NO;
@@ -322,7 +326,8 @@
     NSArray<NSString *> *source = [result lineTexts] ?: @[];
     if (!source.count) return;
 
-    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result sourceLines:source];
+    NSString *sourceLanguage = [self romanizationSourceLanguageForResult:result];
+    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result sourceLines:source sourceLanguage:sourceLanguage];
     if (!items.count) return;
 
     NSString *cacheKey = [self romanizationCacheKeyForResult:result info:info lines:source];
@@ -339,7 +344,6 @@
     }
 
     NSUInteger limit = MIN(items.count, (NSUInteger)80);
-    NSString *sourceLanguage = [self romanizationSourceLanguageForResult:result];
     [self fetchGoogleRomanizationItems:items position:0 limit:limit sourceLanguage:sourceLanguage romanized:romanized completion:^(NSArray<NSString *> *values) {
         [self applyRomanizedLines:values generation:generation info:info cacheKey:cacheKey];
     }];

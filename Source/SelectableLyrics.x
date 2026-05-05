@@ -111,14 +111,22 @@ static void YTMULyricsPageSetBaseFontSize(CGFloat size) {
     YTMULyricsPageSetSetting(@"lyricsFontPointSize", @(llround(YTMULyricsPageClampFontSize(size))));
 }
 
+static NSString *YTMULyricsPageRomanizationLanguageForResult(YTMULyricsResult *result) {
+    for (NSString *line in result.lineTexts ?: @[]) {
+        if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) return @"ja";
+    }
+    return @"auto";
+}
+
 static BOOL YTMULyricsPageResultHasCompleteRomanization(YTMULyricsResult *result) {
     NSArray<NSString *> *sourceLines = result.lineTexts ?: @[];
     if (!sourceLines.count) return NO;
 
     BOOL needsRomanization = NO;
+    NSString *sourceLanguage = YTMULyricsPageRomanizationLanguageForResult(result);
     for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
         NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
         needsRomanization = YES;
         NSString *roman = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
         if (![roman stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {

@@ -25,7 +25,57 @@
     return [[self stringByDecodingHTML:stripped] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+- (NSString *)cleanExtractedLyrics:(NSString *)lyrics {
+    NSArray<NSString *> *rawLines = [lyrics componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    NSRegularExpression *boilerplate = [NSRegularExpression regularExpressionWithPattern:@"^(\\d+\\s*)?(contributors?|translations?|english|romanization|romanized|you might also like|embed|read more|lyrics)$|contributors?.*translations?.*romanization|^see .+ live|get tickets as low as|^\\d+embed$"
+                                                                                options:NSRegularExpressionCaseInsensitive
+                                                                                  error:nil];
+    for (NSString *raw in rawLines) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!line.length) continue;
+        if ([line isEqualToString:@"\\"]) continue;
+        if ([boilerplate firstMatchInString:line options:0 range:NSMakeRange(0, line.length)]) continue;
+        [lines addObject:line];
+    }
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+- (NSString *)decodeGeniusEscapedHTML:(NSString *)encoded {
+    NSString *out = encoded ?: @"";
+    out = [out stringByReplacingOccurrencesOfString:@"\\\\/" withString:@"/"];
+    out = [out stringByReplacingOccurrencesOfString:@"\\\\n" withString:@"\n"];
+    out = [out stringByReplacingOccurrencesOfString:@"\\n" withString:@"\n"];
+    out = [out stringByReplacingOccurrencesOfString:@"\\'" withString:@"'"];
+    out = [out stringByReplacingOccurrencesOfString:@"\\\"" withString:@"\""];
+    out = [out stringByReplacingOccurrencesOfString:@"\\\\" withString:@"\\"];
+    return out;
+}
+
+- (NSString *)extractLyricsFromPreloadedState:(NSString *)html {
+    NSRegularExpression *stateRegex = [NSRegularExpression regularExpressionWithPattern:@"__PRELOADED_STATE__\\s*=\\s*JSON\\.parse\\('(.*?)'\\);"
+                                                                                options:NSRegularExpressionDotMatchesLineSeparators
+                                                                                  error:nil];
+    NSTextCheckingResult *stateMatch = [stateRegex firstMatchInString:html options:0 range:NSMakeRange(0, html.length)];
+    if (!stateMatch || stateMatch.numberOfRanges < 2) return @"";
+
+    NSString *state = [html substringWithRange:[stateMatch rangeAtIndex:1]];
+    state = [state stringByReplacingOccurrencesOfString:@"\\\"" withString:@"\""];
+    NSRegularExpression *preload = [NSRegularExpression regularExpressionWithPattern:@"body\"\\s*:\\s*\\{\\s*\"html\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"children\""
+                                                                             options:NSRegularExpressionDotMatchesLineSeparators
+                                                                               error:nil];
+    NSTextCheckingResult *match = [preload firstMatchInString:state options:0 range:NSMakeRange(0, state.length)];
+    if (!match || match.numberOfRanges < 2) return @"";
+
+    NSString *encoded = [state substringWithRange:[match rangeAtIndex:1]];
+    NSString *plain = [self stripHTML:[self decodeGeniusEscapedHTML:encoded]];
+    return [self cleanExtractedLyrics:plain];
+}
+
 - (NSString *)extractLyricsFromHTML:(NSString *)html {
+    NSString *preloaded = [self extractLyricsFromPreloadedState:html];
+    if (preloaded.length) return preloaded;
+
     NSRegularExpression *dataLyrics = [NSRegularExpression regularExpressionWithPattern:@"<div[^>]+data-lyrics-container=\"true\"[^>]*>(.*?)</div>"
                                                                                 options:NSRegularExpressionDotMatchesLineSeparators | NSRegularExpressionCaseInsensitive
                                                                                   error:nil];
@@ -33,23 +83,47 @@
     NSMutableArray *parts = [NSMutableArray array];
     for (NSTextCheckingResult *match in matches) {
         NSString *fragment = [html substringWithRange:[match rangeAtIndex:1]];
+        if ([fragment rangeOfString:@"data-exclude-from-selection" options:NSCaseInsensitiveSearch].location != NSNotFound) continue;
         NSString *plain = [self stripHTML:fragment];
+        plain = [self cleanExtractedLyrics:plain];
         if (plain.length) [parts addObject:plain];
     }
     if (parts.count) return [parts componentsJoinedByString:@"\n"];
-
-    NSRegularExpression *preload = [NSRegularExpression regularExpressionWithPattern:@"body\"\\s*:\\s*\\{\\s*\"html\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"children\""
-                                                                             options:NSRegularExpressionDotMatchesLineSeparators
-                                                                               error:nil];
-    NSTextCheckingResult *match = [preload firstMatchInString:html options:0 range:NSMakeRange(0, html.length)];
-    if (match.numberOfRanges >= 2) {
-        NSString *encoded = [html substringWithRange:[match rangeAtIndex:1]];
-        encoded = [encoded stringByReplacingOccurrencesOfString:@"\\\\n" withString:@"\n"];
-        encoded = [encoded stringByReplacingOccurrencesOfString:@"\\\"" withString:@"\""];
-        encoded = [encoded stringByReplacingOccurrencesOfString:@"\\\\/" withString:@"/"];
-        return [self stripHTML:encoded];
-    }
     return @"";
+}
+
+- (BOOL)isTranslationOrRomanizationHit:(NSDictionary *)result {
+    NSString *title = YTMULyricsJSONStringAtPath(result, @[@"title"]) ?: @"";
+    NSString *fullTitle = YTMULyricsJSONStringAtPath(result, @[@"full_title"]) ?: @"";
+    NSString *artist = YTMULyricsJSONStringAtPath(result, @[@"primary_artist", @"name"]) ?: @"";
+    NSString *path = YTMULyricsJSONStringAtPath(result, @[@"path"]) ?: @"";
+    NSString *haystack = [@[title, fullTitle, artist, path] componentsJoinedByString:@" "].lowercaseString;
+    return [haystack rangeOfString:@"romanization"].location != NSNotFound ||
+           [haystack rangeOfString:@"romanized"].location != NSNotFound ||
+           [haystack rangeOfString:@"translation"].location != NSNotFound ||
+           [haystack rangeOfString:@"translations"].location != NSNotFound ||
+           [artist.lowercaseString hasPrefix:@"genius "];
+}
+
+- (CGFloat)scoreSearchResult:(NSDictionary *)result info:(YTMULyricsSearchInfo *)info {
+    NSString *title = YTMULyricsJSONStringAtPath(result, @[@"title"]) ?: @"";
+    NSString *titleWithFeatured = YTMULyricsJSONStringAtPath(result, @[@"title_with_featured"]) ?: title;
+    NSString *artist = YTMULyricsJSONStringAtPath(result, @[@"primary_artist", @"name"]) ?: @"";
+    NSString *artistNames = YTMULyricsJSONStringAtPath(result, @[@"artist_names"]) ?: artist;
+    NSString *path = YTMULyricsJSONStringAtPath(result, @[@"path"]) ?: @"";
+
+    CGFloat titleScore = MAX(YTMULyricsSimilarity(info.title, title), YTMULyricsSimilarity(info.alternativeTitle, title));
+    titleScore = MAX(titleScore, YTMULyricsSimilarity(info.title, titleWithFeatured));
+    CGFloat artistScore = MAX(YTMULyricsSimilarity(info.artist, artist), YTMULyricsSimilarity(info.artist, artistNames));
+    for (NSString *tag in info.tags ?: @[]) {
+        artistScore = MAX(artistScore, MAX(YTMULyricsSimilarity(tag, artist), YTMULyricsSimilarity(tag, artistNames)));
+    }
+
+    CGFloat score = titleScore * 1.5 + artistScore * 0.9;
+    if (path.length && ![self isTranslationOrRomanizationHit:result]) score += 0.25;
+    if ([self isTranslationOrRomanizationHit:result]) score -= 1.4;
+    if ([path hasSuffix:@"-lyrics"] && [path rangeOfString:@"-romanized-lyrics"].location == NSNotFound) score += 0.15;
+    return score;
 }
 
 - (BOOL)lyricsTextLooksUsable:(NSString *)lyrics info:(YTMULyricsSearchInfo *)info {
@@ -98,21 +172,19 @@
             return;
         }
         NSDictionary *best = nil;
-        CGFloat bestScore = 0;
+        CGFloat bestScore = -CGFLOAT_MAX;
         for (id hit in hits) {
             NSDictionary *result = YTMULyricsJSONDictionaryAtPath(hit, @[@"result"]);
-            NSString *title = YTMULyricsJSONStringAtPath(result, @[@"title"]);
-            NSString *artist = YTMULyricsJSONStringAtPath(result, @[@"primary_artist", @"name"]);
             NSString *path = YTMULyricsJSONStringAtPath(result, @[@"path"]);
             if (![path isKindOfClass:[NSString class]]) continue;
-            CGFloat score = YTMULyricsSimilarity(info.title, title) * 1.4 + YTMULyricsSimilarity(info.artist, artist) * 0.8;
+            CGFloat score = [self scoreSearchResult:result info:info];
             if (score > bestScore) {
                 bestScore = score;
                 best = result;
             }
         }
         NSString *path = YTMULyricsJSONStringAtPath(best, @[@"path"]);
-        if (!path.length || bestScore < 0.75) {
+        if (!path.length || bestScore < 0.75 || [self isTranslationOrRomanizationHit:best]) {
             completion(nil, nil);
             return;
         }

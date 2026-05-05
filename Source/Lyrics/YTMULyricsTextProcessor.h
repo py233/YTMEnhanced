@@ -11,6 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)hasChinese:(NSString *)text;
 + (BOOL)hasJapaneseKana:(NSString *)text;
 + (BOOL)hasRomanizableText:(NSString *)text;
++ (BOOL)hasCJKIdeograph:(NSString *)text;
++ (BOOL)needsRomanizationForText:(NSString *)text preferredLanguage:(NSString *)language;
 @end
 
 NS_ASSUME_NONNULL_END
