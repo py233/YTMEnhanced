@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <MediaPlayer/MediaPlayer.h>
 #import <objc/runtime.h>
 #import <substrate.h>
 #import "Headers/YTPlayerViewController.h"
@@ -11,6 +12,11 @@
 static BOOL YTMUSyncedLyricsEnabled(void) {
     NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
     return [dict[@"YTMUltimateIsEnabled"] boolValue] && [dict[@"syncedLyricsEnabled"] boolValue];
+}
+
+static BOOL YTMUArtworkLyricsOverlayEnabled(void) {
+    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
+    return [dict[@"lyricsArtworkOverlayEnabled"] boolValue];
 }
 
 static void YTMULogOfficialLyricsProbe(id object, NSString *event, NSString *source, NSData *data, NSString *entityKey) {
@@ -108,6 +114,10 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     id details = YTMUSafeValueForKey(playerData, @"videoDetails");
     NSString *title = YTMUStringFromObject(YTMUSafeValueForKey(details, @"title"));
     NSString *artist = YTMUStringFromObject(YTMUSafeValueForKey(details, @"author"));
+    NSDictionary *nowPlaying = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo ?: @{};
+    if (!title.length) title = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyTitle]);
+    if (!artist.length) artist = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyArtist]);
+    if (duration <= 0) duration = [nowPlaying[MPMediaItemPropertyPlaybackDuration] doubleValue];
 
     if (!videoId.length && !title.length) {
         static NSMutableSet<NSString *> *missingSources;
@@ -389,6 +399,14 @@ static void YTMUInstallDynamicHooks(void) {
 
 %new
 - (void)ytmu_attachSyncedLyricsViewIfNeeded {
+    if (!YTMUArtworkLyricsOverlayEnabled()) {
+        if (self.ytmuSyncedLyricsView) {
+            self.ytmuSyncedLyricsView.hidden = YES;
+            [self.ytmuSyncedLyricsView removeFromSuperview];
+            self.ytmuSyncedLyricsView = nil;
+        }
+        return;
+    }
     if (!YTMUSyncedLyricsEnabled()) {
         self.ytmuSyncedLyricsView.hidden = YES;
         return;
@@ -528,6 +546,7 @@ static void YTMUInstallDynamicHooks(void) {
     YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
     YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", @(NO));
+    YTMULyricsSetDefault(dict, @"lyricsArtworkOverlayEnabled", @(NO));
     [defaults setObject:dict forKey:@"YTMUltimate"];
     %init;
     YTMULogRuntimeDiagnostics();
