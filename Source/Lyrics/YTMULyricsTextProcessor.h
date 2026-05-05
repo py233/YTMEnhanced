@@ -7,7 +7,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSString *)simplifyUnicode:(NSString *)text;
 + (NSString *)convertChineseText:(NSString *)text mode:(NSString *)mode;
 + (NSString *)romanizeText:(NSString *)text;
++ (NSString *)googleTransliterationFromJSON:(id)json;
 + (BOOL)hasChinese:(NSString *)text;
++ (BOOL)hasJapaneseKana:(NSString *)text;
 + (BOOL)hasRomanizableText:(NSString *)text;
 @end
 

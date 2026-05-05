@@ -3,6 +3,7 @@
 #import "Headers/YTPlayerViewController.h"
 #import "Headers/YTIFormattedString.h"
 #import "Lyrics/YTMULyricsManager.h"
+#import "Lyrics/YTMUSyncedLyricsView.h"
 #import "Lyrics/YTMULyricsTextProcessor.h"
 #import "Translation/YTMUTranslationContext.h"
 #import "Translation/YTMUTranslationTypes.h"
@@ -170,7 +171,9 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
         appendLine(source, mainFont, primary, mainParagraph);
 
         if (romanization) {
-            NSString *roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
+            NSString *roman = @"";
+            if (idx < result.lines.count) roman = result.lines[idx].romanizedText ?: @"";
+            if (!roman.length) roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
             BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
             if (roman.length && !same) appendLine(roman, romanFont, secondary, secondaryParagraph);
         }
@@ -215,7 +218,9 @@ static NSString *YTMULyricsPagePlainDisplayText(NSString *fallbackText) {
         if (source.length) [lines addObject:source];
 
         if (romanization) {
-            NSString *roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
+            NSString *roman = @"";
+            if (idx < result.lines.count) roman = result.lines[idx].romanizedText ?: @"";
+            if (!roman.length) roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
             BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
             if (roman.length && !same) [lines addObject:roman];
         }
@@ -297,6 +302,18 @@ static UIView *YTMULyricsPageActionTargetForView(UIView *view) {
         candidate = candidate.superview;
     }
     return view;
+}
+
+static YTPlayerViewController *YTMULyricsPagePlayerFromCandidate(id candidate) {
+    Class playerClass = NSClassFromString(@"YTPlayerViewController");
+    if (playerClass && [candidate isKindOfClass:playerClass]) return candidate;
+
+    id player = YTMULyricsPageSafeValueForKey(candidate, @"playerViewController");
+    if (playerClass && [player isKindOfClass:playerClass]) return player;
+
+    id parent = YTMULyricsPageSafeValueForKey(candidate, @"parentViewController");
+    if (parent && parent != candidate) return YTMULyricsPagePlayerFromCandidate(parent);
+    return nil;
 }
 
 static void YTMULyricsPageHideOfficialActionsInView(UIView *view, UIView *replacementRoot) {
@@ -422,8 +439,10 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 @property (retain, nonatomic) UIScrollView *sourceScrollView;
 @property (retain, nonatomic) NSArray *sourceButtons;
 @property (retain, nonatomic) UITextView *lyricsTextView;
+@property (retain, nonatomic) YTMUSyncedLyricsView *syncedLyricsView;
 @property (retain, nonatomic) UILabel *attributionLabel;
 @property (copy, nonatomic) NSString *lastRenderSignature;
+@property (assign, nonatomic) YTPlayerViewController *playerViewController;
 - (void)ytmu_renderTabOverlay;
 - (void)ytmu_layoutSourceButtons;
 - (void)ytmu_updateSourceButtons;
@@ -474,6 +493,11 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         self.lyricsTextView.textColor = [UIColor whiteColor];
         [self addSubview:self.lyricsTextView];
 
+        self.syncedLyricsView = [[YTMUSyncedLyricsView alloc] initWithFrame:CGRectZero];
+        self.syncedLyricsView.backgroundColor = [UIColor clearColor];
+        self.syncedLyricsView.hidden = YES;
+        [self addSubview:self.syncedLyricsView];
+
         UISwipeGestureRecognizer *left = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_cycleLyricsSource:)];
         left.direction = UISwipeGestureRecognizerDirectionLeft;
         [self.lyricsTextView addGestureRecognizer:left];
@@ -521,6 +545,7 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
                                            textY,
                                            self.bounds.size.width - sideInset * 2.0,
                                            MAX(80.0, attributionY - textY - 10.0));
+    self.syncedLyricsView.frame = self.lyricsTextView.frame;
     self.attributionLabel.frame = CGRectMake(sideInset, attributionY, self.bounds.size.width - sideInset * 2.0, attributionHeight);
     [self ytmu_layoutSourceButtons];
 }
@@ -531,12 +556,20 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         return;
     }
 
-    self.lyricsTextView.attributedText = YTMULyricsPageAttributedText(self.lyricsTextView, @"");
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    BOOL useSynced = manager.currentResult.isSynced && manager.state == YTMULyricsFetchStateDone;
+    self.lyricsTextView.hidden = useSynced;
+    self.syncedLyricsView.hidden = !useSynced;
+    self.syncedLyricsView.playerViewController = self.playerViewController;
+    if (useSynced) {
+        [self.syncedLyricsView reloadFromManager];
+    } else {
+        self.lyricsTextView.attributedText = YTMULyricsPageAttributedText(self.lyricsTextView, @"");
+    }
     self.attributionLabel.text = YTMULyricsPageAttributionText();
     [self ytmu_updateSourceButtons];
     [self setNeedsLayout];
 
-    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     NSString *signature = [NSString stringWithFormat:@"%ld|%@|%lu|%lu|%@",
                            (long)manager.state,
                            manager.currentResult.sourceName ?: @"<none>",
@@ -617,6 +650,7 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 @interface YTMULyricsPanelViewController : UIViewController
 @property (retain, nonatomic) YTMULyricsTabOverlayView *lyricsOverlayView;
 @property (retain, nonatomic) UIButton *closeButton;
+@property (assign, nonatomic) YTPlayerViewController *playerViewController;
 @end
 
 @implementation YTMULyricsPanelViewController
@@ -633,6 +667,7 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     [self.view addSubview:self.closeButton];
 
     self.lyricsOverlayView = [[YTMULyricsTabOverlayView alloc] initWithFrame:CGRectZero];
+    self.lyricsOverlayView.playerViewController = self.playerViewController;
     [self.view addSubview:self.lyricsOverlayView];
     [self.lyricsOverlayView ytmu_renderTabOverlay];
 }
@@ -710,6 +745,7 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 
     CGFloat bottom = YTMULyricsPageTabContentBottom(self.view);
     self.ytmuLyricsTabOverlayView.hidden = NO;
+    self.ytmuLyricsTabOverlayView.playerViewController = YTMULyricsPagePlayerFromCandidate(self);
     self.ytmuLyricsTabOverlayView.frame = CGRectMake(0.0, 0.0, self.view.bounds.size.width, bottom);
     self.ytmuLyricsTabOverlayView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleBottomMargin;
     [self.view bringSubviewToFront:self.ytmuLyricsTabOverlayView];
@@ -765,6 +801,7 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 
 @interface YTMNowPlayingViewController : UIViewController
 @property (retain, nonatomic) UIButton *ytmuLyricsEntryButton;
+@property (assign, nonatomic) UIView *ytmuOfficialLyricsEntryView;
 - (void)ytmu_updateLyricsEntryButton;
 - (void)ytmu_openLyricsPanel:(id)sender;
 @end
@@ -796,9 +833,47 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
     return nil;
 }
 
+static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteger depth) {
+    if (!view || view.hidden || view.alpha <= 0.03 || depth > 18) return nil;
+    NSString *identifier = view.accessibilityIdentifier;
+    if ([identifier isKindOfClass:[NSString class]] && [identifier isEqualToString:@"ytmu.lyrics.entry"]) return nil;
+
+    UIView *best = nil;
+    NSString *text = YTMULyricsPageAccessibilityText(view);
+    CGRect frame = [view convertRect:view.bounds toView:root];
+    BOOL chipSized = frame.size.width >= 52.0 &&
+                     frame.size.width <= 230.0 &&
+                     frame.size.height >= 26.0 &&
+                     frame.size.height <= 58.0 &&
+                     CGRectGetMidY(frame) >= root.bounds.size.height * 0.32 &&
+                     CGRectGetMidY(frame) <= root.bounds.size.height * 0.82 &&
+                     CGRectIntersectsRect(root.bounds, frame);
+    BOOL chipText = [text containsString:@"mix"] ||
+                    [text containsString:@"live chat"] ||
+                    [text containsString:@"replay"] ||
+                    [text containsString:@"comment"] ||
+                    [text containsString:@"混音"] ||
+                    [text containsString:@"聊天"];
+    if (chipSized && chipText) best = view;
+
+    for (UIView *subview in view.subviews) {
+        UIView *candidate = YTMULyricsPageFindChipAnchor(subview, root, depth + 1);
+        if (!candidate) continue;
+        if (!best) {
+            best = candidate;
+            continue;
+        }
+        CGRect bestFrame = [best convertRect:best.bounds toView:root];
+        CGRect candidateFrame = [candidate convertRect:candidate.bounds toView:root];
+        if (CGRectGetMaxX(candidateFrame) > CGRectGetMaxX(bestFrame)) best = candidate;
+    }
+    return best;
+}
+
 %hook YTMNowPlayingViewController
 
 %property (retain, nonatomic) UIButton *ytmuLyricsEntryButton;
+%property (assign, nonatomic) UIView *ytmuOfficialLyricsEntryView;
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
@@ -814,6 +889,9 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
 - (void)ytmu_updateLyricsEntryButton {
     if (!YTMULyricsPageCustomSourceEnabled()) {
         self.ytmuLyricsEntryButton.hidden = YES;
+        self.ytmuOfficialLyricsEntryView.hidden = NO;
+        self.ytmuOfficialLyricsEntryView.alpha = 1.0;
+        self.ytmuOfficialLyricsEntryView.userInteractionEnabled = YES;
         return;
     }
 
@@ -824,10 +902,9 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
         [self.ytmuLyricsEntryButton setTitle:@"Lyrics" forState:UIControlStateNormal];
         self.ytmuLyricsEntryButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
         [self.ytmuLyricsEntryButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        self.ytmuLyricsEntryButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.42];
+        self.ytmuLyricsEntryButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.16];
         self.ytmuLyricsEntryButton.layer.cornerRadius = 17.0;
-        self.ytmuLyricsEntryButton.layer.borderWidth = 1.0;
-        self.ytmuLyricsEntryButton.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.28].CGColor;
+        self.ytmuLyricsEntryButton.layer.borderWidth = 0.0;
         self.ytmuLyricsEntryButton.clipsToBounds = YES;
         [self.ytmuLyricsEntryButton addTarget:self action:@selector(ytmu_openLyricsPanel:) forControlEvents:UIControlEventTouchUpInside];
         [self.view addSubview:self.ytmuLyricsEntryButton];
@@ -838,26 +915,54 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
     if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
     CGFloat width = 86.0;
     CGFloat height = 34.0;
+    if (self.ytmuOfficialLyricsEntryView && [self.ytmuOfficialLyricsEntryView isDescendantOfView:self.view]) {
+        self.ytmuOfficialLyricsEntryView.hidden = NO;
+        self.ytmuOfficialLyricsEntryView.alpha = 1.0;
+        self.ytmuOfficialLyricsEntryView.userInteractionEnabled = YES;
+    }
     UIView *official = YTMULyricsPageFindOfficialLyricsEntry(self.view, self.view, 0);
     CGRect frame = CGRectZero;
     if (official) {
-        CGRect officialFrame = [official convertRect:official.bounds toView:self.view];
-        CGFloat x = CGRectGetMinX(officialFrame) - width - 8.0;
-        if (x < safe.left + 12.0 && CGRectGetMaxX(officialFrame) + 8.0 + width <= self.view.bounds.size.width - safe.right - 12.0) {
-            x = CGRectGetMaxX(officialFrame) + 8.0;
+        UIView *target = YTMULyricsPageActionTargetForView(official);
+        self.ytmuOfficialLyricsEntryView = target;
+        CGRect officialFrame = [target convertRect:target.bounds toView:self.view];
+        frame = officialFrame;
+        if (frame.size.width < 72.0 || frame.size.width > 180.0) {
+            frame = CGRectMake(CGRectGetMinX(officialFrame),
+                               CGRectGetMidY(officialFrame) - height / 2.0,
+                               width,
+                               height);
         }
-        x = MAX(safe.left + 12.0, MIN(x, self.view.bounds.size.width - safe.right - width - 12.0));
-        frame = CGRectMake(x, CGRectGetMidY(officialFrame) - height / 2.0, width, height);
     } else {
-        frame = CGRectMake(self.view.bounds.size.width - safe.right - width - 16.0,
-                           safe.top + 96.0,
-                           width,
-                           height);
+        UIView *anchor = YTMULyricsPageFindChipAnchor(self.view, self.view, 0);
+        if (anchor) {
+            CGRect anchorFrame = [YTMULyricsPageActionTargetForView(anchor) convertRect:YTMULyricsPageActionTargetForView(anchor).bounds toView:self.view];
+            CGFloat x = CGRectGetMaxX(anchorFrame) + 8.0;
+            if (x + width > self.view.bounds.size.width - safe.right - 12.0) {
+                x = self.view.bounds.size.width - safe.right - width - 12.0;
+            }
+            frame = CGRectMake(MAX(safe.left + 12.0, x),
+                               CGRectGetMidY(anchorFrame) - height / 2.0,
+                               width,
+                               height);
+        } else {
+            CGFloat y = self.view.bounds.size.height * 0.64;
+            frame = CGRectMake(self.view.bounds.size.width - safe.right - width - 16.0,
+                               y,
+                               width,
+                               height);
+        }
     }
 
     self.ytmuLyricsEntryButton.hidden = self.view.bounds.size.height < 360.0;
     self.ytmuLyricsEntryButton.frame = frame;
+    self.ytmuLyricsEntryButton.layer.cornerRadius = MIN(18.0, frame.size.height / 2.0);
     [self.view bringSubviewToFront:self.ytmuLyricsEntryButton];
+    if (self.ytmuOfficialLyricsEntryView && [self.ytmuOfficialLyricsEntryView isDescendantOfView:self.view]) {
+        self.ytmuOfficialLyricsEntryView.hidden = YES;
+        self.ytmuOfficialLyricsEntryView.alpha = 0.0;
+        self.ytmuOfficialLyricsEntryView.userInteractionEnabled = NO;
+    }
 }
 
 %new
@@ -867,6 +972,7 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
     if ([presenter isKindOfClass:[YTMULyricsPanelViewController class]]) return;
 
     YTMULyricsPanelViewController *controller = [[YTMULyricsPanelViewController alloc] init];
+    controller.playerViewController = YTMULyricsPagePlayerFromCandidate(self);
     controller.modalPresentationStyle = UIModalPresentationPageSheet;
     [presenter presentViewController:controller animated:YES completion:nil];
     YTMULyricsLog(@"lyrics panel presented from=%@", NSStringFromClass([presenter class]));

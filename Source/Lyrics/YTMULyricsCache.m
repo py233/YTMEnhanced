@@ -65,7 +65,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
                              YTMULyricsCompactString(info.title ?: @""),
                              YTMULyricsCompactString(info.artist ?: @""),
                              @((NSInteger)llround(info.duration ?: 0)).stringValue] componentsJoinedByString:@"::"];
-    return [NSString stringWithFormat:@"lyrics-v1::%@", signature];
+    return [NSString stringWithFormat:@"lyrics-v2::%@", signature];
 }
 
 - (NSString *)cacheDirectory {
@@ -98,6 +98,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
                       [YTMULyricLine class],
                       [NSArray class],
                       [NSString class],
+                      [NSNumber class],
                       nil];
     YTMULyricsResult *result = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:&error];
     if (!result || error) {

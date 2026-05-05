@@ -33,6 +33,10 @@
     return [text rangeOfString:@"[\\u4E00-\\u9FFF]" options:NSRegularExpressionSearch].location != NSNotFound;
 }
 
++ (BOOL)hasJapaneseKana:(NSString *)text {
+    return [text rangeOfString:@"[\\u3040-\\u30ff]" options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
 + (BOOL)hasRomanizableText:(NSString *)text {
     return [text rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]"
                       options:NSRegularExpressionSearch].location != NSNotFound;
@@ -56,16 +60,34 @@
     if (!mutable.length) return @"";
 
     if ([self hasChinese:mutable]) {
-        CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformMandarinLatin, NO);
-    } else {
-        CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformToLatin, NO);
+        return @"";
     }
+
+    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformToLatin, NO);
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformStripCombiningMarks, NO);
 
     NSString *out = mutable.lowercaseString;
     NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
     out = [spaces stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
     return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
++ (NSString *)googleTransliterationFromJSON:(id)json {
+    NSMutableString *text = [NSMutableString string];
+
+    if ([json isKindOfClass:[NSDictionary class]]) {
+        NSArray *sentences = ((NSDictionary *)json)[@"sentences"];
+        if ([sentences isKindOfClass:[NSArray class]]) {
+            for (id sentence in sentences) {
+                if (![sentence isKindOfClass:[NSDictionary class]]) continue;
+                NSString *part = ((NSDictionary *)sentence)[@"src_translit"];
+                if ([part isKindOfClass:[NSString class]]) [text appendString:part];
+            }
+        }
+    }
+
+    NSString *out = [self canonicalize:text];
+    return [[out lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
 @end

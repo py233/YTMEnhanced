@@ -52,6 +52,37 @@
     return @"";
 }
 
+- (BOOL)lyricsTextLooksUsable:(NSString *)lyrics info:(YTMULyricsSearchInfo *)info {
+    if (!lyrics.length) return NO;
+    NSString *lower = lyrics.lowercaseString;
+    if ([[lower stringByReplacingOccurrencesOfString:@"[" withString:@""] containsString:@"instrumental"]) return NO;
+
+    NSArray<NSString *> *rawLines = [lyrics componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (NSString *raw in rawLines) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (line.length) [lines addObject:line];
+    }
+    if (lines.count < 4) return NO;
+
+    NSUInteger lyricLikeLines = 0;
+    NSUInteger boilerplateLines = 0;
+    NSRegularExpression *boilerplate = [NSRegularExpression regularExpressionWithPattern:@"^(\\d+\\s*)?(contributors?|translations?|you might also like|embed|read more|lyrics)$|contributors?.*lyrics$|^see .+ live|get tickets as low as"
+                                                                                options:NSRegularExpressionCaseInsensitive
+                                                                                  error:nil];
+    for (NSUInteger idx = 0; idx < MIN((NSUInteger)8, lines.count); idx++) {
+        NSString *line = lines[idx];
+        if ([boilerplate firstMatchInString:line options:0 range:NSMakeRange(0, line.length)]) boilerplateLines++;
+        if (line.length >= 8 && ![line.lowercaseString hasSuffix:@" lyrics"]) lyricLikeLines++;
+    }
+
+    NSString *compactLyrics = YTMULyricsCompactString([lines componentsJoinedByString:@" "]);
+    NSString *compactTitle = YTMULyricsCompactString([NSString stringWithFormat:@"%@ lyrics", info.title ?: @""]);
+    if (compactTitle.length && [compactLyrics isEqualToString:compactTitle]) return NO;
+    if (boilerplateLines >= 2 && lyricLikeLines <= 3) return NO;
+    return YES;
+}
+
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     NSString *query = YTMULyricsEncodeQuery([NSString stringWithFormat:@"%@ %@", info.artist ?: @"", info.title ?: @""]);
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://genius.com/api/search/song?q=%@&page=1&per_page=10", query]];
@@ -89,7 +120,8 @@
         [[[NSURLSession sharedSession] dataTaskWithURL:pageURL completionHandler:^(NSData *htmlData, NSURLResponse *htmlResponse, NSError *htmlError) {
             NSString *html = htmlData ? [[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding] : @"";
             NSString *lyrics = [self extractLyricsFromHTML:html];
-            if (!lyrics.length || [[lyrics.lowercaseString stringByReplacingOccurrencesOfString:@"[" withString:@""] containsString:@"instrumental"]) {
+            if (![self lyricsTextLooksUsable:lyrics info:info]) {
+                YTMULyricsLog(@"Genius rejected non-lyric page title=%@ extracted=%@", info.title, [lyrics substringToIndex:MIN((NSUInteger)80, lyrics.length)] ?: @"");
                 completion(nil, htmlError);
                 return;
             }

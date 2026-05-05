@@ -25,6 +25,7 @@ typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
 @property (nonatomic) NSTimeInterval timeInMs;
 @property (nonatomic) NSTimeInterval durationMs;
 @property (nonatomic, copy) NSString *text;
+@property (nonatomic, copy) NSString *romanizedText;
 + (instancetype)lineWithTime:(NSString *)time
                     timeInMs:(NSTimeInterval)timeInMs
                   durationMs:(NSTimeInterval)durationMs
