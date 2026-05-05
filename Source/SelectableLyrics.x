@@ -238,9 +238,17 @@ static void YTMULyricsPageHideOfficialActionsInView(UIView *view, UIView *replac
 }
 
 static const NSInteger YTMULyricsPageOverlayTag = 0x59544D55;
+static const NSInteger YTMULyricsEntryButtonTag = 0x59544D56;
 static char YTMULyricsPageOverlayKey;
 static char YTMULyricsPageWindowOverlayKey;
+static char YTMULyricsEntryButtonKey;
 static CFTimeInterval YTMULyricsPageWindowOverlayForcedUntil = 0;
+
+static BOOL YTMULyricsPageWindowOverlayForced(void);
+static BOOL YTMULyricsPageWindowHasLyricsSignals(UIWindow *window, BOOL requireAction, BOOL *hasTitleOut, BOOL *hasActionOut, NSUInteger *textCountOut);
+static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced);
+static void YTMULyricsPageInstallCustomLyricsEntryButtons(void);
+static void YTMULyricsPagePresentStandaloneController(void);
 
 static BOOL YTMULyricsPageViewIsVisible(UIView *view) {
     return view && !view.hidden && view.alpha > 0.03 && ([view isKindOfClass:[UIWindow class]] || view.window);
@@ -270,6 +278,179 @@ static NSArray<UIWindow *> *YTMULyricsPageApplicationWindows(void) {
     return windows.array;
 }
 
+static NSString *YTMULyricsPageTruncateForLog(NSString *text, NSUInteger maxLength) {
+    NSString *value = [text ?: @"" stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    value = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (value.length <= maxLength) return value;
+    return [[value substringToIndex:maxLength] stringByAppendingString:@"..."];
+}
+
+static NSString *YTMULyricsPageFrameForLog(UIView *view, UIView *coordinateView) {
+    if (!view) return @"<nil>";
+    CGRect frame = view.bounds;
+    if (coordinateView) {
+        @try {
+            frame = [view convertRect:view.bounds toView:coordinateView];
+        } @catch (__unused NSException *exception) {
+            frame = view.frame;
+        }
+    } else {
+        frame = view.frame;
+    }
+    return [NSString stringWithFormat:@"{%.1f,%.1f,%.1f,%.1f}",
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height];
+}
+
+static NSString *YTMULyricsPageResponderControllerName(UIView *view) {
+    UIResponder *responder = view;
+    for (NSUInteger depth = 0; responder && depth < 12; depth++) {
+        responder = responder.nextResponder;
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            return NSStringFromClass([responder class]);
+        }
+    }
+    return @"";
+}
+
+static NSString *YTMULyricsPageDebugTextForView(UIView *view) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    NSString *accessibility = view.accessibilityLabel;
+    if ([accessibility isKindOfClass:[NSString class]] && accessibility.length) {
+        [parts addObject:[NSString stringWithFormat:@"ax=%@", accessibility]];
+    }
+    if ([view isKindOfClass:[UIButton class]]) {
+        NSString *title = [(UIButton *)view currentTitle];
+        if (title.length) [parts addObject:[NSString stringWithFormat:@"button=%@", title]];
+    }
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+        NSString *text = label.text ?: label.attributedText.string ?: @"";
+        if (text.length) [parts addObject:[NSString stringWithFormat:@"label=%@", text]];
+    }
+    if ([view isKindOfClass:[UITextView class]]) {
+        NSString *text = [(UITextView *)view text] ?: @"";
+        if (text.length) [parts addObject:[NSString stringWithFormat:@"textView=%@", text]];
+    }
+    if ([view isKindOfClass:[UITextField class]]) {
+        NSString *text = [(UITextField *)view text] ?: [(UITextField *)view placeholder] ?: @"";
+        if (text.length) [parts addObject:[NSString stringWithFormat:@"textField=%@", text]];
+    }
+    return YTMULyricsPageTruncateForLog([parts componentsJoinedByString:@" | "], 180);
+}
+
+static void YTMULyricsPageCollectDebugTextNodes(UIView *view,
+                                                UIWindow *window,
+                                                NSMutableArray<NSString *> *lines,
+                                                NSUInteger depth,
+                                                NSUInteger maxLines) {
+    if (!view || lines.count >= maxLines || depth > 18 || view.tag == YTMULyricsPageOverlayTag) return;
+    NSString *text = YTMULyricsPageDebugTextForView(view);
+    if (text.length) {
+        NSString *controller = YTMULyricsPageResponderControllerName(view);
+        [lines addObject:[NSString stringWithFormat:@"d%02lu %@ frame=%@ hidden=%@ alpha=%.2f vc=%@ text=%@",
+                          (unsigned long)depth,
+                          NSStringFromClass([view class]),
+                          YTMULyricsPageFrameForLog(view, window),
+                          view.hidden ? @"YES" : @"NO",
+                          view.alpha,
+                          controller.length ? controller : @"<none>",
+                          text]];
+    }
+    for (UIView *subview in view.subviews) {
+        YTMULyricsPageCollectDebugTextNodes(subview, window, lines, depth + 1, maxLines);
+        if (lines.count >= maxLines) break;
+    }
+}
+
+static void YTMULyricsPageCollectDebugHierarchy(UIView *view,
+                                                UIWindow *window,
+                                                NSMutableArray<NSString *> *lines,
+                                                NSUInteger depth,
+                                                NSUInteger maxDepth,
+                                                NSUInteger maxLines) {
+    if (!view || lines.count >= maxLines || depth > maxDepth || view.tag == YTMULyricsPageOverlayTag) return;
+    NSString *text = YTMULyricsPageDebugTextForView(view);
+    NSString *controller = depth <= 2 ? YTMULyricsPageResponderControllerName(view) : @"";
+    [lines addObject:[NSString stringWithFormat:@"%@%@ frame=%@ hidden=%@ alpha=%.2f subviews=%lu vc=%@%@%@",
+                      [@"" stringByPaddingToLength:depth * 2 withString:@" " startingAtIndex:0],
+                      NSStringFromClass([view class]),
+                      YTMULyricsPageFrameForLog(view, window),
+                      view.hidden ? @"YES" : @"NO",
+                      view.alpha,
+                      (unsigned long)view.subviews.count,
+                      controller.length ? controller : @"<none>",
+                      text.length ? @" text=" : @"",
+                      text.length ? text : @""]];
+    for (UIView *subview in view.subviews) {
+        YTMULyricsPageCollectDebugHierarchy(subview, window, lines, depth + 1, maxDepth, maxLines);
+        if (lines.count >= maxLines) break;
+    }
+}
+
+static void YTMULyricsPageLogDebugLines(NSString *prefix, NSArray<NSString *> *lines, NSUInteger chunkSize) {
+    if (!lines.count) {
+        YTMULyricsLog(@"%@ <empty>", prefix);
+        return;
+    }
+    for (NSUInteger idx = 0; idx < lines.count; idx += chunkSize) {
+        NSRange range = NSMakeRange(idx, MIN(chunkSize, lines.count - idx));
+        NSArray *chunk = [lines subarrayWithRange:range];
+        YTMULyricsLog(@"%@ [%lu-%lu/%lu]\n%@",
+                      prefix,
+                      (unsigned long)(idx + 1),
+                      (unsigned long)(idx + range.length),
+                      (unsigned long)lines.count,
+                      [chunk componentsJoinedByString:@"\n"]);
+    }
+}
+
+static void YTMULyricsPageLogDebugSnapshot(NSString *reason, NSArray<UIWindow *> *windows) {
+    if (!YTMULyricsDebugLoggingEnabled()) return;
+    YTMULyricsLog(@"lyrics debug snapshot reason=%@ windows=%lu forced=%@",
+                  reason ?: @"<unknown>",
+                  (unsigned long)windows.count,
+                  YTMULyricsPageWindowOverlayForced() ? @"YES" : @"NO");
+
+    UIApplication *app = [UIApplication sharedApplication];
+    NSUInteger windowIndex = 0;
+    for (UIWindow *window in windows) {
+        if (windowIndex >= 4) break;
+        BOOL visible = YTMULyricsPageViewIsVisible(window);
+        BOOL hasTitle = NO;
+        BOOL hasAction = NO;
+        NSUInteger textCount = 0;
+        YTMULyricsPageWindowHasLyricsSignals(window, YES, &hasTitle, &hasAction, &textCount);
+        NSString *rootClass = window.rootViewController ? NSStringFromClass([window.rootViewController class]) : @"<none>";
+        YTMULyricsLog(@"lyrics debug window[%lu] class=%@ key=%@ visible=%@ hidden=%@ alpha=%.2f level=%.1f frame=%@ root=%@ title=%@ action=%@ textNodes=%lu subviews=%lu",
+                      (unsigned long)windowIndex,
+                      NSStringFromClass([window class]),
+                      window == app.keyWindow ? @"YES" : @"NO",
+                      visible ? @"YES" : @"NO",
+                      window.hidden ? @"YES" : @"NO",
+                      window.alpha,
+                      window.windowLevel,
+                      YTMULyricsPageFrameForLog(window, nil),
+                      rootClass,
+                      hasTitle ? @"YES" : @"NO",
+                      hasAction ? @"YES" : @"NO",
+                      (unsigned long)textCount,
+                      (unsigned long)window.subviews.count);
+
+        NSMutableArray<NSString *> *textLines = [NSMutableArray array];
+        YTMULyricsPageCollectDebugTextNodes(window, window, textLines, 0, 80);
+        YTMULyricsPageLogDebugLines([NSString stringWithFormat:@"lyrics debug text window[%lu]", (unsigned long)windowIndex], textLines, 12);
+
+        NSMutableArray<NSString *> *treeLines = [NSMutableArray array];
+        YTMULyricsPageCollectDebugHierarchy(window, window, treeLines, 0, 5, 120);
+        YTMULyricsPageLogDebugLines([NSString stringWithFormat:@"lyrics debug tree window[%lu]", (unsigned long)windowIndex], treeLines, 16);
+
+        windowIndex++;
+    }
+}
+
 static BOOL YTMULyricsPageLooksLikeTitleText(NSString *text) {
     NSString *value = [[text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
     if (!value.length || value.length > 48) return NO;
@@ -289,7 +470,7 @@ static BOOL YTMULyricsPageLooksLikeActionText(NSString *text) {
 }
 
 static NSString *YTMULyricsPageRecursiveViewText(UIView *view, NSUInteger depth) {
-    if (!view || view.tag == YTMULyricsPageOverlayTag || depth > 6) return @"";
+    if (!view || view.tag == YTMULyricsPageOverlayTag || view.tag == YTMULyricsEntryButtonTag || depth > 6) return @"";
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     NSString *ownText = YTMULyricsPageViewText(view);
     if (ownText.length) [parts addObject:ownText];
@@ -317,6 +498,15 @@ static BOOL YTMULyricsPageLooksLikeLyricsTrigger(NSString *text, SEL action, id 
     return YTMULyricsPageLooksLikeTitleText(value) ||
            [actionName containsString:@"lyric"] ||
            [targetName containsString:@"lyric"];
+}
+
+static BOOL YTMULyricsPageIsOwnView(UIView *view) {
+    UIView *candidate = view;
+    for (NSUInteger depth = 0; candidate && depth < 12; depth++) {
+        if (candidate.tag == YTMULyricsPageOverlayTag || candidate.tag == YTMULyricsEntryButtonTag) return YES;
+        candidate = candidate.superview;
+    }
+    return NO;
 }
 
 static void YTMULyricsPageCollectSheetSignals(UIView *view,
@@ -616,6 +806,233 @@ static void YTMULyricsPageCollectFallbackLines(UIView *view,
 
 @end
 
+@interface YTMUStandaloneLyricsViewController : UIViewController
+@property (retain, nonatomic) UIView *panelView;
+@property (retain, nonatomic) UIView *grabberView;
+@property (retain, nonatomic) UILabel *titleLabel;
+@property (retain, nonatomic) UIButton *closeButton;
+@property (retain, nonatomic) YTMULyricsPageOverlayView *lyricsView;
+@end
+
+@implementation YTMUStandaloneLyricsViewController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.28];
+
+    self.panelView = [[UIView alloc] initWithFrame:CGRectZero];
+    self.panelView.backgroundColor = [UIColor colorWithRed:0.035 green:0.095 blue:0.135 alpha:0.995];
+    self.panelView.clipsToBounds = YES;
+    if (@available(iOS 11.0, *)) {
+        self.panelView.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    }
+    self.panelView.layer.cornerRadius = 22.0;
+    [self.view addSubview:self.panelView];
+
+    self.grabberView = [[UIView alloc] initWithFrame:CGRectZero];
+    self.grabberView.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.34];
+    self.grabberView.layer.cornerRadius = 2.5;
+    [self.panelView addSubview:self.grabberView];
+
+    self.titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    self.titleLabel.text = @"Lyrics";
+    self.titleLabel.textColor = [UIColor whiteColor];
+    self.titleLabel.font = [UIFont systemFontOfSize:30.0 weight:UIFontWeightHeavy];
+    [self.panelView addSubview:self.titleLabel];
+
+    self.closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.closeButton.accessibilityLabel = @"Close lyrics";
+    [self.closeButton setTitle:@"×" forState:UIControlStateNormal];
+    [self.closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.closeButton.titleLabel.font = [UIFont systemFontOfSize:42.0 weight:UIFontWeightRegular];
+    [self.closeButton addTarget:self action:@selector(ytmu_close) forControlEvents:UIControlEventTouchUpInside];
+    [self.panelView addSubview:self.closeButton];
+
+    self.lyricsView = [[YTMULyricsPageOverlayView alloc] initWithFrame:CGRectZero];
+    self.lyricsView.backgroundColor = self.panelView.backgroundColor;
+    [self.panelView addSubview:self.lyricsView];
+    [self.lyricsView ytmu_renderSheetOverlay];
+
+    UISwipeGestureRecognizer *dismiss = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_close)];
+    dismiss.direction = UISwipeGestureRecognizerDirectionDown;
+    [self.panelView addGestureRecognizer:dismiss];
+
+    YTMULyricsLog(@"standalone lyrics controller loaded");
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    UIEdgeInsets safe = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
+
+    CGFloat top = MAX(safe.top + 120.0, self.view.bounds.size.height * 0.20);
+    self.panelView.frame = CGRectMake(0.0, top, self.view.bounds.size.width, self.view.bounds.size.height - top);
+    self.grabberView.frame = CGRectMake((self.panelView.bounds.size.width - 78.0) / 2.0, 16.0, 78.0, 5.0);
+    self.titleLabel.frame = CGRectMake(32.0, 50.0, self.panelView.bounds.size.width - 112.0, 44.0);
+    self.closeButton.frame = CGRectMake(self.panelView.bounds.size.width - 78.0, 42.0, 58.0, 58.0);
+    CGFloat contentY = 106.0;
+    self.lyricsView.frame = CGRectMake(0.0, contentY, self.panelView.bounds.size.width, self.panelView.bounds.size.height - contentY);
+}
+
+- (void)ytmu_close {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+@end
+
+@interface YTMULyricsEntryButtonTarget : NSObject
++ (instancetype)sharedTarget;
+- (void)ytmu_openLyrics;
+@end
+
+@implementation YTMULyricsEntryButtonTarget
+
++ (instancetype)sharedTarget {
+    static YTMULyricsEntryButtonTarget *target;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        target = [[self alloc] init];
+    });
+    return target;
+}
+
+- (void)ytmu_openLyrics {
+    YTMULyricsPagePresentStandaloneController();
+}
+
+@end
+
+static UIViewController *YTMULyricsPageTopViewController(void) {
+    NSArray<UIWindow *> *windows = YTMULyricsPageApplicationWindows();
+    UIWindow *selectedWindow = nil;
+    for (UIWindow *window in windows) {
+        if (!YTMULyricsPageViewIsVisible(window)) continue;
+        if (!selectedWindow || window.windowLevel >= selectedWindow.windowLevel) {
+            selectedWindow = window;
+        }
+    }
+    if (!selectedWindow) selectedWindow = [UIApplication sharedApplication].keyWindow;
+
+    UIViewController *controller = selectedWindow.rootViewController;
+    while (controller.presentedViewController) {
+        controller = controller.presentedViewController;
+    }
+    while ([controller isKindOfClass:[UINavigationController class]]) {
+        controller = [(UINavigationController *)controller topViewController];
+    }
+    while ([controller isKindOfClass:[UITabBarController class]]) {
+        controller = [(UITabBarController *)controller selectedViewController];
+    }
+    return controller;
+}
+
+static void YTMULyricsPagePresentStandaloneController(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *top = YTMULyricsPageTopViewController();
+        if (!top) {
+            YTMULyricsLog(@"standalone lyrics present failed: no top controller");
+            return;
+        }
+        if ([top isKindOfClass:[YTMUStandaloneLyricsViewController class]]) {
+            return;
+        }
+        YTMUStandaloneLyricsViewController *controller = [[YTMUStandaloneLyricsViewController alloc] init];
+        controller.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        controller.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+        YTMULyricsLog(@"standalone lyrics presenting from=%@", NSStringFromClass([top class]));
+        [top presentViewController:controller animated:YES completion:nil];
+    });
+}
+
+static UIView *YTMULyricsPageActionTargetForLyricsEntry(UIView *view) {
+    UIView *candidate = view;
+    for (NSUInteger depth = 0; candidate && depth < 6; depth++) {
+        if ([candidate isKindOfClass:[UIControl class]]) return candidate;
+        candidate = candidate.superview;
+    }
+    return [view isKindOfClass:[UIControl class]] ? view : nil;
+}
+
+static void YTMULyricsPageCollectLyricsEntryCandidates(UIView *view,
+                                                       UIWindow *window,
+                                                       NSMutableOrderedSet<UIView *> *targets,
+                                                       NSUInteger depth) {
+    if (!view || depth > 18 || YTMULyricsPageIsOwnView(view) || !YTMULyricsPageViewIsVisible(view)) return;
+
+    NSString *text = YTMULyricsPageRecursiveViewText(view, 0);
+    if (YTMULyricsPageLooksLikeLyricsTrigger(text, NULL, nil) && !YTMULyricsPageLooksLikeCloseText(text)) {
+        UIView *target = YTMULyricsPageActionTargetForLyricsEntry(view);
+        if (target && !YTMULyricsPageIsOwnView(target)) {
+            CGRect frame = [target convertRect:target.bounds toView:window];
+            BOOL plausible = frame.size.width >= 46.0 &&
+                             frame.size.width <= window.bounds.size.width * 0.55 &&
+                             frame.size.height >= 28.0 &&
+                             frame.size.height <= 88.0 &&
+                             CGRectGetMidY(frame) >= window.bounds.size.height * 0.38 &&
+                             CGRectGetMaxY(frame) <= window.bounds.size.height - 70.0;
+            if (plausible) [targets addObject:target];
+        }
+    }
+
+    for (UIView *subview in view.subviews) {
+        YTMULyricsPageCollectLyricsEntryCandidates(subview, window, targets, depth + 1);
+    }
+}
+
+static void YTMULyricsPageInstallEntryButtonForTarget(UIView *target, UIWindow *window) {
+    if (!target || !target.superview || !window) return;
+
+    UIButton *button = objc_getAssociatedObject(target, &YTMULyricsEntryButtonKey);
+    if (!button) {
+        button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.tag = YTMULyricsEntryButtonTag;
+        button.accessibilityLabel = @"Lyrics";
+        [button setTitle:@"Lyrics" forState:UIControlStateNormal];
+        [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
+        button.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.14];
+        button.layer.cornerRadius = 20.0;
+        button.clipsToBounds = YES;
+        [button addTarget:[YTMULyricsEntryButtonTarget sharedTarget] action:@selector(ytmu_openLyrics) forControlEvents:UIControlEventTouchUpInside];
+        objc_setAssociatedObject(target, &YTMULyricsEntryButtonKey, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [target.superview addSubview:button];
+        YTMULyricsLog(@"lyrics entry replacement installed target=%@ frame=%@ text=%@",
+                      NSStringFromClass([target class]),
+                      YTMULyricsPageFrameForLog(target, window),
+                      YTMULyricsPageTruncateForLog(YTMULyricsPageRecursiveViewText(target, 0), 140));
+    }
+
+    button.hidden = NO;
+    button.alpha = 1.0;
+    button.frame = target.frame;
+    button.autoresizingMask = target.autoresizingMask;
+    [target.superview bringSubviewToFront:button];
+    target.alpha = 0.01;
+    target.userInteractionEnabled = NO;
+}
+
+static void YTMULyricsPageInstallCustomLyricsEntryButtons(void) {
+    if (!YTMULyricsPageReplacementEnabled()) return;
+    NSArray<UIWindow *> *windows = YTMULyricsPageApplicationWindows();
+    NSUInteger installed = 0;
+    for (UIWindow *window in windows) {
+        if (!YTMULyricsPageViewIsVisible(window)) continue;
+        NSMutableOrderedSet<UIView *> *targets = [NSMutableOrderedSet orderedSet];
+        YTMULyricsPageCollectLyricsEntryCandidates(window, window, targets, 0);
+        for (UIView *target in targets) {
+            YTMULyricsPageInstallEntryButtonForTarget(target, window);
+            installed++;
+            if (installed >= 4) break;
+        }
+    }
+    static CFTimeInterval lastMissLogTime = 0;
+    CFTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
+    if (installed == 0 && now - lastMissLogTime > 6.0) {
+        lastMissLogTime = now;
+        YTMULyricsLog(@"lyrics entry replacement no candidate windows=%lu", (unsigned long)windows.count);
+    }
+}
+
 static void YTMULyricsPageSetExistingOverlaysHidden(UIView *view, BOOL hidden) {
     if (!view) return;
     if (view.tag == YTMULyricsPageOverlayTag) view.hidden = hidden;
@@ -711,6 +1128,7 @@ static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
     }
 
     NSArray<UIWindow *> *windows = YTMULyricsPageApplicationWindows();
+    YTMULyricsPageInstallCustomLyricsEntryButtons();
     if (!YTMULyricsPageReplacementEnabled()) {
         for (UIWindow *window in windows) {
             YTMULyricsPageSetExistingOverlaysHidden(window, YES);
@@ -764,6 +1182,7 @@ static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
             lastMissLogTime = now;
             YTMULyricsLog(@"lyrics sheet scan no visible official sheet found windows=%@",
                           windowDiagnostics.count ? [windowDiagnostics componentsJoinedByString:@"; "] : @"<none>");
+            YTMULyricsPageLogDebugSnapshot(@"scan miss", windows);
         }
     }
 }
@@ -772,10 +1191,16 @@ static void YTMULyricsPageForceWindowOverlayFromLyricsTap(void) {
     CFTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
     YTMULyricsPageWindowOverlayForcedUntil = now + 90.0;
     YTMULyricsLog(@"lyrics page trigger tapped forcing window overlay");
+    YTMULyricsPageLogDebugSnapshot(@"lyrics trigger before sheet", YTMULyricsPageApplicationWindows());
+    YTMULyricsPagePresentStandaloneController();
     NSArray<NSNumber *> *delays = @[@0.15, @0.45, @0.9, @1.6];
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             YTMULyricsPageScanVisibleLyricsSheets(YES);
+            if (delay.doubleValue >= 0.45) {
+                YTMULyricsPageLogDebugSnapshot([NSString stringWithFormat:@"lyrics trigger delayed %.2fs", delay.doubleValue],
+                                               YTMULyricsPageApplicationWindows());
+            }
         });
     }
 }
@@ -797,39 +1222,120 @@ static void YTMULyricsPageStartWindowScanner(void) {
                                                               object:nil
                                                                queue:[NSOperationQueue mainQueue]
                                                           usingBlock:^(__unused NSNotification *notification) {
+                YTMULyricsPageInstallCustomLyricsEntryButtons();
                 YTMULyricsPageScanVisibleLyricsSheets(YES);
             }];
             [[NSNotificationCenter defaultCenter] addObserverForName:YTMULyricsSettingsDidChangeNotification
                                                               object:nil
                                                                queue:[NSOperationQueue mainQueue]
                                                           usingBlock:^(__unused NSNotification *notification) {
+                YTMULyricsPageInstallCustomLyricsEntryButtons();
                 YTMULyricsPageScanVisibleLyricsSheets(YES);
             }];
             [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
                                                               object:nil
                                                                queue:[NSOperationQueue mainQueue]
                                                           usingBlock:^(__unused NSNotification *notification) {
+                YTMULyricsPageInstallCustomLyricsEntryButtons();
                 YTMULyricsPageScanVisibleLyricsSheets(YES);
             }];
 
             NSTimer *timer = [NSTimer timerWithTimeInterval:0.75 repeats:YES block:^(__unused NSTimer *timer) {
+                YTMULyricsPageInstallCustomLyricsEntryButtons();
                 YTMULyricsPageScanVisibleLyricsSheets(NO);
             }];
             [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
             YTMULyricsLog(@"lyrics sheet scanner installed");
+            YTMULyricsPageInstallCustomLyricsEntryButtons();
             YTMULyricsPageScanVisibleLyricsSheets(YES);
         });
     });
 }
 
+static BOOL YTMULyricsPageControllerLooksRelevant(UIViewController *controller) {
+    if (!controller) return NO;
+    NSString *className = NSStringFromClass([controller class]).lowercaseString ?: @"";
+    NSString *title = controller.title.lowercaseString ?: @"";
+    NSString *combined = [NSString stringWithFormat:@"%@ %@", className, title];
+    return [combined containsString:@"lyric"] ||
+           [combined containsString:@"lyrics"] ||
+           [combined containsString:@"sheet"] ||
+           [combined containsString:@"bottom"] ||
+           [combined containsString:@"description"] ||
+           [combined containsString:@"musicdescription"];
+}
+
+static void YTMULyricsPageLogControllerEvent(UIViewController *controller, NSString *event) {
+    if (!YTMULyricsDebugLoggingEnabled()) return;
+    if (!YTMULyricsPageControllerLooksRelevant(controller) && !YTMULyricsPageWindowOverlayForced()) return;
+
+    static NSMutableDictionary<NSString *, NSNumber *> *lastLogTimes;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        lastLogTimes = [NSMutableDictionary dictionary];
+    });
+
+    NSString *key = [NSString stringWithFormat:@"%@:%@", NSStringFromClass([controller class]), event ?: @""];
+    CFTimeInterval now = [[NSDate date] timeIntervalSinceReferenceDate];
+    @synchronized (lastLogTimes) {
+        NSNumber *last = lastLogTimes[key];
+        if (last && now - last.doubleValue < 1.5) return;
+        lastLogTimes[key] = @(now);
+    }
+
+    UIView *view = controller.view;
+    UIWindow *window = view.window;
+    NSString *parentClass = controller.parentViewController ? NSStringFromClass([controller.parentViewController class]) : @"<none>";
+    NSString *presentingClass = controller.presentingViewController ? NSStringFromClass([controller.presentingViewController class]) : @"<none>";
+    NSString *presentedClass = controller.presentedViewController ? NSStringFromClass([controller.presentedViewController class]) : @"<none>";
+    YTMULyricsLog(@"lyrics debug vc event=%@ class=%@ title=%@ view=%@ frame=%@ hidden=%@ alpha=%.2f subviews=%lu window=%@ parent=%@ presenting=%@ presented=%@ forced=%@",
+                  event ?: @"<unknown>",
+                  NSStringFromClass([controller class]),
+                  controller.title.length ? controller.title : @"<empty>",
+                  view ? NSStringFromClass([view class]) : @"<nil>",
+                  view ? YTMULyricsPageFrameForLog(view, window ?: view) : @"<nil>",
+                  view.hidden ? @"YES" : @"NO",
+                  view.alpha,
+                  (unsigned long)view.subviews.count,
+                  window ? NSStringFromClass([window class]) : @"<nil>",
+                  parentClass,
+                  presentingClass,
+                  presentedClass,
+                  YTMULyricsPageWindowOverlayForced() ? @"YES" : @"NO");
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        YTMULyricsPageScanVisibleLyricsSheets(YES);
+    });
+}
+
+%hook UIViewController
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    YTMULyricsPageLogControllerEvent(self, @"viewDidAppear");
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    YTMULyricsPageLogControllerEvent(self, @"viewDidLayoutSubviews");
+}
+
+%end
+
 %hook UIApplication
 
 - (BOOL)sendAction:(SEL)action to:(id)target from:(id)sender forEvent:(UIEvent *)event {
     NSString *text = [sender isKindOfClass:[UIView class]] ? YTMULyricsPageRecursiveViewText((UIView *)sender, 0) : @"";
-    if (YTMULyricsPageLooksLikeLyricsTrigger(text, action, target)) {
-        YTMULyricsPageForceWindowOverlayFromLyricsTap();
-    } else if (YTMULyricsPageLooksLikeCloseText(text)) {
+    if (YTMULyricsPageLooksLikeCloseText(text)) {
         YTMULyricsPageClearForcedWindowOverlay();
+    } else if (YTMULyricsPageLooksLikeLyricsTrigger(text, action, target)) {
+        YTMULyricsLog(@"lyrics action intercepted app action=%@ target=%@ sender=%@ text=%@",
+                      NSStringFromSelector(action),
+                      target ? NSStringFromClass([target class]) : @"<nil>",
+                      sender ? NSStringFromClass([sender class]) : @"<nil>",
+                      YTMULyricsPageTruncateForLog(text, 120));
+        YTMULyricsPageForceWindowOverlayFromLyricsTap();
+        return YES;
     }
     return %orig;
 }
@@ -840,10 +1346,16 @@ static void YTMULyricsPageStartWindowScanner(void) {
 
 - (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
     NSString *text = YTMULyricsPageRecursiveViewText(self, 0);
-    if (YTMULyricsPageLooksLikeLyricsTrigger(text, action, target)) {
-        YTMULyricsPageForceWindowOverlayFromLyricsTap();
-    } else if (YTMULyricsPageLooksLikeCloseText(text)) {
+    if (YTMULyricsPageLooksLikeCloseText(text)) {
         YTMULyricsPageClearForcedWindowOverlay();
+    } else if (YTMULyricsPageLooksLikeLyricsTrigger(text, action, target)) {
+        YTMULyricsLog(@"lyrics action intercepted control action=%@ target=%@ sender=%@ text=%@",
+                      NSStringFromSelector(action),
+                      target ? NSStringFromClass([target class]) : @"<nil>",
+                      NSStringFromClass([self class]),
+                      YTMULyricsPageTruncateForLog(text, 120));
+        YTMULyricsPageForceWindowOverlayFromLyricsTap();
+        return;
     }
     %orig;
 }
