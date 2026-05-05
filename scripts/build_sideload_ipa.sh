@@ -70,4 +70,8 @@ echo "==> Injecting $DEB into $IPA_INPUT"
   -b "$BUNDLE_ID" \
   --overwrite
 
+if [[ "$IPA_OUTPUT" == *.ipa && ! -f "$IPA_OUTPUT" && -f "${IPA_OUTPUT%.ipa}.zip" ]]; then
+  mv -f "${IPA_OUTPUT%.ipa}.zip" "$IPA_OUTPUT"
+fi
+
 echo "==> Built IPA: $IPA_OUTPUT"

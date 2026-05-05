@@ -70,6 +70,7 @@
 @property (nonatomic, strong) UIStackView *stackView;
 @property (nonatomic, copy) NSArray<YTMULyricLineView *> *lineViews;
 @property (nonatomic) NSInteger activeIndex;
+@property (nonatomic, strong) CADisplayLink *displayLink;
 @end
 
 @implementation YTMUSyncedLyricsView
@@ -140,12 +141,37 @@
         ]];
 
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadFromManager) name:YTMULyricsDidUpdateNotification object:nil];
+
+        _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkTick:)];
+        _displayLink.preferredFramesPerSecond = 2;
+        _displayLink.paused = YES;
+        [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
     return self;
 }
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [self.displayLink invalidate];
+}
+
+- (void)setHidden:(BOOL)hidden {
+    [super setHidden:hidden];
+    [self updateDisplayLinkState];
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    [self updateDisplayLinkState];
+}
+
+- (void)updateDisplayLinkState {
+    self.displayLink.paused = self.hidden || self.window == nil || self.playerViewController == nil;
+}
+
+- (void)displayLinkTick:(CADisplayLink *)displayLink {
+    if (!self.playerViewController) return;
+    [self updatePlaybackTimeMs:self.playerViewController.currentVideoMediaTime * 1000.0];
 }
 
 - (CGFloat)baseFontSize {
@@ -188,6 +214,7 @@
 - (void)reloadFromManager {
     BOOL enabled = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO);
     self.hidden = !enabled;
+    [self updateDisplayLinkState];
     if (!enabled) return;
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
