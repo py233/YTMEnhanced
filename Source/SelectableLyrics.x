@@ -243,7 +243,31 @@ static char YTMULyricsPageWindowOverlayKey;
 static CFTimeInterval YTMULyricsPageWindowOverlayForcedUntil = 0;
 
 static BOOL YTMULyricsPageViewIsVisible(UIView *view) {
-    return view && !view.hidden && view.alpha > 0.03 && view.window;
+    return view && !view.hidden && view.alpha > 0.03 && ([view isKindOfClass:[UIWindow class]] || view.window);
+}
+
+static NSArray<UIWindow *> *YTMULyricsPageApplicationWindows(void) {
+    UIApplication *app = [UIApplication sharedApplication];
+    NSMutableOrderedSet<UIWindow *> *windows = [NSMutableOrderedSet orderedSet];
+
+    UIWindow *keyWindow = app.keyWindow;
+    if (keyWindow) [windows addObject:keyWindow];
+
+    for (UIWindow *window in app.windows ?: @[]) {
+        if (window) [windows addObject:window];
+    }
+
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in app.connectedScenes ?: [NSSet set]) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            for (UIWindow *window in windowScene.windows ?: @[]) {
+                if (window) [windows addObject:window];
+            }
+        }
+    }
+
+    return windows.array;
 }
 
 static BOOL YTMULyricsPageLooksLikeTitleText(NSString *text) {
@@ -280,9 +304,19 @@ static BOOL YTMULyricsPageLooksLikeCloseText(NSString *text) {
     NSString *value = [text ?: @"" lowercaseString];
     return [value containsString:@"close"] ||
            [value containsString:@"dismiss"] ||
+           [value containsString:@"close lyrics"] ||
            [value containsString:@"关闭"] ||
            [value containsString:@"關閉"] ||
            [value containsString:@"閉じる"];
+}
+
+static BOOL YTMULyricsPageLooksLikeLyricsTrigger(NSString *text, SEL action, id target) {
+    NSString *value = [text ?: @"" lowercaseString];
+    NSString *actionName = NSStringFromSelector(action).lowercaseString ?: @"";
+    NSString *targetName = target ? NSStringFromClass([target class]).lowercaseString : @"";
+    return YTMULyricsPageLooksLikeTitleText(value) ||
+           [actionName containsString:@"lyric"] ||
+           [targetName containsString:@"lyric"];
 }
 
 static void YTMULyricsPageCollectSheetSignals(UIView *view,
@@ -676,7 +710,7 @@ static void YTMULyricsPageScanVisibleLyricsSheets(BOOL forced) {
         return;
     }
 
-    NSArray<UIWindow *> *windows = [UIApplication sharedApplication].windows ?: @[];
+    NSArray<UIWindow *> *windows = YTMULyricsPageApplicationWindows();
     if (!YTMULyricsPageReplacementEnabled()) {
         for (UIWindow *window in windows) {
             YTMULyricsPageSetExistingOverlaysHidden(window, YES);
@@ -788,16 +822,30 @@ static void YTMULyricsPageStartWindowScanner(void) {
     });
 }
 
-%hook UIControl
+%hook UIApplication
 
-- (BOOL)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
-    NSString *text = YTMULyricsPageRecursiveViewText(self, 0);
-    if (YTMULyricsPageLooksLikeTitleText(text)) {
+- (BOOL)sendAction:(SEL)action to:(id)target from:(id)sender forEvent:(UIEvent *)event {
+    NSString *text = [sender isKindOfClass:[UIView class]] ? YTMULyricsPageRecursiveViewText((UIView *)sender, 0) : @"";
+    if (YTMULyricsPageLooksLikeLyricsTrigger(text, action, target)) {
         YTMULyricsPageForceWindowOverlayFromLyricsTap();
     } else if (YTMULyricsPageLooksLikeCloseText(text)) {
         YTMULyricsPageClearForcedWindowOverlay();
     }
     return %orig;
+}
+
+%end
+
+%hook UIControl
+
+- (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
+    NSString *text = YTMULyricsPageRecursiveViewText(self, 0);
+    if (YTMULyricsPageLooksLikeLyricsTrigger(text, action, target)) {
+        YTMULyricsPageForceWindowOverlayFromLyricsTap();
+    } else if (YTMULyricsPageLooksLikeCloseText(text)) {
+        YTMULyricsPageClearForcedWindowOverlay();
+    }
+    %orig;
 }
 
 %end
