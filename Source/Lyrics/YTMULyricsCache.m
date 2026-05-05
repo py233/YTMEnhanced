@@ -66,7 +66,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
                              YTMULyricsCompactString(info.title ?: @""),
                              YTMULyricsCompactString(info.artist ?: @""),
                              @((NSInteger)llround(info.duration ?: 0)).stringValue] componentsJoinedByString:@"::"];
-    return [NSString stringWithFormat:@"lyrics-v7::%@", signature];
+    return [NSString stringWithFormat:@"lyrics-v8::%@", signature];
 }
 
 - (NSString *)cacheDirectory {

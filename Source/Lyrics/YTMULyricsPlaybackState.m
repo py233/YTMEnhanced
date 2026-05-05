@@ -27,6 +27,11 @@
 - (NSTimeInterval)normalizedPlaybackTimeMsForRawTime:(NSTimeInterval)rawTime duration:(NSTimeInterval)duration {
     if (!isfinite(rawTime) || rawTime < 0) return -1;
     if (isfinite(duration) && duration > 0) {
+        if (duration > 10000.0) {
+            NSTimeInterval durationSeconds = duration / 1000.0;
+            if (rawTime <= durationSeconds * 1.5) return rawTime * 1000.0;
+            if (rawTime <= duration * 1.5) return rawTime;
+        }
         if (rawTime > duration * 1.5 && rawTime <= duration * 1500.0) return rawTime;
     }
     return rawTime * 1000.0;

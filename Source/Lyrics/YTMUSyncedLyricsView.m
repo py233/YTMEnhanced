@@ -232,6 +232,40 @@
     return 22;
 }
 
+- (NSTimeInterval)timelineEndMs {
+    NSTimeInterval end = 0;
+    for (YTMULyricLineView *line in self.lineViews ?: @[]) {
+        NSTimeInterval duration = isfinite(line.durationMs) && line.durationMs > 0 ? line.durationMs : 0;
+        end = MAX(end, line.timeInMs + duration);
+    }
+    YTMULyricsResult *result = [YTMULyricsManager sharedManager].currentResult;
+    for (YTMULyricLine *line in result.lines ?: @[]) {
+        NSTimeInterval duration = isfinite(line.durationMs) && line.durationMs > 0 ? line.durationMs : 0;
+        end = MAX(end, line.timeInMs + duration);
+    }
+    return end;
+}
+
+- (NSTimeInterval)normalizedPlaybackTimeMsForRawTime:(NSTimeInterval)rawTime
+                                           duration:(NSTimeInterval)duration
+                                      timelineEndMs:(NSTimeInterval)timelineEndMs {
+    if (!isfinite(rawTime) || rawTime < 0) return -1;
+    if (timelineEndMs > 1000.0) {
+        NSTimeInterval timelineSeconds = timelineEndMs / 1000.0;
+        if (rawTime <= timelineSeconds * 1.5 && rawTime * 1000.0 <= timelineEndMs * 1.5) return rawTime * 1000.0;
+        if (rawTime <= timelineEndMs * 1.5) return rawTime;
+    }
+    if (isfinite(duration) && duration > 0) {
+        if (duration > 10000.0) {
+            NSTimeInterval durationSeconds = duration / 1000.0;
+            if (rawTime <= durationSeconds * 1.5) return rawTime * 1000.0;
+            if (rawTime <= duration * 1.5) return rawTime;
+        }
+        if (rawTime > duration * 1.5 && rawTime <= duration * 1500.0) return rawTime;
+    }
+    return rawTime * 1000.0;
+}
+
 - (NSTimeInterval)currentPlaybackTimeMs {
     if (self.playerViewController) {
         [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self.playerViewController];
@@ -240,14 +274,9 @@
             NSTimeInterval duration = self.playerViewController.currentVideoTotalMediaTime;
             YTMULyricsResult *result = [YTMULyricsManager sharedManager].currentResult;
             if ((!isfinite(duration) || duration <= 0) && result.duration > 0) duration = result.duration;
-            NSTimeInterval timeMs = -1;
-            if (isfinite(playerTime) && playerTime >= 0) {
-                if (isfinite(duration) && duration > 0 && playerTime > duration * 1.5 && playerTime <= duration * 1500.0) {
-                    timeMs = playerTime;
-                } else {
-                    timeMs = playerTime * 1000.0;
-                }
-            }
+            NSTimeInterval timeMs = [self normalizedPlaybackTimeMsForRawTime:playerTime
+                                                                    duration:duration
+                                                               timelineEndMs:[self timelineEndMs]];
             if (timeMs >= 0) {
                 [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
                 return timeMs;
@@ -436,6 +465,10 @@
     if (self.hidden || !self.lineViews.count) return;
     timeMs += (NSTimeInterval)YTMULyricsSettingsInteger(@"lyricsTimingOffsetMs", 0);
     if (timeMs < 0) timeMs = 0;
+    NSTimeInterval timelineEnd = [self timelineEndMs];
+    if (timelineEnd > 1000.0 && timeMs > timelineEnd * 1.5 && timeMs / 1000.0 <= timelineEnd * 1.5) {
+        timeMs /= 1000.0;
+    }
     NSInteger current = -1;
     for (NSUInteger i = 0; i < self.lineViews.count; i++) {
         YTMULyricLineView *line = self.lineViews[i];
