@@ -6,6 +6,7 @@
 #import "Headers/YTMWatchViewController.h"
 #import "Headers/YTMNowPlayingViewController.h"
 #import "Lyrics/YTMULyricsManager.h"
+#import "Lyrics/YTMULyricsPlaybackState.h"
 #import "Lyrics/YTMUSyncedLyricsView.h"
 #import "Translation/YTMUTranslationContext.h"
 
@@ -91,6 +92,7 @@ static NSString *YTMUClassAndPointer(id object) {
 
 static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString *source, BOOL force) {
     if (!player) return NO;
+    [[YTMULyricsPlaybackState sharedState] notePlayerViewController:player];
 
     NSString *videoId = @"";
     NSTimeInterval duration = 0;
@@ -189,6 +191,7 @@ static void YTMUHandlePlayerCandidate(id candidate, NSString *source, BOOL force
     if ([player respondsToSelector:@selector(ytmu_attachSyncedLyricsViewIfNeeded)]) {
         [player ytmu_attachSyncedLyricsViewIfNeeded];
     }
+    [[YTMULyricsPlaybackState sharedState] notePlayerViewController:player];
     YTMURefreshLyricsFromPlayer(player, source, force);
 }
 
@@ -389,12 +392,18 @@ static void YTMUInstallDynamicHooks(void) {
 
 - (void)singleVideo:(id)video currentVideoTimeDidChange:(id)time {
     %orig;
-    [self.ytmuSyncedLyricsView updatePlaybackTimeMs:self.currentVideoMediaTime * 1000.0];
+    NSTimeInterval timeMs = self.currentVideoMediaTime * 1000.0;
+    [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self];
+    [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
+    [self.ytmuSyncedLyricsView updatePlaybackTimeMs:timeMs];
 }
 
 - (void)potentiallyMutatedSingleVideo:(id)video currentVideoTimeDidChange:(id)time {
     %orig;
-    [self.ytmuSyncedLyricsView updatePlaybackTimeMs:self.currentVideoMediaTime * 1000.0];
+    NSTimeInterval timeMs = self.currentVideoMediaTime * 1000.0;
+    [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self];
+    [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
+    [self.ytmuSyncedLyricsView updatePlaybackTimeMs:timeMs];
 }
 
 %new

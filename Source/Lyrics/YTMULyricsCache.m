@@ -49,6 +49,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
 - (NSUInteger)costForResult:(YTMULyricsResult *)result {
     NSUInteger cost = result.plainLyrics.length * sizeof(unichar);
     for (YTMULyricLine *line in result.lines ?: @[]) cost += line.text.length * sizeof(unichar) + 64;
+    for (NSString *line in result.romanizedLineTexts ?: @[]) cost += line.length * sizeof(unichar) + 32;
     for (NSString *line in result.officialTranslatedLines ?: @[]) cost += line.length * sizeof(unichar) + 32;
     cost += result.title.length * sizeof(unichar) + result.artists.description.length * sizeof(unichar);
     return MAX((NSUInteger)1024, cost);
@@ -65,7 +66,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
                              YTMULyricsCompactString(info.title ?: @""),
                              YTMULyricsCompactString(info.artist ?: @""),
                              @((NSInteger)llround(info.duration ?: 0)).stringValue] componentsJoinedByString:@"::"];
-    return [NSString stringWithFormat:@"lyrics-v2::%@", signature];
+    return [NSString stringWithFormat:@"lyrics-v3::%@", signature];
 }
 
 - (NSString *)cacheDirectory {
