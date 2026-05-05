@@ -635,6 +635,8 @@ static void YTMUInstallDynamicHooks(void) {
     YTMULyricsSetDefault(dict, @"lyricsLineEffect", @"fancy");
     YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
     YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetActiveKey", @"");
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsets", @{});
     YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", @(NO));
     dict[@"lyricsArtworkOverlayEnabled"] = @(NO);

@@ -235,6 +235,99 @@ void YTMULyricsSetDefault(NSMutableDictionary *dict, NSString *key, id value) {
     if (dict[key] == nil && key.length && value) dict[key] = value;
 }
 
+NSInteger YTMULyricsClampTimingOffsetMs(NSInteger value) {
+    return MIN(10000, MAX(-10000, value));
+}
+
+static NSMutableDictionary *YTMULyricsMutableSettings(void) {
+    return [NSMutableDictionary dictionaryWithDictionary:YTMULyricsSettingsDictionary()];
+}
+
+static NSMutableDictionary *YTMULyricsMutableTimingOffsetsFromSettings(NSDictionary *settings) {
+    NSDictionary *stored = [settings[@"lyricsTimingOffsets"] isKindOfClass:[NSDictionary class]] ? settings[@"lyricsTimingOffsets"] : @{};
+    return [NSMutableDictionary dictionaryWithDictionary:stored];
+}
+
+static void YTMULyricsSaveSettings(NSMutableDictionary *settings, BOOL notify, NSString *key) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setObject:settings ?: @{} forKey:@"YTMUltimate"];
+    [defaults synchronize];
+    if (notify && key.length) {
+        [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification
+                                                            object:nil
+                                                          userInfo:@{YTMULyricsSettingChangedKey: key}];
+    }
+}
+
+NSString *YTMULyricsTimingOffsetKeyForInfo(YTMULyricsSearchInfo *info) {
+    NSString *videoId = [info.videoId stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (videoId.length) return [@"video:" stringByAppendingString:videoId];
+
+    NSString *titleKey = YTMULyricsCompactString(info.title ?: @"");
+    NSString *artistKey = YTMULyricsCompactString(info.artist ?: @"");
+    NSInteger duration = (NSInteger)llround(info.duration > 0 ? info.duration : 0);
+    if (!titleKey.length && !artistKey.length) return @"";
+    return [NSString stringWithFormat:@"song:%@:%@:%ld", titleKey, artistKey, (long)duration];
+}
+
+NSInteger YTMULyricsTimingOffsetForKey(NSString *key) {
+    if (!key.length) return 0;
+    NSDictionary *settings = YTMULyricsSettingsDictionary();
+    NSDictionary *offsets = [settings[@"lyricsTimingOffsets"] isKindOfClass:[NSDictionary class]] ? settings[@"lyricsTimingOffsets"] : @{};
+    id value = offsets[key];
+    return [value respondsToSelector:@selector(integerValue)] ? YTMULyricsClampTimingOffsetMs([value integerValue]) : 0;
+}
+
+NSInteger YTMULyricsCurrentTimingOffsetForKey(NSString *key) {
+    NSDictionary *settings = YTMULyricsSettingsDictionary();
+    NSString *activeKey = [settings[@"lyricsTimingOffsetActiveKey"] isKindOfClass:[NSString class]] ? settings[@"lyricsTimingOffsetActiveKey"] : @"";
+    if (key.length && [activeKey isEqualToString:key]) {
+        id value = settings[@"lyricsTimingOffsetMs"];
+        return [value respondsToSelector:@selector(integerValue)] ? YTMULyricsClampTimingOffsetMs([value integerValue]) : 0;
+    }
+    return YTMULyricsTimingOffsetForKey(key);
+}
+
+void YTMULyricsActivateTimingOffsetForInfo(YTMULyricsSearchInfo *info, BOOL notify) {
+    NSString *key = YTMULyricsTimingOffsetKeyForInfo(info);
+    NSInteger offset = YTMULyricsTimingOffsetForKey(key);
+    NSMutableDictionary *settings = YTMULyricsMutableSettings();
+    settings[@"lyricsTimingOffsetActiveKey"] = key ?: @"";
+    settings[@"lyricsTimingOffsetMs"] = @(offset);
+    YTMULyricsSaveSettings(settings, notify, @"lyricsTimingOffsetMs");
+}
+
+void YTMULyricsSetTimingOffsetForKey(NSString *key, NSInteger value, BOOL notify) {
+    NSInteger clamped = YTMULyricsClampTimingOffsetMs(value);
+    NSMutableDictionary *settings = YTMULyricsMutableSettings();
+    NSMutableDictionary *offsets = YTMULyricsMutableTimingOffsetsFromSettings(settings);
+    NSString *activeKey = key.length ? key : ([settings[@"lyricsTimingOffsetActiveKey"] isKindOfClass:[NSString class]] ? settings[@"lyricsTimingOffsetActiveKey"] : @"");
+
+    if (activeKey.length) {
+        if (clamped == 0) {
+            [offsets removeObjectForKey:activeKey];
+        } else {
+            offsets[activeKey] = @(clamped);
+        }
+        while (offsets.count > 512) {
+            NSString *drop = nil;
+            for (NSString *candidate in offsets.allKeys) {
+                if (![candidate isEqualToString:activeKey]) {
+                    drop = candidate;
+                    break;
+                }
+            }
+            if (!drop.length) break;
+            [offsets removeObjectForKey:drop];
+        }
+    }
+
+    settings[@"lyricsTimingOffsets"] = offsets;
+    settings[@"lyricsTimingOffsetActiveKey"] = activeKey ?: @"";
+    settings[@"lyricsTimingOffsetMs"] = @(clamped);
+    YTMULyricsSaveSettings(settings, notify, @"lyricsTimingOffsetMs");
+}
+
 NSString *YTMULyricsNormalizeLoose(NSString *value) {
     if (!value.length) return @"";
     NSMutableString *mutable = [[value stringByFoldingWithOptions:NSWidthInsensitiveSearch | NSCaseInsensitiveSearch
