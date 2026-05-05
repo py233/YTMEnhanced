@@ -2,6 +2,7 @@
 #import "YTMULyricsManager.h"
 #import "YTMULyricsTextProcessor.h"
 #import "../Headers/YTPlayerViewController.h"
+#import <MediaPlayer/MediaPlayer.h>
 
 @interface YTMULyricLineView : UIControl
 @property (nonatomic, strong) UILabel *mainLabel;
@@ -166,19 +167,51 @@
 }
 
 - (void)updateDisplayLinkState {
-    self.displayLink.paused = self.hidden || self.window == nil || self.playerViewController == nil;
+    self.displayLink.paused = self.hidden || self.window == nil;
 }
 
 - (void)displayLinkTick:(CADisplayLink *)displayLink {
-    if (!self.playerViewController) return;
-    [self updatePlaybackTimeMs:self.playerViewController.currentVideoMediaTime * 1000.0];
+    [self updatePlaybackTimeMs:[self currentPlaybackTimeMs]];
 }
 
 - (CGFloat)baseFontSize {
+    CGFloat pointSize = (CGFloat)YTMULyricsSettingsInteger(@"lyricsFontPointSize", 0);
+    if (pointSize > 0.0) return MIN(38.0, MAX(16.0, pointSize));
     NSString *size = YTMULyricsSettingsString(@"lyricsFontSize", @"small");
     if ([size isEqualToString:@"large"]) return 33;
     if ([size isEqualToString:@"medium"]) return 27;
     return 22;
+}
+
+- (NSTimeInterval)currentPlaybackTimeMs {
+    if (self.playerViewController) {
+        @try {
+            NSTimeInterval playerTime = self.playerViewController.currentVideoMediaTime;
+            if (isfinite(playerTime) && playerTime >= 0) return playerTime * 1000.0;
+        } @catch (__unused NSException *exception) {
+        }
+    }
+
+    NSDictionary *nowPlaying = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo ?: @{};
+    id elapsed = nowPlaying[MPNowPlayingInfoPropertyElapsedPlaybackTime];
+    if ([elapsed respondsToSelector:@selector(doubleValue)]) {
+        NSTimeInterval value = [elapsed doubleValue];
+        if (isfinite(value) && value >= 0) return value * 1000.0;
+    }
+    return 0;
+}
+
+- (BOOL)hasCompleteRomanizationForLines:(NSArray<YTMULyricLine *> *)lines {
+    BOOL needsRomanization = NO;
+    for (YTMULyricLine *line in lines) {
+        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+        needsRomanization = YES;
+        if (![line.romanizedText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
+            return NO;
+        }
+    }
+    return needsRomanization;
 }
 
 - (NSString *)lineEffect {
@@ -212,10 +245,7 @@
 }
 
 - (void)reloadFromManager {
-    BOOL enabled = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO);
-    self.hidden = !enabled;
     [self updateDisplayLinkState];
-    if (!enabled) return;
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = manager.currentResult.sourceName.length
@@ -247,6 +277,7 @@
     BOOL romanizationEnabled = YTMULyricsSettingsBool(@"lyricsRomanization", YES);
     BOOL showTimeCodes = YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO);
     NSArray<NSString *> *translations = manager.translatedLines ?: @[];
+    BOOL showRomanization = romanizationEnabled && result.isSynced && [self hasCompleteRomanizationForLines:result.lines ?: @[]];
 
     NSMutableArray<YTMULyricLineView *> *lineViews = [NSMutableArray array];
     NSArray<YTMULyricLine *> *synced = result.lines;
@@ -266,7 +297,7 @@
         lineView.mainLabel.textColor = [UIColor labelColor];
         lineView.mainLabel.text = text.length ? text : [self emptyLineStates].firstObject;
         lineView.romanLabel.font = [UIFont italicSystemFontOfSize:base * 0.78];
-        NSString *roman = romanizationEnabled ? (line.romanizedText.length ? line.romanizedText : [YTMULyricsTextProcessor romanizeText:text]) : @"";
+        NSString *roman = showRomanization ? (line.romanizedText ?: @"") : @"";
         lineView.romanLabel.text = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : roman;
         lineView.translationLabel.font = [UIFont systemFontOfSize:base * 0.88 weight:UIFontWeightRegular];
         NSString *translation = i < translations.count ? translations[i] : @"";
@@ -298,7 +329,7 @@
     }
 
     self.lineViews = lineViews;
-    [self updatePlaybackTimeMs:self.playerViewController.currentVideoMediaTime * 1000.0];
+    [self updatePlaybackTimeMs:[self currentPlaybackTimeMs]];
 }
 
 - (void)lineTapped:(YTMULyricLineView *)sender {
