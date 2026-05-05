@@ -76,6 +76,15 @@ static void YTMULogOfficialLyricsProbe(id object, NSString *event, NSString *sou
     NSTimeInterval duration = self.currentVideoTotalMediaTime;
     [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId title:title artist:artist];
 
+    NSDictionary *flags = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
+    NSLog(@"[YTMULyrics] hook didActivateVideo videoId=%@ title=%@ artist=%@ master=%@ synced=%@ bilingual=%@",
+          videoId,
+          title,
+          artist,
+          [flags[@"YTMUltimateIsEnabled"] boolValue] ? @"YES" : @"NO",
+          [flags[@"syncedLyricsEnabled"] boolValue] ? @"YES" : @"NO",
+          ([flags[@"lyricsTranslationEnabled"] boolValue] || [flags[@"bilingualLyrics"] boolValue]) ? @"YES" : @"NO");
+
     YTMULyricsSearchInfo *info = [[YTMULyricsSearchInfo alloc] init];
     info.videoId = videoId;
     info.title = title;
