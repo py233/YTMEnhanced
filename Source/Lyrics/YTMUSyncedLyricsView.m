@@ -152,6 +152,7 @@
 @property (nonatomic, copy) NSArray<YTMULyricLineView *> *lineViews;
 @property (nonatomic) NSInteger activeIndex;
 @property (nonatomic, strong) CADisplayLink *displayLink;
+@property (nonatomic, copy) NSString *lastReloadSignature;
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs animated:(BOOL)animated;
 @end
 
@@ -247,11 +248,25 @@
     [self updateDisplayLinkState];
 }
 
+- (BOOL)ytmu_isEffectivelyVisible {
+    if (self.hidden || self.window == nil || self.alpha <= 0.01) return NO;
+    UIView *view = self.superview;
+    while (view) {
+        if (view.hidden || view.alpha <= 0.01) return NO;
+        view = view.superview;
+    }
+    return YES;
+}
+
 - (void)updateDisplayLinkState {
-    self.displayLink.paused = self.hidden || self.window == nil;
+    self.displayLink.paused = ![self ytmu_isEffectivelyVisible];
 }
 
 - (void)displayLinkTick:(CADisplayLink *)displayLink {
+    if (![self ytmu_isEffectivelyVisible]) {
+        displayLink.paused = YES;
+        return;
+    }
     [self updatePlaybackTimeMs:[self currentPlaybackTimeMs]];
 }
 
@@ -409,9 +424,26 @@
 
 - (void)reloadFromManager {
     [self updateDisplayLinkState];
+    if (![self ytmu_isEffectivelyVisible]) return;
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = [self nowPlayingTitleForManager:manager];
+    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%.0f|%@|%@|%@|%@|%@|%@",
+                           (long)manager.state,
+                           (void *)manager.currentResult,
+                           (void *)manager.translatedLines,
+                           [self baseFontSize],
+                           YTMULyricsSettingsString(@"lyricsConvertChinese", @"disabled"),
+                           YTMULyricsSettingsString(@"lyricsLineEffect", @"fancy"),
+                           YTMULyricsSettingsString(@"lyricsDefaultText", @"♪"),
+                           YTMULyricsSettingsBool(@"lyricsRomanization", YES) ? @"1" : @"0",
+                           YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO) ? @"1" : @"0",
+                           manager.lastErrorMessage ?: @""];
+    if ([signature isEqualToString:self.lastReloadSignature]) {
+        [self updatePlaybackTimeMs:[self currentPlaybackTimeMs] animated:NO];
+        return;
+    }
+    self.lastReloadSignature = signature;
 
     [self clearLineViews];
     self.scrollView.hidden = YES;
@@ -511,7 +543,10 @@
 }
 
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs animated:(BOOL)animated {
-    if (self.hidden || !self.lineViews.count) return;
+    if (![self ytmu_isEffectivelyVisible] || !self.lineViews.count) {
+        [self updateDisplayLinkState];
+        return;
+    }
     timeMs += (NSTimeInterval)YTMULyricsSettingsInteger(@"lyricsTimingOffsetMs", 0);
     if (timeMs < 0) timeMs = 0;
     NSTimeInterval timelineEnd = [self timelineEndMs];
