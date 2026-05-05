@@ -43,8 +43,8 @@
             return;
         }
         [self captureCookie:(NSHTTPURLResponse *)response];
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        NSString *token = json[@"message"][@"body"][@"user_token"];
+        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        NSString *token = YTMULyricsJSONStringAtPath(json, @[@"message", @"body", @"user_token"]);
         if (!token.length) {
             completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: @"MusixMatch token not initialized"}]);
             return;
@@ -82,28 +82,32 @@
             return;
         }
         [self captureCookie:(NSHTTPURLResponse *)response];
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
-        completion(json, error);
+        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
+        if (json && ![json isKindOfClass:[NSDictionary class]]) {
+            completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: @"MusixMatch returned invalid JSON"}]);
+            return;
+        }
+        completion((NSDictionary *)json, error);
     }] resume];
 }
 
 - (YTMULyricsResult *)resultFromJSON:(NSDictionary *)json info:(YTMULyricsSearchInfo *)info {
-    NSDictionary *macro = json[@"message"][@"body"][@"macro_calls"];
-    NSDictionary *track = macro[@"matcher.track.get"][@"message"][@"body"][@"track"];
-    NSDictionary *lyrics = macro[@"track.lyrics.get"][@"message"][@"body"][@"lyrics"];
-    NSArray *subs = macro[@"track.subtitles.get"][@"message"][@"body"][@"subtitle_list"];
+    NSDictionary *macro = YTMULyricsJSONDictionaryAtPath(json, @[@"message", @"body", @"macro_calls"]);
+    NSDictionary *track = YTMULyricsJSONDictionaryAtPath(macro, @[@"matcher.track.get", @"message", @"body", @"track"]);
+    NSDictionary *lyrics = YTMULyricsJSONDictionaryAtPath(macro, @[@"track.lyrics.get", @"message", @"body", @"lyrics"]);
+    NSArray *subs = YTMULyricsJSONArrayAtPath(macro, @[@"track.subtitles.get", @"message", @"body", @"subtitle_list"]);
     if (![track isKindOfClass:[NSDictionary class]]) return nil;
-    if ([track[@"track_id"] integerValue] == 115264642) return nil;
+    if ([YTMULyricsJSONNumberAtPath(track, @[@"track_id"]) integerValue] == 115264642) return nil;
 
-    NSString *trackName = track[@"track_name"] ?: info.title;
-    NSString *artistName = track[@"artist_name"] ?: info.artist;
+    NSString *trackName = YTMULyricsJSONStringAtPath(track, @[@"track_name"]) ?: info.title;
+    NSString *artistName = YTMULyricsJSONStringAtPath(track, @[@"artist_name"]) ?: info.artist;
     CGFloat score = YTMULyricsSimilarity(trackName, info.title) * 1.5 + YTMULyricsSimilarity(artistName, info.artist) * 0.7;
     if (score < 0.75) return nil;
 
-    NSString *plain = [lyrics[@"lyrics_body"] isKindOfClass:[NSString class]] ? lyrics[@"lyrics_body"] : @"";
+    NSString *plain = YTMULyricsJSONStringAtPath(lyrics, @[@"lyrics_body"]) ?: @"";
     NSString *lrc = @"";
     if ([subs isKindOfClass:[NSArray class]] && subs.count) {
-        lrc = subs[0][@"subtitle"][@"subtitle_body"] ?: @"";
+        lrc = YTMULyricsJSONStringAtPath(subs, @[@0, @"subtitle", @"subtitle_body"]) ?: @"";
     }
     if (!plain.length && !lrc.length) return nil;
 

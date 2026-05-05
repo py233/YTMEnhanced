@@ -1,5 +1,6 @@
 #import "YTMUTranslationCache.h"
 #import "YTMUTranslationTypes.h"
+#import <UIKit/UIKit.h>
 #import <CommonCrypto/CommonDigest.h>
 
 @implementation YTMUTranslationCacheEntry
@@ -41,10 +42,46 @@ static NSString *YTMUSHA1ForString(NSString *string) {
     self = [super init];
     if (self) {
         _memoryCache = [[NSCache alloc] init];
-        _memoryCache.countLimit = 80;
+        _memoryCache.countLimit = 10;
+        _memoryCache.totalCostLimit = 512 * 1024;
         _ioQueue = dispatch_queue_create("com.ytmultimate.translation-cache", DISPATCH_QUEUE_SERIAL);
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(clearMemoryCache)
+                                                     name:UIApplicationDidReceiveMemoryWarningNotification
+                                                   object:nil];
     }
     return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)clearMemoryCache {
+    [self.memoryCache removeAllObjects];
+    YTMUTranslationLog(@"translation memory cache cleared");
+}
+
+- (NSUInteger)costForEntry:(YTMUTranslationCacheEntry *)entry {
+    NSUInteger cost = 1024;
+    for (NSString *line in entry.translatedLines ?: @[]) cost += line.length * sizeof(unichar) + 32;
+    return cost;
+}
+
+- (YTMUTranslationCacheEntry *)memoryEntryFromEntry:(YTMUTranslationCacheEntry *)entry {
+    YTMUTranslationCacheEntry *copy = [[YTMUTranslationCacheEntry alloc] init];
+    copy.cacheKey = entry.cacheKey ?: @"";
+    copy.strategyVersion = entry.strategyVersion ?: YTMUTranslationStrategyVersion;
+    copy.videoId = entry.videoId ?: @"";
+    copy.targetLanguage = entry.targetLanguage ?: @"";
+    copy.provider = entry.provider ?: @"";
+    copy.model = entry.model ?: @"";
+    copy.sourceHash = entry.sourceHash ?: @"";
+    copy.lineCount = entry.lineCount;
+    copy.sourceLines = @[];
+    copy.translatedLines = entry.translatedLines ?: @[];
+    copy.createdAt = entry.createdAt;
+    return copy;
 }
 
 + (NSString *)sourceHashForLines:(NSArray<NSString *> *)lines {
@@ -148,14 +185,16 @@ static NSString *YTMUSHA1ForString(NSString *string) {
     NSDictionary *dict = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     YTMUTranslationCacheEntry *entry = [self entryFromDictionary:dict fallbackKey:key];
     if (entry) {
-        [self.memoryCache setObject:entry forKey:key];
+        YTMUTranslationCacheEntry *memoryEntry = [self memoryEntryFromEntry:entry];
+        [self.memoryCache setObject:memoryEntry forKey:key cost:[self costForEntry:memoryEntry]];
     }
     return entry;
 }
 
 - (void)storeEntry:(YTMUTranslationCacheEntry *)entry {
     if (!entry.cacheKey.length || !entry.translatedLines) return;
-    [self.memoryCache setObject:entry forKey:entry.cacheKey];
+    YTMUTranslationCacheEntry *memoryEntry = [self memoryEntryFromEntry:entry];
+    [self.memoryCache setObject:memoryEntry forKey:entry.cacheKey cost:[self costForEntry:memoryEntry]];
 
     dispatch_async(self.ioQueue, ^{
         [self ensureCacheDirectory];

@@ -149,7 +149,7 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
             completion(nil, error ?: [NSError errorWithDomain:@"YTMUNetEase" code:2 userInfo:@{NSLocalizedDescriptionKey: @"NetEase returned invalid JSON"}]);
             return;
         }
-        NSNumber *code = json[@"code"];
+        NSNumber *code = YTMULyricsJSONNumberAtPath(json, @[@"code"]);
         if (code && code.integerValue != 200) {
             completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:code.integerValue userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"NetEase API %ld", (long)code.integerValue]}]);
             return;
@@ -180,11 +180,11 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
 - (NSDictionary *)parseSong:(id)raw {
     if (![raw isKindOfClass:[NSDictionary class]]) return nil;
     NSDictionary *dict = raw;
-    NSNumber *resourceId = dict[@"resourceId"] ?: dict[@"id"];
-    NSDictionary *simple = dict[@"baseInfo"][@"simpleSongData"] ?: dict;
-    NSString *name = simple[@"name"];
-    NSArray *artists = simple[@"ar"] ?: simple[@"artists"] ?: @[];
-    NSNumber *duration = simple[@"dt"] ?: simple[@"duration"];
+    NSNumber *resourceId = YTMULyricsJSONNumberAtPath(dict, @[@"resourceId"]) ?: YTMULyricsJSONNumberAtPath(dict, @[@"id"]);
+    NSDictionary *simple = YTMULyricsJSONDictionaryAtPath(dict, @[@"baseInfo", @"simpleSongData"]) ?: dict;
+    NSString *name = YTMULyricsJSONStringAtPath(simple, @[@"name"]);
+    NSArray *artists = YTMULyricsJSONArrayAtPath(simple, @[@"ar"]) ?: YTMULyricsJSONArrayAtPath(simple, @[@"artists"]) ?: @[];
+    NSNumber *duration = YTMULyricsJSONNumberAtPath(simple, @[@"dt"]) ?: YTMULyricsJSONNumberAtPath(simple, @[@"duration"]);
     if (!resourceId || !name.length || !duration) return nil;
     return @{@"id": resourceId, @"name": name, @"artists": artists ?: @[], @"duration": duration};
 }
@@ -206,8 +206,8 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
             return;
         }
         NSMutableArray *rawItems = [NSMutableArray array];
-        NSArray *resources = json[@"data"][@"resources"];
-        NSArray *songs = json[@"result"][@"songs"];
+        NSArray *resources = YTMULyricsJSONArrayAtPath(json, @[@"data", @"resources"]);
+        NSArray *songs = YTMULyricsJSONArrayAtPath(json, @[@"result", @"songs"]);
         if ([resources isKindOfClass:[NSArray class]]) [rawItems addObjectsFromArray:resources];
         if ([songs isKindOfClass:[NSArray class]]) [rawItems addObjectsFromArray:songs];
         NSMutableArray *parsed = [NSMutableArray array];
@@ -254,10 +254,10 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
 }
 
 - (CGFloat)artistScoreForSong:(NSDictionary *)song artistNames:(NSArray<NSString *> *)artistNames {
-    NSArray *rawArtists = song[@"artists"];
+    NSArray *rawArtists = YTMULyricsJSONArrayAtPath(song, @[@"artists"]);
     CGFloat best = 0;
-    for (NSDictionary *item in rawArtists) {
-        NSString *name = [item isKindOfClass:[NSDictionary class]] ? item[@"name"] : @"";
+    for (id item in rawArtists) {
+        NSString *name = YTMULyricsJSONStringAtPath(item, @[@"name"]) ?: @"";
         for (NSString *artist in artistNames) {
             best = MAX(best, YTMULyricsSimilarity(name, artist));
         }
@@ -270,11 +270,13 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
     NSDictionary *best = nil;
     CGFloat bestScore = 0;
     BOOL hasDuration = isfinite(info.duration) && info.duration > 0;
-    for (NSDictionary *song in songs) {
-        NSString *name = song[@"name"] ?: @"";
+    for (id candidate in songs) {
+        if (![candidate isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *song = candidate;
+        NSString *name = YTMULyricsJSONStringAtPath(song, @[@"name"]) ?: @"";
         CGFloat titleScore = MAX(YTMULyricsSimilarity(info.title, name), YTMULyricsSimilarity(info.alternativeTitle, name));
         CGFloat artistScore = [self artistScoreForSong:song artistNames:artists];
-        NSTimeInterval duration = [song[@"duration"] doubleValue] / 1000.0;
+        NSTimeInterval duration = [YTMULyricsJSONNumberAtPath(song, @[@"duration"]) doubleValue] / 1000.0;
         NSTimeInterval delta = hasDuration ? fabs(duration - info.duration) : 0;
         if (titleScore < 0.70) continue;
         if (hasDuration && delta > 25) continue;
@@ -324,31 +326,34 @@ static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85db
         }
         dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             NSMutableDictionary<NSNumber *, NSDictionary *> *unique = [NSMutableDictionary dictionary];
-            for (NSDictionary *song in allSongs) unique[song[@"id"]] = song;
+            for (NSDictionary *song in allSongs) {
+                NSNumber *songId = YTMULyricsJSONNumberAtPath(song, @[@"id"]);
+                if (songId) unique[songId] = song;
+            }
             NSDictionary *best = [self bestSongFromSongs:unique.allValues info:info];
             if (!best) {
                 completion(nil, nil);
                 return;
             }
-            [self getLyric:best[@"id"] completion:^(NSDictionary *lyric) {
-                NSString *rawLyrics = [YTMULRCParser stripNetEaseMetadata:lyric[@"lrc"][@"lyric"] ?: @""];
+            [self getLyric:YTMULyricsJSONNumberAtPath(best, @[@"id"]) completion:^(NSDictionary *lyric) {
+                NSString *rawLyrics = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"lrc", @"lyric"]) ?: @""];
                 if (!rawLyrics.length) {
                     completion(nil, nil);
                     return;
                 }
-                NSString *translation = [YTMULRCParser stripNetEaseMetadata:lyric[@"tlyric"][@"lyric"] ?: @""];
+                NSString *translation = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"tlyric", @"lyric"]) ?: @""];
                 YTMULyricsResult *result = [[YTMULyricsResult alloc] init];
                 result.sourceName = [self providerName];
-                result.title = best[@"name"] ?: info.title;
+                result.title = YTMULyricsJSONStringAtPath(best, @[@"name"]) ?: info.title;
                 NSMutableArray *artistNames = [NSMutableArray array];
-                for (NSDictionary *artist in best[@"artists"] ?: @[]) {
-                    NSString *name = artist[@"name"];
+                for (id artist in YTMULyricsJSONArrayAtPath(best, @[@"artists"]) ?: @[]) {
+                    NSString *name = YTMULyricsJSONStringAtPath(artist, @[@"name"]);
                     if (name.length) [artistNames addObject:name];
                 }
                 result.artists = artistNames.count ? artistNames : (info.artist.length ? @[info.artist] : @[]);
                 result.plainLyrics = rawLyrics;
                 result.lines = [YTMULRCParser parseLRC:rawLyrics];
-                result.duration = [best[@"duration"] doubleValue] / 1000.0;
+                result.duration = [YTMULyricsJSONNumberAtPath(best, @[@"duration"]) doubleValue] / 1000.0;
                 if (translation.length) {
                     NSArray *translatedSynced = [YTMULRCParser parseLRC:translation];
                     NSMutableArray *translatedTexts = [NSMutableArray array];

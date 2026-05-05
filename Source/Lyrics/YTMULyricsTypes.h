@@ -78,5 +78,10 @@ NSArray<NSString *> *YTMULyricsSplitArtists(NSString *artist, NSArray<NSString *
 NSString *YTMULyricsStripSearchNoise(NSString *value);
 NSString *YTMULyricsEncodeQuery(NSString *value);
 NSString *YTMULyricsJSONStringFromObject(id object);
+id _Nullable YTMULyricsJSONValueAtPath(id _Nullable object, NSArray *path);
+NSDictionary *_Nullable YTMULyricsJSONDictionaryAtPath(id _Nullable object, NSArray *path);
+NSArray *_Nullable YTMULyricsJSONArrayAtPath(id _Nullable object, NSArray *path);
+NSString *_Nullable YTMULyricsJSONStringAtPath(id _Nullable object, NSArray *path);
+NSNumber *_Nullable YTMULyricsJSONNumberAtPath(id _Nullable object, NSArray *path);
 
 NS_ASSUME_NONNULL_END

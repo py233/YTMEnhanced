@@ -1,4 +1,5 @@
 #import "YTMULyricsCache.h"
+#import <UIKit/UIKit.h>
 #import <CommonCrypto/CommonDigest.h>
 
 @interface YTMULyricsCache ()
@@ -30,10 +31,32 @@ static NSString *YTMULyricsSHA1(NSString *string) {
     self = [super init];
     if (self) {
         _memoryCache = [[NSCache alloc] init];
-        _memoryCache.countLimit = 60;
+        _memoryCache.countLimit = 8;
+        _memoryCache.totalCostLimit = 768 * 1024;
         _ioQueue = dispatch_queue_create("com.ytmultimate.lyrics-cache", DISPATCH_QUEUE_SERIAL);
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(clearMemoryCache)
+                                                     name:UIApplicationDidReceiveMemoryWarningNotification
+                                                   object:nil];
     }
     return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (NSUInteger)costForResult:(YTMULyricsResult *)result {
+    NSUInteger cost = result.plainLyrics.length * sizeof(unichar);
+    for (YTMULyricLine *line in result.lines ?: @[]) cost += line.text.length * sizeof(unichar) + 64;
+    for (NSString *line in result.officialTranslatedLines ?: @[]) cost += line.length * sizeof(unichar) + 32;
+    cost += result.title.length * sizeof(unichar) + result.artists.description.length * sizeof(unichar);
+    return MAX((NSUInteger)1024, cost);
+}
+
+- (void)clearMemoryCache {
+    [self.memoryCache removeAllObjects];
+    YTMULyricsLog(@"lyrics memory cache cleared");
 }
 
 + (NSString *)cacheKeyForInfo:(YTMULyricsSearchInfo *)info source:(NSString *)source {
@@ -81,13 +104,13 @@ static NSString *YTMULyricsSHA1(NSString *string) {
         YTMULyricsLog(@"lyrics cache read failed key=%@ error=%@", key, error.localizedDescription ?: @"<unknown>");
         return nil;
     }
-    [self.memoryCache setObject:result forKey:key];
+    [self.memoryCache setObject:result forKey:key cost:[self costForResult:result]];
     return result;
 }
 
 - (void)storeResult:(YTMULyricsResult *)result forKey:(NSString *)key {
     if (!key.length || !result.hasText) return;
-    [self.memoryCache setObject:result forKey:key];
+    [self.memoryCache setObject:result forKey:key cost:[self costForResult:result]];
     dispatch_async(self.ioQueue, ^{
         [self ensureCacheDirectory];
         NSError *error = nil;
