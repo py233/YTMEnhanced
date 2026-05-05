@@ -26,6 +26,12 @@ on:
         required: false
         type: string
 
+      create_release:
+        description: "Create a draft GitHub release"
+        default: false
+        required: true
+        type: boolean
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -159,6 +165,22 @@ jobs:
             "${{ inputs.display_name }}" \
             "${{ inputs.bundle_id }}"
 
+      - name: Summarize IPA
+        id: ipa
+        run: |
+          set -euo pipefail
+          echo "sha256=$(shasum -a 256 YTMusicUltimate.ipa | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "size=$(stat -f%z YTMusicUltimate.ipa)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload IPA Artifact
+        id: upload_ipa
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: YTMusicUltimate-${{ github.run_number }}
+          path: YTMusicUltimate.ipa
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Prepare Release Notes
         env:
           CHANGELOG: ${{ inputs.changelog }}
@@ -178,9 +200,13 @@ jobs:
             echo "### Build"
             echo "- Workflow run: ${{ github.run_number }}"
             echo "- Commit: \`${{ github.sha }}\`"
+            echo "- IPA size: ${{ steps.ipa.outputs.size }} bytes"
+            echo "- SHA-256: \`${{ steps.ipa.outputs.sha256 }}\`"
+            echo "- Action artifact: ${{ steps.upload_ipa.outputs.artifact-url }}"
           } >> RELEASE_NOTES.md
 
       - name: Create Release
+        if: ${{ inputs.create_release }}
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ytmusicultimate-action-${{ github.run_number }}
@@ -190,5 +216,11 @@ jobs:
           draft: true
 
       - name: Output Release URL
+        if: ${{ inputs.create_release }}
         run: |
           echo "::notice::Release available at: https://github.com/${{ github.repository }}/releases"
+
+      - name: Output Artifact URL
+        if: ${{ !inputs.create_release }}
+        run: |
+          echo "::notice::Build artifact available at: ${{ steps.upload_ipa.outputs.artifact-url }}"
