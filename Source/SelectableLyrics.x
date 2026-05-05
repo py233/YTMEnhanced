@@ -88,6 +88,43 @@ static NSString *YTMULyricsPageTranslationProviderTitle(void) {
     return provider.length ? provider : @"translator";
 }
 
+static CGFloat YTMULyricsPageClampFontSize(CGFloat size) {
+    return MIN(38.0, MAX(16.0, size));
+}
+
+static CGFloat YTMULyricsPageBaseFontSize(void) {
+    id custom = YTMULyricsPageSettings()[@"lyricsFontPointSize"];
+    CGFloat pointSize = 0.0;
+    if ([custom respondsToSelector:@selector(doubleValue)]) {
+        pointSize = [custom doubleValue];
+    }
+    if (pointSize > 0.0) return YTMULyricsPageClampFontSize(pointSize);
+
+    NSString *size = YTMULyricsPageString(@"lyricsFontSize", @"small");
+    if ([size isEqualToString:@"large"]) return 33.0;
+    if ([size isEqualToString:@"medium"]) return 27.0;
+    return 22.0;
+}
+
+static void YTMULyricsPageSetBaseFontSize(CGFloat size) {
+    YTMULyricsPageSetSetting(@"lyricsFontPointSize", @(llround(YTMULyricsPageClampFontSize(size))));
+}
+
+static BOOL YTMULyricsPageResultHasCompleteRomanization(YTMULyricsResult *result) {
+    if (!result.isSynced || !result.lines.count) return NO;
+
+    BOOL needsRomanization = NO;
+    for (YTMULyricLine *line in result.lines) {
+        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (![YTMULyricsTextProcessor hasRomanizableText:text]) continue;
+        needsRomanization = YES;
+        if (![line.romanizedText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
+            return NO;
+        }
+    }
+    return needsRomanization;
+}
+
 static NSString *YTMULyricsPageLineText(NSString *text) {
     NSString *value = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (value.length) return value;
@@ -109,10 +146,11 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
     UIColor *primary = textView.textColor ?: [UIColor labelColor];
     UIColor *secondary = [primary colorWithAlphaComponent:0.58];
     UIColor *translationColor = [primary colorWithAlphaComponent:0.78];
-    UIFont *mainFont = [UIFont systemFontOfSize:30.0 weight:UIFontWeightHeavy];
-    UIFont *romanFont = [UIFont italicSystemFontOfSize:20.0];
-    UIFont *translationFont = [UIFont systemFontOfSize:23.0 weight:UIFontWeightSemibold];
-    UIFont *statusFont = [UIFont systemFontOfSize:22.0 weight:UIFontWeightSemibold];
+    CGFloat base = YTMULyricsPageBaseFontSize();
+    UIFont *mainFont = [UIFont systemFontOfSize:base weight:UIFontWeightHeavy];
+    UIFont *romanFont = [UIFont italicSystemFontOfSize:MAX(13.0, base * 0.78)];
+    UIFont *translationFont = [UIFont systemFontOfSize:MAX(14.0, base * 0.88) weight:UIFontWeightSemibold];
+    UIFont *statusFont = [UIFont systemFontOfSize:MAX(16.0, base * 0.88) weight:UIFontWeightSemibold];
 
     NSMutableParagraphStyle *mainParagraph = [[NSMutableParagraphStyle alloc] init];
     mainParagraph.paragraphSpacing = 12.0;
@@ -159,6 +197,7 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
     NSArray<NSString *> *translations = manager.translatedLines ?: @[];
     NSString *convertMode = YTMULyricsPageString(@"lyricsConvertChinese", @"disabled");
     BOOL romanization = YTMULyricsPageBool(@"lyricsRomanization");
+    BOOL showRomanization = romanization && YTMULyricsPageResultHasCompleteRomanization(result);
     BOOL showTimeCodes = YTMULyricsPageBool(@"lyricsShowTimeCodes");
 
     for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
@@ -170,10 +209,9 @@ static NSAttributedString *YTMULyricsPageAttributedText(UITextView *textView, NS
 
         appendLine(source, mainFont, primary, mainParagraph);
 
-        if (romanization) {
+        if (showRomanization) {
             NSString *roman = @"";
             if (idx < result.lines.count) roman = result.lines[idx].romanizedText ?: @"";
-            if (!roman.length) roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
             BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
             if (roman.length && !same) appendLine(roman, romanFont, secondary, secondaryParagraph);
         }
@@ -207,6 +245,7 @@ static NSString *YTMULyricsPagePlainDisplayText(NSString *fallbackText) {
     NSArray<NSString *> *translations = manager.translatedLines ?: @[];
     NSString *convertMode = YTMULyricsPageString(@"lyricsConvertChinese", @"disabled");
     BOOL romanization = YTMULyricsPageBool(@"lyricsRomanization");
+    BOOL showRomanization = romanization && YTMULyricsPageResultHasCompleteRomanization(result);
     BOOL showTimeCodes = YTMULyricsPageBool(@"lyricsShowTimeCodes");
 
     for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
@@ -217,10 +256,9 @@ static NSString *YTMULyricsPagePlainDisplayText(NSString *fallbackText) {
         }
         if (source.length) [lines addObject:source];
 
-        if (romanization) {
+        if (showRomanization) {
             NSString *roman = @"";
             if (idx < result.lines.count) roman = result.lines[idx].romanizedText ?: @"";
-            if (!roman.length) roman = [YTMULyricsTextProcessor romanizeText:source] ?: @"";
             BOOL same = [[YTMULyricsTextProcessor simplifyUnicode:roman] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:source]];
             if (roman.length && !same) [lines addObject:roman];
         }
@@ -441,14 +479,19 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 @property (retain, nonatomic) UITextView *lyricsTextView;
 @property (retain, nonatomic) YTMUSyncedLyricsView *syncedLyricsView;
 @property (retain, nonatomic) UILabel *attributionLabel;
+@property (retain, nonatomic) UIButton *fontDecreaseButton;
+@property (retain, nonatomic) UIButton *fontIncreaseButton;
+@property (retain, nonatomic) UILabel *fontSizeLabel;
 @property (copy, nonatomic) NSString *lastRenderSignature;
 @property (assign, nonatomic) YTPlayerViewController *playerViewController;
 - (void)ytmu_renderTabOverlay;
 - (void)ytmu_layoutSourceButtons;
 - (void)ytmu_updateSourceButtons;
+- (void)ytmu_updateFontControls;
 - (void)ytmu_scrollSourceButtonIntoView:(UIButton *)button animated:(BOOL)animated;
 - (void)ytmu_selectLyricsSource:(UIButton *)sender;
 - (void)ytmu_cycleLyricsSource:(UISwipeGestureRecognizer *)gesture;
+- (void)ytmu_adjustLyricsFontSize:(UIButton *)sender;
 @end
 
 @implementation YTMULyricsTabOverlayView
@@ -481,6 +524,32 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
             [buttons addObject:button];
         }
         self.sourceButtons = buttons;
+
+        self.fontDecreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        self.fontDecreaseButton.tag = -1;
+        [self.fontDecreaseButton setTitle:@"A-" forState:UIControlStateNormal];
+        [self.fontDecreaseButton addTarget:self action:@selector(ytmu_adjustLyricsFontSize:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.fontDecreaseButton];
+
+        self.fontSizeLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        self.fontSizeLabel.textAlignment = NSTextAlignmentCenter;
+        self.fontSizeLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        self.fontSizeLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
+        [self addSubview:self.fontSizeLabel];
+
+        self.fontIncreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        self.fontIncreaseButton.tag = 1;
+        [self.fontIncreaseButton setTitle:@"A+" forState:UIControlStateNormal];
+        [self.fontIncreaseButton addTarget:self action:@selector(ytmu_adjustLyricsFontSize:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.fontIncreaseButton];
+
+        for (UIButton *button in @[self.fontDecreaseButton, self.fontIncreaseButton]) {
+            button.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
+            [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            button.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+            button.layer.cornerRadius = 15.0;
+            button.clipsToBounds = YES;
+        }
 
         self.lyricsTextView = [[UITextView alloc] initWithFrame:CGRectZero];
         self.lyricsTextView.backgroundColor = [UIColor clearColor];
@@ -538,7 +607,13 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     CGFloat bottomInset = 12.0;
     if (@available(iOS 11.0, *)) bottomInset += self.safeAreaInsets.bottom;
     CGFloat attributionHeight = self.attributionLabel.text.length ? 30.0 : 0.0;
-    self.sourceScrollView.frame = CGRectMake(sideInset, topInset, self.bounds.size.width - sideInset * 2.0, 34.0);
+    CGFloat controlWidth = 110.0;
+    CGFloat controlX = MAX(sideInset, self.bounds.size.width - sideInset - controlWidth);
+    self.fontDecreaseButton.frame = CGRectMake(controlX, topInset + 2.0, 30.0, 30.0);
+    self.fontSizeLabel.frame = CGRectMake(CGRectGetMaxX(self.fontDecreaseButton.frame) + 4.0, topInset + 2.0, 38.0, 30.0);
+    self.fontIncreaseButton.frame = CGRectMake(CGRectGetMaxX(self.fontSizeLabel.frame) + 4.0, topInset + 2.0, 30.0, 30.0);
+    CGFloat sourceWidth = MAX(96.0, controlX - sideInset - 10.0);
+    self.sourceScrollView.frame = CGRectMake(sideInset, topInset, sourceWidth, 34.0);
     CGFloat textY = CGRectGetMaxY(self.sourceScrollView.frame) + 12.0;
     CGFloat attributionY = self.bounds.size.height - bottomInset - attributionHeight;
     self.lyricsTextView.frame = CGRectMake(sideInset,
@@ -568,14 +643,16 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     }
     self.attributionLabel.text = YTMULyricsPageAttributionText();
     [self ytmu_updateSourceButtons];
+    [self ytmu_updateFontControls];
     [self setNeedsLayout];
 
-    NSString *signature = [NSString stringWithFormat:@"%ld|%@|%lu|%lu|%@",
+    NSString *signature = [NSString stringWithFormat:@"%ld|%@|%lu|%lu|%@|%.0f",
                            (long)manager.state,
                            manager.currentResult.sourceName ?: @"<none>",
                            (unsigned long)manager.displayLineTexts.count,
                            (unsigned long)manager.translatedLines.count,
-                           YTMULyricsPageString(@"lyricsPreferredSource", @"auto")];
+                           YTMULyricsPageString(@"lyricsPreferredSource", @"auto"),
+                           YTMULyricsPageBaseFontSize()];
     if (![signature isEqualToString:self.lastRenderSignature]) {
         self.lastRenderSignature = signature;
         YTMULyricsLog(@"lyrics tab overlay rendered state=%ld source=%@ lines=%lu translated=%lu",
@@ -584,6 +661,15 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
                       (unsigned long)manager.displayLineTexts.count,
                       (unsigned long)manager.translatedLines.count);
     }
+}
+
+- (void)ytmu_updateFontControls {
+    CGFloat size = YTMULyricsPageBaseFontSize();
+    self.fontSizeLabel.text = [NSString stringWithFormat:@"%.0f", size];
+    self.fontDecreaseButton.enabled = size > 16.0;
+    self.fontIncreaseButton.enabled = size < 38.0;
+    self.fontDecreaseButton.alpha = self.fontDecreaseButton.enabled ? 1.0 : 0.38;
+    self.fontIncreaseButton.alpha = self.fontIncreaseButton.enabled ? 1.0 : 0.38;
 }
 
 - (void)ytmu_layoutSourceButtons {
@@ -643,6 +729,14 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         [self ytmu_scrollSourceButtonIntoView:self.sourceButtons[(NSUInteger)index] animated:YES];
     }
     YTMULyricsLog(@"lyrics tab source swiped=%@", YTMULyricsPageSourceTitle(key));
+}
+
+- (void)ytmu_adjustLyricsFontSize:(UIButton *)sender {
+    CGFloat next = YTMULyricsPageBaseFontSize() + (sender.tag < 0 ? -2.0 : 2.0);
+    YTMULyricsPageSetBaseFontSize(next);
+    [self ytmu_updateFontControls];
+    [self ytmu_renderTabOverlay];
+    YTMULyricsLog(@"lyrics page font size=%.0f", YTMULyricsPageBaseFontSize());
 }
 
 @end
