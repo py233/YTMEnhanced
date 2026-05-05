@@ -20,7 +20,7 @@
 @property (nonatomic, copy, readwrite) NSString *translationAttribution;
 @property (nonatomic, copy, readwrite) NSString *lastErrorMessage;
 @property (nonatomic) NSUInteger requestGeneration;
-@property (nonatomic, strong) YTMULyricsSearchInfo *lastSearchInfo;
+@property (nonatomic, strong, readwrite) YTMULyricsSearchInfo *lastSearchInfo;
 @property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
 @end
 

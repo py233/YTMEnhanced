@@ -387,6 +387,16 @@
     return states[idx];
 }
 
+- (NSString *)nowPlayingTitleForManager:(YTMULyricsManager *)manager {
+    YTMULyricsSearchInfo *info = manager.lastSearchInfo;
+    NSString *title = [info.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *artist = [info.artist stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (artist.length && title.length) return [NSString stringWithFormat:@"%@ · %@", artist, title];
+    if (title.length) return title;
+    if (artist.length) return artist;
+    return manager.activeVideoId.length ? manager.activeVideoId : @"Synced lyrics";
+}
+
 - (void)clearLineViews {
     for (UIView *view in self.stackView.arrangedSubviews) {
         [self.stackView removeArrangedSubview:view];
@@ -400,9 +410,7 @@
     [self updateDisplayLinkState];
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
-    self.titleLabel.text = manager.currentResult.sourceName.length
-        ? [NSString stringWithFormat:@"%@ · %@", manager.currentResult.sourceName, manager.currentResult.title.length ? manager.currentResult.title : manager.activeVideoId]
-        : @"Synced lyrics";
+    self.titleLabel.text = [self nowPlayingTitleForManager:manager];
 
     [self clearLineViews];
     self.scrollView.hidden = YES;
