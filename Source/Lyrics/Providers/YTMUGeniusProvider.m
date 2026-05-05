@@ -60,19 +60,19 @@
             completion(nil, error);
             return;
         }
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        NSArray *hits = json[@"response"][@"sections"][0][@"hits"];
+        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        NSArray *hits = YTMULyricsJSONArrayAtPath(json, @[@"response", @"sections", @0, @"hits"]);
         if (![hits isKindOfClass:[NSArray class]]) {
             completion(nil, nil);
             return;
         }
         NSDictionary *best = nil;
         CGFloat bestScore = 0;
-        for (NSDictionary *hit in hits) {
-            NSDictionary *result = hit[@"result"];
-            NSString *title = result[@"title"];
-            NSString *artist = result[@"primary_artist"][@"name"];
-            NSString *path = result[@"path"];
+        for (id hit in hits) {
+            NSDictionary *result = YTMULyricsJSONDictionaryAtPath(hit, @[@"result"]);
+            NSString *title = YTMULyricsJSONStringAtPath(result, @[@"title"]);
+            NSString *artist = YTMULyricsJSONStringAtPath(result, @[@"primary_artist", @"name"]);
+            NSString *path = YTMULyricsJSONStringAtPath(result, @[@"path"]);
             if (![path isKindOfClass:[NSString class]]) continue;
             CGFloat score = YTMULyricsSimilarity(info.title, title) * 1.4 + YTMULyricsSimilarity(info.artist, artist) * 0.8;
             if (score > bestScore) {
@@ -80,7 +80,7 @@
                 best = result;
             }
         }
-        NSString *path = best[@"path"];
+        NSString *path = YTMULyricsJSONStringAtPath(best, @[@"path"]);
         if (!path.length || bestScore < 0.75) {
             completion(nil, nil);
             return;
@@ -95,8 +95,8 @@
             }
             YTMULyricsResult *result = [[YTMULyricsResult alloc] init];
             result.sourceName = [self providerName];
-            result.title = [best[@"title"] isKindOfClass:[NSString class]] ? best[@"title"] : info.title;
-            NSString *artist = best[@"primary_artist"][@"name"];
+            result.title = YTMULyricsJSONStringAtPath(best, @[@"title"]) ?: info.title;
+            NSString *artist = YTMULyricsJSONStringAtPath(best, @[@"primary_artist", @"name"]);
             result.artists = artist.length ? @[artist] : (info.artist.length ? @[info.artist] : @[]);
             result.plainLyrics = lyrics;
             result.duration = info.duration;

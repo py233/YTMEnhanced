@@ -38,13 +38,13 @@
 }
 
 - (NSString *)lyricsBrowseIdFromNext:(NSDictionary *)json {
-    NSArray *tabs = json[@"contents"][@"singleColumnMusicWatchNextResultsRenderer"][@"tabbedRenderer"][@"watchNextTabbedResultsRenderer"][@"tabs"];
+    NSArray *tabs = YTMULyricsJSONArrayAtPath(json, @[@"contents", @"singleColumnMusicWatchNextResultsRenderer", @"tabbedRenderer", @"watchNextTabbedResultsRenderer", @"tabs"]);
     if (![tabs isKindOfClass:[NSArray class]]) return @"";
-    for (NSDictionary *tab in tabs) {
-        NSDictionary *browse = tab[@"tabRenderer"][@"endpoint"][@"browseEndpoint"];
-        NSString *pageType = browse[@"browseEndpointContextSupportedConfigs"][@"browseEndpointContextMusicConfig"][@"pageType"];
+    for (id tab in tabs) {
+        NSDictionary *browse = YTMULyricsJSONDictionaryAtPath(tab, @[@"tabRenderer", @"endpoint", @"browseEndpoint"]);
+        NSString *pageType = YTMULyricsJSONStringAtPath(browse, @[@"browseEndpointContextSupportedConfigs", @"browseEndpointContextMusicConfig", @"pageType"]);
         if ([pageType isEqualToString:@"MUSIC_PAGE_TYPE_TRACK_LYRICS"]) {
-            NSString *browseId = browse[@"browseId"];
+            NSString *browseId = YTMULyricsJSONStringAtPath(browse, @[@"browseId"]);
             return [browseId isKindOfClass:[NSString class]] ? browseId : @"";
         }
     }
@@ -77,12 +77,11 @@
 - (void)collectPlainLyricsFromNode:(id)node into:(NSMutableArray<NSString *> *)plainParts {
     if ([node isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = node;
-        NSDictionary *shelf = dict[@"musicDescriptionShelfRenderer"];
-        NSDictionary *message = dict[@"messageRenderer"];
-        NSArray *runs = shelf[@"description"][@"runs"] ?: message[@"text"][@"runs"];
+        NSArray *runs = YTMULyricsJSONArrayAtPath(dict, @[@"musicDescriptionShelfRenderer", @"description", @"runs"]) ?:
+                        YTMULyricsJSONArrayAtPath(dict, @[@"messageRenderer", @"text", @"runs"]);
         if ([runs isKindOfClass:[NSArray class]]) {
-            for (NSDictionary *run in runs) {
-                NSString *text = run[@"text"];
+            for (id run in runs) {
+                NSString *text = YTMULyricsJSONStringAtPath(run, @[@"text"]);
                 if ([text isKindOfClass:[NSString class]]) [plainParts addObject:text];
             }
         }
@@ -97,12 +96,12 @@
     for (NSDictionary *wrapper in arrays) {
         NSArray *items = wrapper[@"items"];
         NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray array];
-        for (NSDictionary *item in items) {
-            NSString *text = [item[@"lyricLine"] isKindOfClass:[NSString class]] ? item[@"lyricLine"] : @"";
-            NSDictionary *cue = item[@"cueRange"];
+        for (id item in items) {
+            NSString *text = YTMULyricsJSONStringAtPath(item, @[@"lyricLine"]) ?: @"";
+            NSDictionary *cue = YTMULyricsJSONDictionaryAtPath(item, @[@"cueRange"]);
             if (![cue isKindOfClass:[NSDictionary class]]) continue;
-            NSTimeInterval start = [cue[@"startTimeMilliseconds"] doubleValue];
-            NSTimeInterval end = [cue[@"endTimeMilliseconds"] doubleValue];
+            NSTimeInterval start = [YTMULyricsJSONNumberAtPath(cue, @[@"startTimeMilliseconds"]) doubleValue];
+            NSTimeInterval end = [YTMULyricsJSONNumberAtPath(cue, @[@"endTimeMilliseconds"]) doubleValue];
             if (end <= start) end = start + 2500;
             if ([text isEqualToString:@"♪"]) text = @"";
             NSInteger totalMs = (NSInteger)llround(start);

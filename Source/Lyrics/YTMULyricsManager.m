@@ -27,11 +27,24 @@
 
 - (NSString *)translationProviderDisplayName {
     NSString *provider = YTMULyricsSettingsString(@"translationProvider", YTMUTranslationProviderGoogle);
-    if ([provider isEqualToString:YTMUTranslationProviderGoogle]) return @"Google Translate";
-    if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) return @"Anthropic";
-    if ([provider isEqualToString:YTMUTranslationProviderGemini]) return @"Gemini";
-    if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) return @"OpenAI-compatible";
-    return provider.length ? provider : @"translator";
+    NSString *name = nil;
+    NSString *model = nil;
+    if ([provider isEqualToString:YTMUTranslationProviderGoogle]) {
+        name = @"Google Translate";
+        model = @"google-translate";
+    } else if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) {
+        name = @"Anthropic";
+        model = YTMULyricsSettingsString(@"translationModel_anthropic", @"claude-haiku-4-5-20251001");
+    } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
+        name = @"Gemini";
+        model = YTMULyricsSettingsString(@"translationModel_gemini", @"gemini-2.0-flash");
+    } else if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
+        name = @"OpenAI-compatible";
+        model = YTMULyricsSettingsString(@"translationModel_openai-compatible", @"gpt-4o-mini");
+    }
+
+    if (!name.length) name = provider.length ? provider : @"translator";
+    return model.length ? [NSString stringWithFormat:@"%@ (%@)", name, model] : name;
 }
 
 + (instancetype)sharedManager {

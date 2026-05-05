@@ -21,13 +21,10 @@ static NSString *YTMULyricsPageString(NSString *key, NSString *fallback) {
     return fallback ?: @"";
 }
 
+static BOOL YTMULyricsPageCustomSourceEnabled(void);
+
 static BOOL YTMULyricsPageReplacementEnabled(void) {
-    NSDictionary *settings = YTMULyricsPageSettings();
-    return [settings[@"YTMUltimateIsEnabled"] boolValue] &&
-           ([settings[@"selectableLyrics"] boolValue] ||
-            [settings[@"syncedLyricsEnabled"] boolValue] ||
-            [settings[@"lyricsTranslationEnabled"] boolValue] ||
-            [settings[@"bilingualLyrics"] boolValue]);
+    return YTMULyricsPageCustomSourceEnabled();
 }
 
 static BOOL YTMULyricsPageCustomSourceEnabled(void) {
@@ -486,9 +483,11 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 
         self.attributionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         self.attributionLabel.backgroundColor = [UIColor clearColor];
-        self.attributionLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        self.attributionLabel.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
         self.attributionLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.58];
         self.attributionLabel.numberOfLines = 2;
+        self.attributionLabel.adjustsFontSizeToFitWidth = YES;
+        self.attributionLabel.minimumScaleFactor = 0.82;
         [self addSubview:self.attributionLabel];
 
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -514,7 +513,7 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     CGFloat topInset = 14.0;
     CGFloat bottomInset = 12.0;
     if (@available(iOS 11.0, *)) bottomInset += self.safeAreaInsets.bottom;
-    CGFloat attributionHeight = self.attributionLabel.text.length ? 34.0 : 0.0;
+    CGFloat attributionHeight = self.attributionLabel.text.length ? 30.0 : 0.0;
     self.sourceScrollView.frame = CGRectMake(sideInset, topInset, self.bounds.size.width - sideInset * 2.0, 34.0);
     CGFloat textY = CGRectGetMaxY(self.sourceScrollView.frame) + 12.0;
     CGFloat attributionY = self.bounds.size.height - bottomInset - attributionHeight;
@@ -821,8 +820,8 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
     if (!self.ytmuLyricsEntryButton) {
         self.ytmuLyricsEntryButton = [UIButton buttonWithType:UIButtonTypeSystem];
         self.ytmuLyricsEntryButton.accessibilityIdentifier = @"ytmu.lyrics.entry";
-        self.ytmuLyricsEntryButton.accessibilityLabel = @"YTMU lyrics";
-        [self.ytmuLyricsEntryButton setTitle:@"YTMU" forState:UIControlStateNormal];
+        self.ytmuLyricsEntryButton.accessibilityLabel = @"Lyrics";
+        [self.ytmuLyricsEntryButton setTitle:@"Lyrics" forState:UIControlStateNormal];
         self.ytmuLyricsEntryButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
         [self.ytmuLyricsEntryButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         self.ytmuLyricsEntryButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.42];
@@ -837,7 +836,7 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
 
     UIEdgeInsets safe = UIEdgeInsetsZero;
     if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
-    CGFloat width = 74.0;
+    CGFloat width = 86.0;
     CGFloat height = 34.0;
     UIView *official = YTMULyricsPageFindOfficialLyricsEntry(self.view, self.view, 0);
     CGRect frame = CGRectZero;
@@ -851,7 +850,7 @@ static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root,
         frame = CGRectMake(x, CGRectGetMidY(officialFrame) - height / 2.0, width, height);
     } else {
         frame = CGRectMake(self.view.bounds.size.width - safe.right - width - 16.0,
-                           safe.top + 92.0,
+                           safe.top + 96.0,
                            width,
                            height);
     }
@@ -1018,7 +1017,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 
     CGRect baseFrame = officialLyrics ? officialLyrics.frame : UIEdgeInsetsInsetRect(self.bounds, UIEdgeInsetsMake(12, 32, 24, 32));
     CGFloat sourceHeight = 34.0;
-    CGFloat attributionHeight = self.ytmuAttributionLabel.text.length ? 22.0 : 0.0;
+    CGFloat attributionHeight = self.ytmuAttributionLabel.text.length ? 30.0 : 0.0;
     self.ytmuSourceScrollView.frame = CGRectMake(baseFrame.origin.x,
                                                 baseFrame.origin.y,
                                                 baseFrame.size.width,
@@ -1093,9 +1092,11 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     if (!self.ytmuAttributionLabel) {
         self.ytmuAttributionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         self.ytmuAttributionLabel.backgroundColor = [UIColor clearColor];
-        self.ytmuAttributionLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        self.ytmuAttributionLabel.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
         self.ytmuAttributionLabel.textColor = YTMULyricsPageSecondaryTextColor();
-        self.ytmuAttributionLabel.numberOfLines = 1;
+        self.ytmuAttributionLabel.numberOfLines = 2;
+        self.ytmuAttributionLabel.adjustsFontSizeToFitWidth = YES;
+        self.ytmuAttributionLabel.minimumScaleFactor = 0.82;
         [container addSubview:self.ytmuAttributionLabel];
     }
 

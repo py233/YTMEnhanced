@@ -304,7 +304,7 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 2;
+    if (section == 0) return 1;
     if (section == 1) return 5;
     if (section == 2) return 3;
     if (section == 3) return 2;
@@ -316,13 +316,6 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == 0) {
-        if (indexPath.row == 0) {
-            return [self switchCellWithTitle:LOC(@"SYNCED_LYRICS")
-                                      detail:LOC(@"SYNCED_LYRICS_DESC")
-                                         key:@"syncedLyricsEnabled"
-                                    fallback:NO
-                                      action:@selector(toggleSwitch:)];
-        }
         return [self switchCellWithTitle:LOC(@"BILINGUAL_LYRICS")
                                   detail:LOC(@"BILINGUAL_LYRICS_DESC")
                                      key:@"lyricsTranslationEnabled"
@@ -429,7 +422,8 @@
 
 - (void)toggleTranslation:(UISwitch *)sender {
     [self setSettings:@{@"lyricsTranslationEnabled": @(sender.isOn),
-                        @"bilingualLyrics": @(sender.isOn)}
+                        @"bilingualLyrics": @(sender.isOn),
+                        @"syncedLyricsEnabled": @(sender.isOn)}
       notificationKey:@"lyricsTranslationEnabled"];
 }
 

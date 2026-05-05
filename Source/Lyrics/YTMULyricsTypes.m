@@ -339,3 +339,43 @@ NSString *YTMULyricsJSONStringFromObject(id object) {
     if (!data) return @"{}";
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"{}";
 }
+
+id YTMULyricsJSONValueAtPath(id object, NSArray *path) {
+    id current = object;
+    for (id key in path ?: @[]) {
+        if (!current || current == (id)kCFNull) return nil;
+        if ([key isKindOfClass:[NSString class]]) {
+            if (![current isKindOfClass:[NSDictionary class]]) return nil;
+            current = ((NSDictionary *)current)[key];
+        } else if ([key isKindOfClass:[NSNumber class]]) {
+            if (![current isKindOfClass:[NSArray class]]) return nil;
+            NSUInteger index = [key unsignedIntegerValue];
+            NSArray *array = (NSArray *)current;
+            if (index >= array.count) return nil;
+            current = array[index];
+        } else {
+            return nil;
+        }
+    }
+    return current == (id)kCFNull ? nil : current;
+}
+
+NSDictionary *YTMULyricsJSONDictionaryAtPath(id object, NSArray *path) {
+    id value = YTMULyricsJSONValueAtPath(object, path);
+    return [value isKindOfClass:[NSDictionary class]] ? value : nil;
+}
+
+NSArray *YTMULyricsJSONArrayAtPath(id object, NSArray *path) {
+    id value = YTMULyricsJSONValueAtPath(object, path);
+    return [value isKindOfClass:[NSArray class]] ? value : nil;
+}
+
+NSString *YTMULyricsJSONStringAtPath(id object, NSArray *path) {
+    id value = YTMULyricsJSONValueAtPath(object, path);
+    return [value isKindOfClass:[NSString class]] ? value : nil;
+}
+
+NSNumber *YTMULyricsJSONNumberAtPath(id object, NSArray *path) {
+    id value = YTMULyricsJSONValueAtPath(object, path);
+    return [value isKindOfClass:[NSNumber class]] ? value : nil;
+}
