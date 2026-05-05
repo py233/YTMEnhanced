@@ -546,7 +546,7 @@ static void YTMUInstallDynamicHooks(void) {
     YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
     YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsArtworkOverlayEnabled", @(NO));
+    dict[@"lyricsArtworkOverlayEnabled"] = @(NO);
     [defaults setObject:dict forKey:@"YTMUltimate"];
     %init;
     YTMULogRuntimeDiagnostics();
