@@ -80,7 +80,9 @@
                         inactiveColor:(UIColor *)inactiveColor {
     if (!text.length) return [[NSAttributedString alloc] initWithString:@""];
     CGFloat clamped = MIN(1.0, MAX(0.0, progress));
-    NSUInteger split = active ? MIN(text.length, (NSUInteger)ceil((CGFloat)text.length * clamped)) : 0;
+    CGFloat exactSplit = active ? (CGFloat)text.length * clamped : 0.0;
+    NSUInteger split = MIN(text.length, (NSUInteger)floor(exactSplit));
+    CGFloat fractional = exactSplit - floor(exactSplit);
     NSMutableAttributedString *out = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
         NSFontAttributeName: font,
         NSForegroundColorAttributeName: active ? inactiveColor : activeColor,
@@ -88,7 +90,29 @@
     if (active && split > 0) {
         [out addAttribute:NSForegroundColorAttributeName value:activeColor range:NSMakeRange(0, split)];
     }
+    if (active && fractional > 0.01 && split < text.length) {
+        UIColor *blend = [self colorByBlendingFromColor:inactiveColor toColor:activeColor progress:fractional];
+        [out addAttribute:NSForegroundColorAttributeName value:blend range:NSMakeRange(split, 1)];
+    }
     return out;
+}
+
+- (UIColor *)colorByBlendingFromColor:(UIColor *)fromColor toColor:(UIColor *)toColor progress:(CGFloat)progress {
+    CGFloat fr = 0, fg = 0, fb = 0, fa = 0;
+    CGFloat tr = 0, tg = 0, tb = 0, ta = 0;
+    if (![fromColor getRed:&fr green:&fg blue:&fb alpha:&fa]) {
+        fr = fg = fb = 1.0;
+        fa = 0.32;
+    }
+    if (![toColor getRed:&tr green:&tg blue:&tb alpha:&ta]) {
+        tr = tg = tb = 1.0;
+        ta = 1.0;
+    }
+    CGFloat t = MIN(1.0, MAX(0.0, progress));
+    return [UIColor colorWithRed:fr + (tr - fr) * t
+                           green:fg + (tg - fg) * t
+                            blue:fb + (tb - fb) * t
+                           alpha:fa + (ta - fa) * t];
 }
 
 - (void)updateKaraokeProgress:(CGFloat)progress active:(BOOL)active {
@@ -200,7 +224,7 @@
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadFromManager) name:YTMULyricsDidUpdateNotification object:nil];
 
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkTick:)];
-        _displayLink.preferredFramesPerSecond = 10;
+        _displayLink.preferredFramesPerSecond = 30;
         _displayLink.paused = YES;
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
@@ -520,7 +544,13 @@
     CGRect target = [self.scrollView convertRect:self.lineViews[current].bounds fromView:self.lineViews[current]];
     CGFloat offsetY = MAX(0, CGRectGetMidY(target) - self.scrollView.bounds.size.height * 0.48);
     CGFloat maxOffset = MAX(0, self.scrollView.contentSize.height - self.scrollView.bounds.size.height);
-    [self.scrollView setContentOffset:CGPointMake(0, MIN(offsetY, maxOffset)) animated:YES];
+    CGPoint contentOffset = CGPointMake(0, MIN(offsetY, maxOffset));
+    [UIView animateWithDuration:0.45
+                          delay:0
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseInOut
+                     animations:^{
+        self.scrollView.contentOffset = contentOffset;
+    } completion:nil];
 }
 
 @end
