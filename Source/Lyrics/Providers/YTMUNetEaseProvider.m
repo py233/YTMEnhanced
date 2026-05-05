@@ -451,6 +451,88 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     }];
 }
 
+- (NSString *)timeStringForMilliseconds:(NSTimeInterval)timeInMs {
+    NSInteger totalMs = MAX(0, (NSInteger)llround(timeInMs));
+    return [NSString stringWithFormat:@"%02ld:%02ld.%02ld",
+            (long)(totalMs / 60000),
+            (long)((totalMs % 60000) / 1000),
+            (long)((totalMs % 1000) / 10)];
+}
+
+- (BOOL)isNetEaseCreditLine:(NSString *)text timeInMs:(NSTimeInterval)timeInMs {
+    if (timeInMs > 12000) return NO;
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!trimmed.length) return NO;
+    return YTMUNetEaseRegexTest(trimmed, @"^(?:作词|作詞|作曲|编曲|編曲|制作人|和声|和聲|混音|母带|母帶|录音|錄音|吉他|贝斯|貝斯|鼓|钢琴|鋼琴|键盘|鍵盤|Lyricist|Composer|Arranger|Producer|Mixing|Mastering|Vocal|Guitar|Bass|Drums)\\s*[:：]");
+}
+
+- (NSArray<YTMULyricLine *> *)parseNetEaseJSONLyrics:(NSString *)lyrics {
+    if (!lyrics.length) return @[];
+    NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray array];
+    for (NSString *rawLine in [lyrics componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+        NSString *line = [rawLine stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!line.length || ![line hasPrefix:@"{"]) continue;
+        NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+        NSError *error = nil;
+        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) continue;
+        NSNumber *time = YTMULyricsJSONNumberAtPath(json, @[@"t"]);
+        NSArray *segments = YTMULyricsJSONArrayAtPath(json, @[@"c"]);
+        if (!time || ![segments isKindOfClass:[NSArray class]]) continue;
+
+        NSMutableString *text = [NSMutableString string];
+        for (id segment in segments) {
+            NSString *piece = YTMULyricsJSONStringAtPath(segment, @[@"tx"]);
+            if (piece.length) [text appendString:piece];
+        }
+        NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSTimeInterval timeInMs = time.doubleValue;
+        if ([self isNetEaseCreditLine:trimmed timeInMs:timeInMs]) continue;
+        [lines addObject:[YTMULyricLine lineWithTime:[self timeStringForMilliseconds:timeInMs]
+                                            timeInMs:timeInMs
+                                          durationMs:INFINITY
+                                                text:trimmed]];
+    }
+
+    [lines sortUsingComparator:^NSComparisonResult(YTMULyricLine *a, YTMULyricLine *b) {
+        if (a.timeInMs < b.timeInMs) return NSOrderedAscending;
+        if (a.timeInMs > b.timeInMs) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    for (NSUInteger idx = 0; idx < lines.count; idx++) {
+        YTMULyricLine *line = lines[idx];
+        if (idx + 1 < lines.count) {
+            line.durationMs = MAX(0, lines[idx + 1].timeInMs - line.timeInMs);
+        } else {
+            line.durationMs = 3500;
+        }
+    }
+    if (lines.firstObject && lines.firstObject.timeInMs > 300) {
+        YTMULyricLine *empty = [YTMULyricLine lineWithTime:@"00:00.00"
+                                                  timeInMs:0
+                                                durationMs:lines.firstObject.timeInMs
+                                                      text:@""];
+        [lines insertObject:empty atIndex:0];
+    }
+    return lines;
+}
+
+- (NSArray<YTMULyricLine *> *)parseNetEaseLyrics:(NSString *)lyrics {
+    NSArray<YTMULyricLine *> *lrcLines = [YTMULRCParser parseLRC:[YTMULRCParser stripNetEaseMetadata:lyrics]];
+    if (lrcLines.count) return lrcLines;
+    return [self parseNetEaseJSONLyrics:lyrics];
+}
+
+- (NSString *)plainLyricsFromLines:(NSArray<YTMULyricLine *> *)lines {
+    NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithCapacity:lines.count];
+    for (YTMULyricLine *line in lines) {
+        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (text.length) [parts addObject:text];
+    }
+    return [parts componentsJoinedByString:@"\n"];
+}
+
 - (NSArray<NSString *> *)romanizedTextsFromLyrics:(NSString *)romanizedLyrics sourceLines:(NSArray<YTMULyricLine *> *)sourceLines {
     if (!romanizedLyrics.length || !sourceLines.count) return @[];
     NSArray<YTMULyricLine *> *romanizedLines = [YTMULRCParser parseLRC:romanizedLyrics];
@@ -522,8 +604,9 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                 return;
             }
             [self getLyric:YTMULyricsJSONNumberAtPath(best, @[@"id"]) completion:^(NSDictionary *lyric) {
-                NSString *rawLyrics = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"lrc", @"lyric"]) ?: @""];
-                if (!rawLyrics.length) {
+                NSString *rawLyrics = YTMULyricsJSONStringAtPath(lyric, @[@"lrc", @"lyric"]) ?: @"";
+                NSArray<YTMULyricLine *> *parsedLines = [self parseNetEaseLyrics:rawLyrics];
+                if (!parsedLines.count) {
                     completion(nil, nil);
                     return;
                 }
@@ -537,8 +620,8 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                     if (name.length) [artistNames addObject:name];
                 }
                 result.artists = artistNames.count ? artistNames : (info.artist.length ? @[info.artist] : @[]);
-                result.plainLyrics = rawLyrics;
-                result.lines = [YTMULRCParser parseLRC:rawLyrics];
+                result.plainLyrics = [self plainLyricsFromLines:parsedLines];
+                result.lines = parsedLines;
                 result.duration = [YTMULyricsJSONNumberAtPath(best, @[@"duration"]) doubleValue] / 1000.0;
                 NSString *romanized = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"romalrc", @"lyric"]) ?: @""];
                 NSArray<NSString *> *romanizedTexts = [self romanizedTextsFromLyrics:romanized sourceLines:result.lines];
