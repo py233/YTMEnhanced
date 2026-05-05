@@ -111,6 +111,20 @@ static void YTMULyricsPageSetBaseFontSize(CGFloat size) {
     YTMULyricsPageSetSetting(@"lyricsFontPointSize", @(llround(YTMULyricsPageClampFontSize(size))));
 }
 
+static NSInteger YTMULyricsPageClampTimingOffsetMs(NSInteger value) {
+    return MIN(10000, MAX(-10000, value));
+}
+
+static NSInteger YTMULyricsPageTimingOffsetMs(void) {
+    id value = YTMULyricsPageSettings()[@"lyricsTimingOffsetMs"];
+    if ([value respondsToSelector:@selector(integerValue)]) return YTMULyricsPageClampTimingOffsetMs([value integerValue]);
+    return 0;
+}
+
+static void YTMULyricsPageSetTimingOffsetMs(NSInteger value) {
+    YTMULyricsPageSetSetting(@"lyricsTimingOffsetMs", @(YTMULyricsPageClampTimingOffsetMs(value)));
+}
+
 static NSString *YTMULyricsPageRomanizationLanguageForResult(YTMULyricsResult *result) {
     for (NSString *line in result.lineTexts ?: @[]) {
         if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) return @"ja";
@@ -497,16 +511,22 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
 @property (retain, nonatomic) UIButton *fontDecreaseButton;
 @property (retain, nonatomic) UIButton *fontIncreaseButton;
 @property (retain, nonatomic) UILabel *fontSizeLabel;
+@property (retain, nonatomic) UIButton *offsetDecreaseButton;
+@property (retain, nonatomic) UIButton *offsetIncreaseButton;
+@property (retain, nonatomic) UILabel *offsetLabel;
 @property (copy, nonatomic) NSString *lastRenderSignature;
 @property (assign, nonatomic) YTPlayerViewController *playerViewController;
 - (void)ytmu_renderTabOverlay;
 - (void)ytmu_layoutSourceButtons;
 - (void)ytmu_updateSourceButtons;
 - (void)ytmu_updateFontControls;
+- (void)ytmu_updateTimingControls;
 - (void)ytmu_scrollSourceButtonIntoView:(UIButton *)button animated:(BOOL)animated;
 - (void)ytmu_selectLyricsSource:(UIButton *)sender;
 - (void)ytmu_cycleLyricsSource:(UISwipeGestureRecognizer *)gesture;
 - (void)ytmu_adjustLyricsFontSize:(UIButton *)sender;
+- (void)ytmu_adjustLyricsTiming:(UIButton *)sender;
+- (void)ytmu_resetLyricsTiming:(UITapGestureRecognizer *)gesture;
 @end
 
 @implementation YTMULyricsTabOverlayView
@@ -540,6 +560,27 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         }
         self.sourceButtons = buttons;
 
+        self.offsetDecreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        self.offsetDecreaseButton.tag = -500;
+        [self.offsetDecreaseButton setTitle:@"-0.5s" forState:UIControlStateNormal];
+        [self.offsetDecreaseButton addTarget:self action:@selector(ytmu_adjustLyricsTiming:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.offsetDecreaseButton];
+
+        self.offsetLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        self.offsetLabel.textAlignment = NSTextAlignmentCenter;
+        self.offsetLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        self.offsetLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
+        self.offsetLabel.userInteractionEnabled = YES;
+        UITapGestureRecognizer *resetOffset = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_resetLyricsTiming:)];
+        [self.offsetLabel addGestureRecognizer:resetOffset];
+        [self addSubview:self.offsetLabel];
+
+        self.offsetIncreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        self.offsetIncreaseButton.tag = 500;
+        [self.offsetIncreaseButton setTitle:@"+0.5s" forState:UIControlStateNormal];
+        [self.offsetIncreaseButton addTarget:self action:@selector(ytmu_adjustLyricsTiming:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.offsetIncreaseButton];
+
         self.fontDecreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
         self.fontDecreaseButton.tag = -1;
         [self.fontDecreaseButton setTitle:@"A-" forState:UIControlStateNormal];
@@ -558,7 +599,7 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
         [self.fontIncreaseButton addTarget:self action:@selector(ytmu_adjustLyricsFontSize:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.fontIncreaseButton];
 
-        for (UIButton *button in @[self.fontDecreaseButton, self.fontIncreaseButton]) {
+        for (UIButton *button in @[self.offsetDecreaseButton, self.offsetIncreaseButton, self.fontDecreaseButton, self.fontIncreaseButton]) {
             button.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
             [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
             button.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
@@ -622,14 +663,21 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     CGFloat bottomInset = 12.0;
     if (@available(iOS 11.0, *)) bottomInset += self.safeAreaInsets.bottom;
     CGFloat attributionHeight = self.attributionLabel.text.length ? 30.0 : 0.0;
+    self.sourceScrollView.frame = CGRectMake(sideInset, topInset, self.bounds.size.width - sideInset * 2.0, 34.0);
+
+    CGFloat secondRowY = CGRectGetMaxY(self.sourceScrollView.frame) + 8.0;
+    CGFloat offsetButtonWidth = 46.0;
+    CGFloat offsetLabelWidth = 66.0;
+    self.offsetDecreaseButton.frame = CGRectMake(sideInset, secondRowY + 2.0, offsetButtonWidth, 30.0);
+    self.offsetLabel.frame = CGRectMake(CGRectGetMaxX(self.offsetDecreaseButton.frame) + 4.0, secondRowY + 2.0, offsetLabelWidth, 30.0);
+    self.offsetIncreaseButton.frame = CGRectMake(CGRectGetMaxX(self.offsetLabel.frame) + 4.0, secondRowY + 2.0, offsetButtonWidth, 30.0);
+
     CGFloat controlWidth = 110.0;
-    CGFloat controlX = MAX(sideInset, self.bounds.size.width - sideInset - controlWidth);
-    self.fontDecreaseButton.frame = CGRectMake(controlX, topInset + 2.0, 30.0, 30.0);
-    self.fontSizeLabel.frame = CGRectMake(CGRectGetMaxX(self.fontDecreaseButton.frame) + 4.0, topInset + 2.0, 38.0, 30.0);
-    self.fontIncreaseButton.frame = CGRectMake(CGRectGetMaxX(self.fontSizeLabel.frame) + 4.0, topInset + 2.0, 30.0, 30.0);
-    CGFloat sourceWidth = MAX(96.0, controlX - sideInset - 10.0);
-    self.sourceScrollView.frame = CGRectMake(sideInset, topInset, sourceWidth, 34.0);
-    CGFloat textY = CGRectGetMaxY(self.sourceScrollView.frame) + 12.0;
+    CGFloat controlX = MAX(CGRectGetMaxX(self.offsetIncreaseButton.frame) + 12.0, self.bounds.size.width - sideInset - controlWidth);
+    self.fontDecreaseButton.frame = CGRectMake(controlX, secondRowY + 2.0, 30.0, 30.0);
+    self.fontSizeLabel.frame = CGRectMake(CGRectGetMaxX(self.fontDecreaseButton.frame) + 4.0, secondRowY + 2.0, 38.0, 30.0);
+    self.fontIncreaseButton.frame = CGRectMake(CGRectGetMaxX(self.fontSizeLabel.frame) + 4.0, secondRowY + 2.0, 30.0, 30.0);
+    CGFloat textY = secondRowY + 42.0;
     CGFloat attributionY = self.bounds.size.height - bottomInset - attributionHeight;
     self.lyricsTextView.frame = CGRectMake(sideInset,
                                            textY,
@@ -662,15 +710,17 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     self.attributionLabel.text = YTMULyricsPageAttributionText();
     [self ytmu_updateSourceButtons];
     [self ytmu_updateFontControls];
+    [self ytmu_updateTimingControls];
     [self setNeedsLayout];
 
-    NSString *signature = [NSString stringWithFormat:@"%ld|%@|%lu|%lu|%@|%.0f",
+    NSString *signature = [NSString stringWithFormat:@"%ld|%@|%lu|%lu|%@|%.0f|%ld",
                            (long)manager.state,
                            manager.currentResult.sourceName ?: @"<none>",
                            (unsigned long)manager.displayLineTexts.count,
                            (unsigned long)manager.translatedLines.count,
                            YTMULyricsPageString(@"lyricsPreferredSource", @"auto"),
-                           YTMULyricsPageBaseFontSize()];
+                           YTMULyricsPageBaseFontSize(),
+                           (long)YTMULyricsPageTimingOffsetMs()];
     if (![signature isEqualToString:self.lastRenderSignature]) {
         self.lastRenderSignature = signature;
         YTMULyricsLog(@"lyrics tab overlay rendered state=%ld source=%@ lines=%lu translated=%lu",
@@ -688,6 +738,15 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     self.fontIncreaseButton.enabled = size < 38.0;
     self.fontDecreaseButton.alpha = self.fontDecreaseButton.enabled ? 1.0 : 0.38;
     self.fontIncreaseButton.alpha = self.fontIncreaseButton.enabled ? 1.0 : 0.38;
+}
+
+- (void)ytmu_updateTimingControls {
+    NSInteger offset = YTMULyricsPageTimingOffsetMs();
+    self.offsetLabel.text = [NSString stringWithFormat:@"%+.1fs", offset / 1000.0];
+    self.offsetDecreaseButton.enabled = offset > -10000;
+    self.offsetIncreaseButton.enabled = offset < 10000;
+    self.offsetDecreaseButton.alpha = self.offsetDecreaseButton.enabled ? 1.0 : 0.38;
+    self.offsetIncreaseButton.alpha = self.offsetIncreaseButton.enabled ? 1.0 : 0.38;
 }
 
 - (void)ytmu_layoutSourceButtons {
@@ -755,6 +814,21 @@ static BOOL YTMULyricsPageOfficialLyricsTabSelected(UIView *root) {
     [self ytmu_updateFontControls];
     [self ytmu_renderTabOverlay];
     YTMULyricsLog(@"lyrics page font size=%.0f", YTMULyricsPageBaseFontSize());
+}
+
+- (void)ytmu_adjustLyricsTiming:(UIButton *)sender {
+    NSInteger next = YTMULyricsPageTimingOffsetMs() + sender.tag;
+    YTMULyricsPageSetTimingOffsetMs(next);
+    [self ytmu_updateTimingControls];
+    [self ytmu_renderTabOverlay];
+    YTMULyricsLog(@"lyrics page timing offset=%ldms", (long)YTMULyricsPageTimingOffsetMs());
+}
+
+- (void)ytmu_resetLyricsTiming:(UITapGestureRecognizer *)gesture {
+    YTMULyricsPageSetTimingOffsetMs(0);
+    [self ytmu_updateTimingControls];
+    [self ytmu_renderTabOverlay];
+    YTMULyricsLog(@"lyrics page timing offset reset");
 }
 
 @end
@@ -1428,6 +1502,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     YTMULyricsSetDefault(dict, @"bilingualLyrics", @(NO));
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", dict[@"bilingualLyrics"] ?: @(NO));
     YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
     YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
     YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
     YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");

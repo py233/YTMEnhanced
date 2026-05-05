@@ -121,6 +121,7 @@
                          @"lyricsLineEffect",
                          @"lyricsFontSize",
                          @"lyricsFontPointSize",
+                         @"lyricsTimingOffsetMs",
                          @"lyricsDefaultText",
                          @"lyricsConvertChinese",
                          @"lyricsShowTimeCodes",

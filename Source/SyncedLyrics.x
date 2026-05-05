@@ -20,6 +20,21 @@ static BOOL YTMUArtworkLyricsOverlayEnabled(void) {
     return [dict[@"lyricsArtworkOverlayEnabled"] boolValue];
 }
 
+static NSTimeInterval YTMUNormalizedPlaybackTimeMs(YTPlayerViewController *player) {
+    if (!player) return 0;
+    @try {
+        NSTimeInterval rawTime = player.currentVideoMediaTime;
+        NSTimeInterval duration = player.currentVideoTotalMediaTime;
+        if (!isfinite(rawTime) || rawTime < 0) return 0;
+        if (isfinite(duration) && duration > 0 && rawTime > duration * 1.5 && rawTime <= duration * 1500.0) {
+            return rawTime;
+        }
+        return rawTime * 1000.0;
+    } @catch (__unused NSException *exception) {
+        return 0;
+    }
+}
+
 static void YTMULogOfficialLyricsProbe(id object, NSString *event, NSString *source, NSData *data, NSString *entityKey) {
     if (!YTMULyricsDebugLoggingEnabled()) return;
     static NSMutableSet<NSString *> *seen;
@@ -458,7 +473,7 @@ static void YTMUInstallDynamicHooks(void) {
 
 - (void)singleVideo:(id)video currentVideoTimeDidChange:(id)time {
     %orig;
-    NSTimeInterval timeMs = self.currentVideoMediaTime * 1000.0;
+    NSTimeInterval timeMs = YTMUNormalizedPlaybackTimeMs(self);
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self];
     [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
     [self.ytmuSyncedLyricsView updatePlaybackTimeMs:timeMs];
@@ -466,7 +481,7 @@ static void YTMUInstallDynamicHooks(void) {
 
 - (void)potentiallyMutatedSingleVideo:(id)video currentVideoTimeDidChange:(id)time {
     %orig;
-    NSTimeInterval timeMs = self.currentVideoMediaTime * 1000.0;
+    NSTimeInterval timeMs = YTMUNormalizedPlaybackTimeMs(self);
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self];
     [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
     [self.ytmuSyncedLyricsView updatePlaybackTimeMs:timeMs];
@@ -619,6 +634,7 @@ static void YTMUInstallDynamicHooks(void) {
     YTMULyricsSetDefault(dict, @"lyricsShowTimeCodes", @(NO));
     YTMULyricsSetDefault(dict, @"lyricsLineEffect", @"fancy");
     YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
     YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
     YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", @(NO));
     dict[@"lyricsArtworkOverlayEnabled"] = @(NO);

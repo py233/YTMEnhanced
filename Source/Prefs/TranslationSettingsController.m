@@ -126,6 +126,7 @@
     YTMULyricsSetDefault(dict, @"lyricsShowTimeCodes", @(NO));
     YTMULyricsSetDefault(dict, @"lyricsLineEffect", @"fancy");
     YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
+    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
     YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
     YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
     YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");

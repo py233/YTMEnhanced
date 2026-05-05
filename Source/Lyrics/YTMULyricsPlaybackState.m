@@ -24,13 +24,22 @@
     self.lastPlaybackWallClock = CACurrentMediaTime() * 1000.0;
 }
 
+- (NSTimeInterval)normalizedPlaybackTimeMsForRawTime:(NSTimeInterval)rawTime duration:(NSTimeInterval)duration {
+    if (!isfinite(rawTime) || rawTime < 0) return -1;
+    if (isfinite(duration) && duration > 0) {
+        if (rawTime > duration * 1.5 && rawTime <= duration * 1500.0) return rawTime;
+    }
+    return rawTime * 1000.0;
+}
+
 - (NSTimeInterval)currentPlaybackTimeMs {
     YTPlayerViewController *player = self.playerViewController;
     if (player) {
         @try {
             NSTimeInterval playerTime = player.currentVideoMediaTime;
-            if (isfinite(playerTime) && playerTime >= 0) {
-                NSTimeInterval timeMs = playerTime * 1000.0;
+            NSTimeInterval duration = player.currentVideoTotalMediaTime;
+            NSTimeInterval timeMs = [self normalizedPlaybackTimeMsForRawTime:playerTime duration:duration];
+            if (timeMs >= 0) {
                 [self notePlaybackTimeMs:timeMs];
                 return timeMs;
             }
