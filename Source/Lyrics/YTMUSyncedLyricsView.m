@@ -285,7 +285,7 @@
 
 - (CGFloat)baseFontSize {
     CGFloat pointSize = (CGFloat)YTMULyricsSettingsInteger(@"lyricsFontPointSize", 0);
-    if (pointSize > 0.0) return MIN(38.0, MAX(16.0, pointSize));
+    if (pointSize > 0.0) return MIN(38.0, MAX(12.0, pointSize));
     NSString *size = YTMULyricsSettingsString(@"lyricsFontSize", @"small");
     if ([size isEqualToString:@"large"]) return 33;
     if ([size isEqualToString:@"medium"]) return 27;
