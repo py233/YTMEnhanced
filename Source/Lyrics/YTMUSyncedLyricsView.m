@@ -5,6 +5,27 @@
 #import "../Headers/YTPlayerViewController.h"
 #import <MediaPlayer/MediaPlayer.h>
 
+static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
+    static dispatch_once_t onceToken;
+    static Class filterClass;
+    static SEL filterSel;
+    dispatch_once(&onceToken, ^{
+        filterClass = NSClassFromString(@"CAFilter");
+        filterSel = NSSelectorFromString(@"filterWithType:");
+    });
+    if (!filterClass || ![filterClass respondsToSelector:filterSel]) return nil;
+    id (*makeFilter)(id, SEL, NSString *) = (id (*)(id, SEL, NSString *))[filterClass methodForSelector:filterSel];
+    id filter = makeFilter(filterClass, filterSel, @"gaussianBlur");
+    if (!filter) return nil;
+    @try {
+        [filter setValue:@(radius) forKey:@"inputRadius"];
+        [filter setValue:@YES forKey:@"inputNormalizeEdges"];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+    return filter;
+}
+
 @interface YTMULyricLineView : UIControl
 @property (nonatomic, strong) UILabel *timeLabel;
 @property (nonatomic, strong) UILabel *mainLabel;
@@ -60,20 +81,20 @@
 
 - (void)setActive:(BOOL)active distance:(NSInteger)distance focusBlur:(BOOL)focusBlur {
     CGFloat alpha = 1.0;
-    CGFloat rasterScale = 0.0;
+    CGFloat blurRadius = 0.0;
 
     if (!active) {
         if (focusBlur) {
             NSInteger absDistance = labs(distance);
             if (absDistance == 1) {
-                alpha = (distance > 0) ? 0.62 : 0.45;
-                rasterScale = 0.55;
+                alpha = (distance > 0) ? 0.68 : 0.55;
+                blurRadius = 2.0;
             } else if (absDistance == 2) {
-                alpha = 0.32;
-                rasterScale = 0.28;
+                alpha = 0.42;
+                blurRadius = 6.0;
             } else {
-                alpha = 0.18;
-                rasterScale = 0.16;
+                alpha = 0.24;
+                blurRadius = 12.0;
             }
         } else {
             alpha = 0.36;
@@ -84,15 +105,15 @@
     self.transform = CGAffineTransformIdentity;
     self.mainLabel.font = active ? [UIFont boldSystemFontOfSize:self.mainLabel.font.pointSize] : [UIFont systemFontOfSize:self.mainLabel.font.pointSize weight:UIFontWeightRegular];
 
-    CGFloat screenScale = UIScreen.mainScreen.scale ?: 2.0;
     for (UILabel *label in @[self.mainLabel, self.romanLabel, self.translationLabel]) {
-        if (rasterScale > 0.01) {
-            label.layer.shouldRasterize = YES;
-            label.layer.rasterizationScale = rasterScale * screenScale;
-        } else if (label.layer.shouldRasterize) {
-            label.layer.shouldRasterize = NO;
-            label.layer.rasterizationScale = screenScale;
-        }
+        if (label.layer.shouldRasterize) label.layer.shouldRasterize = NO;
+    }
+
+    if (blurRadius > 0.01) {
+        id filter = YTMUSyncedLyricsBlurFilter(blurRadius);
+        self.layer.filters = filter ? @[filter] : nil;
+    } else {
+        self.layer.filters = nil;
     }
 }
 
