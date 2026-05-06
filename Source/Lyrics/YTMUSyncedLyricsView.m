@@ -136,7 +136,7 @@
     self.translationLabel.attributedText = [self attributedText:self.translationText ?: @""
                                                            font:self.translationLabel.font
                                                          active:active
-                                                       progress:progress
+                                                       progress:active ? 1.0 : 0.0
                                                     activeColor:translation
                                                   inactiveColor:dim];
 }
