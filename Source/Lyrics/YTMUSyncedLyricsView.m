@@ -86,14 +86,14 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
         if (focusBlur) {
             NSInteger absDistance = labs(distance);
             if (absDistance == 1) {
-                alpha = (distance > 0) ? 0.68 : 0.55;
-                blurRadius = 1.0;
+                alpha = (distance > 0) ? 0.65 : 0.52;
+                blurRadius = 1.6;
             } else if (absDistance == 2) {
-                alpha = 0.42;
-                blurRadius = 2.5;
+                alpha = 0.40;
+                blurRadius = 3.0;
             } else {
-                alpha = 0.26;
-                blurRadius = 5.0;
+                alpha = 0.24;
+                blurRadius = 5.5;
             }
         } else {
             alpha = 0.36;
