@@ -141,6 +141,7 @@
                          @"lyricsDefaultText",
                          @"lyricsConvertChinese",
                          @"lyricsShowTimeCodes",
+                         @"lyricsFocusBlur",
                          @"translationDebugLogs",
                          nil];
     if ([visualKeys containsObject:key]) {

@@ -1071,7 +1071,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 }
 
 - (void)ytmu_presentLyricsMenu:(UIButton *)sender {
-    [self ytmu_prepareSheetWithHeight:292.0 title:@"Lyrics"];
+    [self ytmu_prepareSheetWithHeight:340.0 title:@"Lyrics"];
     CGFloat y = 46.0;
     NSString *source = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
     [self ytmu_addSheetRowAtY:y symbol:@"text.bubble" title:@"Lyrics Source" value:YTMULyricsPageSourceTitle(source) enabled:YES target:self action:@selector(ytmu_presentSourceMenuFromCurrentSheet)];
@@ -1079,6 +1079,8 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [self ytmu_addSheetRowAtY:y symbol:@"textformat.size" title:@"Text Size" value:[NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()] enabled:YES target:self action:@selector(ytmu_presentFontSheet)];
     y += 48.0;
     [self ytmu_addSheetRowAtY:y symbol:@"arrow.up.arrow.down" title:@"Timing Offset" value:[NSString stringWithFormat:@"%+.1fs", YTMULyricsPageTimingOffsetMs() / 1000.0] enabled:YES target:self action:@selector(ytmu_presentTimingSheet)];
+    y += 48.0;
+    [self ytmu_addSwitchRowAtY:y symbol:@"eye" title:@"Focus Blur" on:YTMULyricsPageBoolDefault(@"lyricsFocusBlur", YES) tag:3];
     y += 48.0;
     [self ytmu_addSwitchRowAtY:y symbol:@"textformat.abc" title:@"Romanization" on:YTMULyricsPageBoolDefault(@"lyricsRomanization", YES) tag:1];
     y += 48.0;
@@ -1217,6 +1219,8 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         YTMULyricsPageSetSetting(@"lyricsRomanization", @(sender.on));
     } else if (sender.tag == 2) {
         YTMULyricsPageSetSetting(@"lyricsShowTimeCodes", @(sender.on));
+    } else if (sender.tag == 3) {
+        YTMULyricsPageSetSetting(@"lyricsFocusBlur", @(sender.on));
     }
 }
 
@@ -2133,5 +2137,6 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
     YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
     YTMULyricsSetDefault(dict, @"translationDebugLogs", @(YES));
+    YTMULyricsSetDefault(dict, @"lyricsFocusBlur", @(YES));
     [defaults setObject:dict forKey:@"YTMUltimate"];
 }
