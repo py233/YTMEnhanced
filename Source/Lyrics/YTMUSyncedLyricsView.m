@@ -58,17 +58,51 @@
     return self;
 }
 
-- (void)setActive:(BOOL)active effect:(NSString *)effect {
-    CGFloat activeAlpha = 1.0;
-    CGFloat inactiveAlpha = [effect isEqualToString:@"focus"] ? 0.22 : 0.36;
-    self.alpha = active ? activeAlpha : inactiveAlpha;
+- (void)setActive:(BOOL)active distance:(NSInteger)distance focusBlur:(BOOL)focusBlur {
+    CGFloat alpha = 1.0;
+    CGFloat shadowRadius = 0.0;
+    CGFloat shadowOpacity = 0.0;
+
+    if (!active) {
+        if (focusBlur) {
+            NSInteger absDistance = labs(distance);
+            if (distance == 1) {
+                alpha = 0.50;
+                shadowRadius = 1.5;
+                shadowOpacity = 0.35;
+            } else if (distance == -1) {
+                alpha = 0.35;
+                shadowRadius = 1.5;
+                shadowOpacity = 0.30;
+            } else if (absDistance == 2) {
+                alpha = 0.22;
+                shadowRadius = 4.0;
+                shadowOpacity = 0.45;
+            } else {
+                alpha = 0.16;
+                shadowRadius = 7.0;
+                shadowOpacity = 0.50;
+            }
+        } else {
+            alpha = 0.36;
+        }
+    }
+
+    self.alpha = alpha;
+    self.transform = CGAffineTransformIdentity;
     self.mainLabel.font = active ? [UIFont boldSystemFontOfSize:self.mainLabel.font.pointSize] : [UIFont systemFontOfSize:self.mainLabel.font.pointSize weight:UIFontWeightRegular];
-    if ([effect isEqualToString:@"scale"]) {
-        self.transform = active ? CGAffineTransformMakeScale(1.08, 1.08) : CGAffineTransformIdentity;
-    } else if ([effect isEqualToString:@"offset"]) {
-        self.transform = active ? CGAffineTransformMakeTranslation(18, 0) : CGAffineTransformIdentity;
-    } else {
-        self.transform = CGAffineTransformIdentity;
+
+    for (UILabel *label in @[self.mainLabel, self.romanLabel, self.translationLabel]) {
+        if (shadowRadius > 0.01) {
+            label.layer.shadowColor = [UIColor whiteColor].CGColor;
+            label.layer.shadowOpacity = shadowOpacity;
+            label.layer.shadowOffset = CGSizeZero;
+            label.layer.shadowRadius = shadowRadius;
+            label.layer.masksToBounds = NO;
+        } else if (label.layer.shadowOpacity > 0.001) {
+            label.layer.shadowOpacity = 0.0;
+            label.layer.shadowRadius = 0.0;
+        }
     }
 }
 
@@ -395,10 +429,6 @@
     return line.romanizedText ?: @"";
 }
 
-- (NSString *)lineEffect {
-    return @"fancy";
-}
-
 - (NSArray<NSString *> *)emptyLineStates {
     NSString *mode = YTMULyricsSettingsString(@"lyricsDefaultText", @"♪");
     if ([mode isEqualToString:@"dots"]) return @[@".", @"..", @"..."];
@@ -440,7 +470,7 @@
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = [self nowPlayingTitleForManager:manager];
-    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%.0f|%@|%@|%@|%@|%@|%@",
+    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%.0f|%@|%@|%@|%@|%@|%@|%@",
                            (long)manager.state,
                            (void *)manager.currentResult,
                            (void *)manager.translatedLines,
@@ -450,6 +480,7 @@
                            YTMULyricsSettingsString(@"lyricsDefaultText", @"♪"),
                            YTMULyricsSettingsBool(@"lyricsRomanization", YES) ? @"1" : @"0",
                            YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO) ? @"1" : @"0",
+                           YTMULyricsSettingsBool(@"lyricsFocusBlur", YES) ? @"1" : @"0",
                            manager.lastErrorMessage ?: @""];
     if ([signature isEqualToString:self.lastReloadSignature]) {
         [self updatePlaybackTimeMs:[self currentPlaybackTimeMs] animated:NO];
@@ -513,7 +544,7 @@
         lineView.translationText = [[YTMULyricsTextProcessor simplifyUnicode:translation] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : translation;
         lineView.translationLabel.text = lineView.translationText;
         [lineView addTarget:self action:@selector(lineTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [lineView setActive:NO effect:[self lineEffect]];
+        [lineView setActive:NO distance:NSIntegerMax focusBlur:NO];
         [self.stackView addArrangedSubview:lineView];
         [lineViews addObject:lineView];
     }
@@ -570,10 +601,12 @@
     }
 
     self.activeIndex = current;
-    NSString *effect = [self lineEffect];
+    BOOL focusBlur = YTMULyricsSettingsBool(@"lyricsFocusBlur", YES);
     void (^stateUpdates)(void) = ^{
         for (NSUInteger i = 0; i < self.lineViews.count; i++) {
-            [self.lineViews[i] setActive:(NSInteger)i == current effect:effect];
+            BOOL isActive = (NSInteger)i == current;
+            NSInteger distance = (NSInteger)i - current;
+            [self.lineViews[i] setActive:isActive distance:distance focusBlur:focusBlur];
         }
     };
     if (animated) {
