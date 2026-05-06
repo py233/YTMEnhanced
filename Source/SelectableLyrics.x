@@ -307,12 +307,21 @@ static NSString *YTMULyricsPagePlainDisplayText(NSString *fallbackText) {
 static NSString *YTMULyricsPageAttributionText(void) {
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
-    if (manager.currentResult.sourceName.length) {
-        [parts addObject:[NSString stringWithFormat:@"Lyrics via %@", manager.currentResult.sourceName]];
+    NSString *lyricsProvider = manager.currentResult.sourceName ?: @"";
+    NSString *translationProvider = manager.translationAttribution.length ? manager.translationAttribution : YTMULyricsPageTranslationProviderTitle();
+    if ([translationProvider hasSuffix:@" official"]) {
+        translationProvider = [translationProvider substringToIndex:translationProvider.length - @" official".length];
     }
+    BOOL sameProvider = lyricsProvider.length &&
+                        translationProvider.length &&
+                        [YTMULyricsCompactString(lyricsProvider) isEqualToString:YTMULyricsCompactString(translationProvider)];
+    if (lyricsProvider.length && manager.translatedLines.count && sameProvider) {
+        [parts addObject:[NSString stringWithFormat:@"Lyrics and translation via %@", lyricsProvider]];
+        return [parts componentsJoinedByString:@" · "];
+    }
+    if (lyricsProvider.length) [parts addObject:[NSString stringWithFormat:@"Lyrics via %@", lyricsProvider]];
     if (manager.translatedLines.count) {
-        NSString *provider = manager.translationAttribution.length ? manager.translationAttribution : YTMULyricsPageTranslationProviderTitle();
-        [parts addObject:[NSString stringWithFormat:@"Translated via %@", provider]];
+        [parts addObject:[NSString stringWithFormat:@"Translated via %@", translationProvider]];
     }
     return [parts componentsJoinedByString:@" · "];
 }
@@ -717,7 +726,10 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
                            YTMULyricsPageBool(@"lyricsRomanization") ? @"1" : @"0",
                            YTMULyricsPageBool(@"lyricsShowTimeCodes") ? @"1" : @"0",
                            manager.translationAttribution ?: @""];
-    if ([signature isEqualToString:self.lastRenderSignature]) return;
+    if ([signature isEqualToString:self.lastRenderSignature]) {
+        if (useSynced) [self.syncedLyricsView reloadFromManager];
+        return;
+    }
     self.lastRenderSignature = signature;
 
     if (useSynced) {
@@ -1011,7 +1023,10 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 
 @interface YTMNowPlayingViewController : UIViewController
 @property (retain, nonatomic) UIButton *ytmuLyricsEntryButton;
+@property (retain, nonatomic) NSNumber *ytmuLyricsEntryRefreshToken;
 - (void)ytmu_updateLyricsEntryButton;
+- (void)ytmu_scheduleLyricsEntryButtonRefresh;
+- (void)ytmu_handleLyricsEntryRefreshNotification:(NSNotification *)notification;
 - (void)ytmu_openLyricsPanel:(id)sender;
 @end
 
@@ -1089,10 +1104,37 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
 %hook YTMNowPlayingViewController
 
 %property (retain, nonatomic) UIButton *ytmuLyricsEntryButton;
+%property (retain, nonatomic) NSNumber *ytmuLyricsEntryRefreshToken;
+
+- (void)viewDidLoad {
+    %orig;
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(ytmu_handleLyricsEntryRefreshNotification:)
+                                                 name:YTMULyricsDidUpdateNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(ytmu_handleLyricsEntryRefreshNotification:)
+                                                 name:YTMULyricsSettingsDidChangeNotification
+                                               object:nil];
+    [self ytmu_updateLyricsEntryButton];
+    [self ytmu_scheduleLyricsEntryButtonRefresh];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    %orig;
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    [self ytmu_updateLyricsEntryButton];
+    [self ytmu_scheduleLyricsEntryButtonRefresh];
+}
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     [self ytmu_updateLyricsEntryButton];
+    [self ytmu_scheduleLyricsEntryButtonRefresh];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -1121,6 +1163,9 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
         [self.ytmuLyricsEntryButton addTarget:self action:@selector(ytmu_openLyricsPanel:) forControlEvents:UIControlEventTouchUpInside];
         [self.view addSubview:self.ytmuLyricsEntryButton];
         YTMULyricsLog(@"lyrics entry button attached controller=%@", NSStringFromClass([self class]));
+    }
+    if (self.ytmuLyricsEntryButton.superview != self.view) {
+        [self.view addSubview:self.ytmuLyricsEntryButton];
     }
 
     UIEdgeInsets safe = UIEdgeInsetsZero;
@@ -1168,6 +1213,35 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
     self.ytmuLyricsEntryButton.frame = frame;
     self.ytmuLyricsEntryButton.layer.cornerRadius = MIN(18.0, frame.size.height / 2.0);
     [self.view bringSubviewToFront:self.ytmuLyricsEntryButton];
+}
+
+%new
+- (void)ytmu_scheduleLyricsEntryButtonRefresh {
+    NSUInteger token = self.ytmuLyricsEntryRefreshToken.unsignedIntegerValue + 1;
+    self.ytmuLyricsEntryRefreshToken = @(token);
+    NSArray<NSNumber *> *delays = @[@0.15, @0.45, @0.9, @1.5];
+    __weak typeof(self) weakSelf = self;
+    for (NSNumber *delayNumber in delays) {
+        NSTimeInterval delay = delayNumber.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            YTMNowPlayingViewController *strongSelf = weakSelf;
+            if (!strongSelf || !strongSelf.isViewLoaded) return;
+            if (strongSelf.ytmuLyricsEntryRefreshToken.unsignedIntegerValue != token) return;
+            [strongSelf ytmu_updateLyricsEntryButton];
+        });
+    }
+}
+
+%new
+- (void)ytmu_handleLyricsEntryRefreshNotification:(NSNotification *)notification {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self ytmu_handleLyricsEntryRefreshNotification:notification];
+        });
+        return;
+    }
+    [self ytmu_updateLyricsEntryButton];
+    [self ytmu_scheduleLyricsEntryButtonRefresh];
 }
 
 %new

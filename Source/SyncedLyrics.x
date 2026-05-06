@@ -256,6 +256,27 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     return YES;
 }
 
+static char YTMUPlayerRefreshRetryTokenKey;
+
+static void YTMUSchedulePlayerRefreshRetries(YTPlayerViewController *player, NSString *source) {
+    if (!player) return;
+    NSUInteger token = [objc_getAssociatedObject(player, &YTMUPlayerRefreshRetryTokenKey) unsignedIntegerValue] + 1;
+    objc_setAssociatedObject(player, &YTMUPlayerRefreshRetryTokenKey, @(token), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    NSArray<NSNumber *> *delays = @[@0.25, @0.75, @1.5, @2.5];
+    __weak YTPlayerViewController *weakPlayer = player;
+    for (NSUInteger idx = 0; idx < delays.count; idx++) {
+        NSTimeInterval delay = delays[idx].doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            YTPlayerViewController *strongPlayer = weakPlayer;
+            if (!strongPlayer) return;
+            if ([objc_getAssociatedObject(strongPlayer, &YTMUPlayerRefreshRetryTokenKey) unsignedIntegerValue] != token) return;
+            NSString *retrySource = [NSString stringWithFormat:@"%@.retry%lu", source ?: @"player", (unsigned long)(idx + 1)];
+            YTMURefreshLyricsFromPlayer(strongPlayer, retrySource, NO);
+        });
+    }
+}
+
 static void YTMUHandlePlayerCandidate(id candidate, NSString *source, BOOL force) {
     YTPlayerViewController *player = YTMUPlayerFromCandidate(candidate);
     if (!player) {
@@ -280,6 +301,7 @@ static void YTMUHandlePlayerCandidate(id candidate, NSString *source, BOOL force
     }
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:player];
     YTMURefreshLyricsFromPlayer(player, source, force);
+    if (force) YTMUSchedulePlayerRefreshRetries(player, source);
 }
 
 static NSString *YTMUHasSelector(Class cls, SEL selector) {
