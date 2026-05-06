@@ -117,7 +117,7 @@ static NSString *YTMULyricsPageTranslationProviderTitle(void) {
 }
 
 static CGFloat YTMULyricsPageClampFontSize(CGFloat size) {
-    return MIN(38.0, MAX(16.0, size));
+    return MIN(38.0, MAX(12.0, size));
 }
 
 static CGFloat YTMULyricsPageBaseFontSize(void) {
@@ -553,6 +553,9 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 @property (retain, nonatomic) UIButton *offsetDecreaseButton;
 @property (retain, nonatomic) UIButton *offsetIncreaseButton;
 @property (retain, nonatomic) UILabel *offsetLabel;
+@property (retain, nonatomic) UIView *sheetBackdropView;
+@property (retain, nonatomic) UIView *sheetContentView;
+@property (retain, nonatomic) UILabel *sheetValueLabel;
 @property (copy, nonatomic) NSString *lastRenderSignature;
 @property (assign, nonatomic) YTPlayerViewController *playerViewController;
 - (void)ytmu_renderTabOverlay;
@@ -563,6 +566,15 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 - (void)ytmu_updateNowPlayingHeader;
 - (void)ytmu_presentLyricsMenu:(UIButton *)sender;
 - (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView;
+- (void)ytmu_presentSourceMenuFromCurrentSheet;
+- (void)ytmu_presentFontSheet;
+- (void)ytmu_presentTimingSheet;
+- (UIButton *)ytmu_sheetDoneButtonAtY:(CGFloat)y title:(NSString *)title;
+- (void)ytmu_sheetSwitchChanged:(UISwitch *)sender;
+- (void)ytmu_sheetSourceSelected:(UIButton *)sender;
+- (void)ytmu_fontSliderChanged:(UISlider *)sender;
+- (void)ytmu_timingButtonTapped:(UIButton *)sender;
+- (void)ytmu_dismissSheet;
 - (void)ytmu_handleLyricsSettingsDidChange:(NSNotification *)notification;
 - (void)ytmu_applyTimingOffsetChange;
 - (void)ytmu_scrollSourceButtonIntoView:(UIButton *)button animated:(BOOL)animated;
@@ -900,88 +912,343 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     return controller;
 }
 
-- (void)ytmu_configurePopoverForAlert:(UIAlertController *)alert sourceView:(UIView *)sourceView {
-    UIPopoverPresentationController *popover = alert.popoverPresentationController;
-    if (!popover) return;
-    popover.sourceView = sourceView ?: self;
-    popover.sourceRect = (sourceView ?: self).bounds;
-    popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+- (UIView *)ytmu_sheetHostView {
+    UIViewController *controller = [self ytmu_presentingViewController];
+    return controller.view ?: self;
+}
+
+- (UIColor *)ytmu_sheetBackgroundColor {
+    return [UIColor colorWithRed:0.095 green:0.105 blue:0.120 alpha:0.98];
+}
+
+- (UIColor *)ytmu_sheetSeparatorColor {
+    return [[UIColor whiteColor] colorWithAlphaComponent:0.075];
+}
+
+- (void)ytmu_prepareSheetWithHeight:(CGFloat)height title:(NSString *)title {
+    [self ytmu_dismissSheet];
+    UIView *host = [self ytmu_sheetHostView];
+    UIEdgeInsets safe = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *)) safe = host.safeAreaInsets;
+    CGFloat sheetHeight = MIN(host.bounds.size.height * 0.56, height + safe.bottom);
+
+    UIView *backdrop = [[UIView alloc] initWithFrame:host.bounds];
+    backdrop.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.32];
+    backdrop.alpha = 0.0;
+    backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_dismissSheet)];
+    [backdrop addGestureRecognizer:tap];
+    [host addSubview:backdrop];
+    self.sheetBackdropView = backdrop;
+
+    UIView *sheet = [[UIView alloc] initWithFrame:CGRectMake(0.0,
+                                                            host.bounds.size.height,
+                                                            host.bounds.size.width,
+                                                            sheetHeight)];
+    sheet.backgroundColor = [self ytmu_sheetBackgroundColor];
+    sheet.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    sheet.layer.cornerRadius = 22.0;
+    sheet.layer.cornerCurve = kCACornerCurveContinuous;
+    if (@available(iOS 11.0, *)) {
+        sheet.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    }
+    [host addSubview:sheet];
+    self.sheetContentView = sheet;
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(22.0, 18.0, sheet.bounds.size.width - 44.0, 24.0)];
+    titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    titleLabel.text = title;
+    titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    titleLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    [sheet addSubview:titleLabel];
+
+    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(0.0, 56.0, sheet.bounds.size.width, 1.0 / MAX(1.0, UIScreen.mainScreen.scale))];
+    separator.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    separator.backgroundColor = [self ytmu_sheetSeparatorColor];
+    [sheet addSubview:separator];
+
+    CGRect finalFrame = sheet.frame;
+    finalFrame.origin.y = host.bounds.size.height - sheetHeight;
+    [UIView animateWithDuration:0.24
+                          delay:0.0
+         usingSpringWithDamping:0.92
+          initialSpringVelocity:0.0
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut
+                     animations:^{
+        backdrop.alpha = 1.0;
+        sheet.frame = finalFrame;
+    } completion:nil];
+}
+
+- (UILabel *)ytmu_sheetLabelWithFrame:(CGRect)frame font:(UIFont *)font color:(UIColor *)color {
+    UILabel *label = [[UILabel alloc] initWithFrame:frame];
+    label.font = font;
+    label.textColor = color;
+    label.numberOfLines = 1;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.72;
+    return label;
+}
+
+- (UIButton *)ytmu_addSheetRowAtY:(CGFloat)y
+                           symbol:(NSString *)symbol
+                            title:(NSString *)title
+                            value:(NSString *)value
+                          enabled:(BOOL)enabled
+                           target:(id)target
+                           action:(SEL)action {
+    UIView *sheet = self.sheetContentView;
+    CGFloat width = sheet.bounds.size.width;
+    UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
+    row.frame = CGRectMake(0.0, y, width, 56.0);
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    row.enabled = enabled;
+    row.backgroundColor = [UIColor clearColor];
+    if (target && action) [row addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    [sheet addSubview:row];
+
+    UIImage *image = nil;
+    if (@available(iOS 13.0, *)) image = [UIImage systemImageNamed:symbol];
+    if (image) {
+        UIImageView *icon = [[UIImageView alloc] initWithImage:image];
+        icon.frame = CGRectMake(22.0, 16.0, 24.0, 24.0);
+        icon.contentMode = UIViewContentModeScaleAspectFit;
+        icon.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:enabled ? 0.74 : 0.32];
+        icon.userInteractionEnabled = NO;
+        [row addSubview:icon];
+    }
+
+    UILabel *titleLabel = [self ytmu_sheetLabelWithFrame:CGRectMake(62.0, 0.0, width * 0.48, 56.0)
+                                                    font:[UIFont systemFontOfSize:16.0 weight:UIFontWeightMedium]
+                                                   color:[[UIColor whiteColor] colorWithAlphaComponent:enabled ? 0.92 : 0.38]];
+    titleLabel.text = title;
+    titleLabel.userInteractionEnabled = NO;
+    [row addSubview:titleLabel];
+
+    CGFloat valueWidth = width - CGRectGetMaxX(titleLabel.frame) - 66.0;
+    UILabel *valueLabel = [self ytmu_sheetLabelWithFrame:CGRectMake(width - valueWidth - 46.0, 0.0, valueWidth, 56.0)
+                                                    font:[UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold]
+                                                   color:[[UIColor whiteColor] colorWithAlphaComponent:enabled ? 0.50 : 0.25]];
+    valueLabel.text = value;
+    valueLabel.textAlignment = NSTextAlignmentRight;
+    valueLabel.userInteractionEnabled = NO;
+    valueLabel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [row addSubview:valueLabel];
+
+    if (action) {
+        UILabel *chevron = [self ytmu_sheetLabelWithFrame:CGRectMake(width - 34.0, 0.0, 14.0, 56.0)
+                                                     font:[UIFont systemFontOfSize:23.0 weight:UIFontWeightRegular]
+                                                    color:[[UIColor whiteColor] colorWithAlphaComponent:0.30]];
+        chevron.text = @">";
+        chevron.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        chevron.userInteractionEnabled = NO;
+        [row addSubview:chevron];
+    }
+
+    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(62.0, 55.5, width - 62.0, 0.5)];
+    separator.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    separator.backgroundColor = [self ytmu_sheetSeparatorColor];
+    separator.userInteractionEnabled = NO;
+    [row addSubview:separator];
+    return row;
+}
+
+- (void)ytmu_addSwitchRowAtY:(CGFloat)y
+                      symbol:(NSString *)symbol
+                       title:(NSString *)title
+                          on:(BOOL)on
+                         tag:(NSInteger)tag {
+    UIButton *row = [self ytmu_addSheetRowAtY:y symbol:symbol title:title value:@"" enabled:YES target:nil action:nil];
+    UISwitch *toggle = [[UISwitch alloc] initWithFrame:CGRectZero];
+    toggle.on = on;
+    toggle.tag = tag;
+    toggle.onTintColor = [UIColor colorWithRed:0.92 green:0.16 blue:0.20 alpha:1.0];
+    toggle.center = CGPointMake(row.bounds.size.width - 52.0, row.bounds.size.height * 0.5);
+    toggle.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [toggle addTarget:self action:@selector(ytmu_sheetSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    [row addSubview:toggle];
 }
 
 - (void)ytmu_presentLyricsMenu:(UIButton *)sender {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Lyrics"
-                                                                   message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    __weak typeof(self) weakSelf = self;
+    [self ytmu_prepareSheetWithHeight:388.0 title:@"Lyrics"];
+    CGFloat y = 58.0;
     NSString *source = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
-    NSString *sourceTitle = [NSString stringWithFormat:@"Source: %@", YTMULyricsPageSourceTitle(source)];
-    [alert addAction:[UIAlertAction actionWithTitle:sourceTitle style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [weakSelf ytmu_presentSourceMenuFromView:sender];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Text Size: %.0f", YTMULyricsPageBaseFontSize()]
-                                             style:UIAlertActionStyleDefault
-                                           handler:nil]];
-    [alert.actions.lastObject setEnabled:NO];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Smaller Text" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetBaseFontSize(YTMULyricsPageBaseFontSize() - 2.0);
-        [weakSelf ytmu_updateFontControls];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Larger Text" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetBaseFontSize(YTMULyricsPageBaseFontSize() + 2.0);
-        [weakSelf ytmu_updateFontControls];
-    }]];
+    [self ytmu_addSheetRowAtY:y symbol:@"text.bubble" title:@"Lyrics Source" value:YTMULyricsPageSourceTitle(source) enabled:YES target:self action:@selector(ytmu_presentSourceMenuFromCurrentSheet)];
+    y += 56.0;
+    [self ytmu_addSheetRowAtY:y symbol:@"textformat.size" title:@"Text Size" value:[NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()] enabled:YES target:self action:@selector(ytmu_presentFontSheet)];
+    y += 56.0;
+    [self ytmu_addSheetRowAtY:y symbol:@"arrow.up.arrow.down" title:@"Timing Offset" value:[NSString stringWithFormat:@"%+.1fs", YTMULyricsPageTimingOffsetMs() / 1000.0] enabled:YES target:self action:@selector(ytmu_presentTimingSheet)];
+    y += 56.0;
+    [self ytmu_addSwitchRowAtY:y symbol:@"textformat.abc" title:@"Romanization" on:YTMULyricsPageBoolDefault(@"lyricsRomanization", YES) tag:1];
+    y += 56.0;
+    [self ytmu_addSwitchRowAtY:y symbol:@"clock" title:@"Timecodes" on:YTMULyricsPageBoolDefault(@"lyricsShowTimeCodes", NO) tag:2];
+}
 
-    NSInteger offset = YTMULyricsPageTimingOffsetMs();
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Offset: %+.1fs", offset / 1000.0]
-                                             style:UIAlertActionStyleDefault
-                                           handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetTimingOffsetMs(0);
-        [weakSelf ytmu_applyTimingOffsetChange];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Earlier -0.1s" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetTimingOffsetMs(YTMULyricsPageTimingOffsetMs() - 100);
-        [weakSelf ytmu_applyTimingOffsetChange];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Later +0.1s" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetTimingOffsetMs(YTMULyricsPageTimingOffsetMs() + 100);
-        [weakSelf ytmu_applyTimingOffsetChange];
-    }]];
-
-    BOOL romanization = YTMULyricsPageBoolDefault(@"lyricsRomanization", YES);
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Romanization: %@", romanization ? @"On" : @"Off"]
-                                             style:UIAlertActionStyleDefault
-                                           handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetSetting(@"lyricsRomanization", @(!romanization));
-    }]];
-    BOOL timeCodes = YTMULyricsPageBoolDefault(@"lyricsShowTimeCodes", NO);
-    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Timecodes: %@", timeCodes ? @"On" : @"Off"]
-                                             style:UIAlertActionStyleDefault
-                                           handler:^(__unused UIAlertAction *action) {
-        YTMULyricsPageSetSetting(@"lyricsShowTimeCodes", @(!timeCodes));
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [self ytmu_configurePopoverForAlert:alert sourceView:sender ?: self.menuButton];
-    [[self ytmu_presentingViewController] presentViewController:alert animated:YES completion:nil];
+- (void)ytmu_presentSourceMenuFromCurrentSheet {
+    [self ytmu_presentSourceMenuFromView:self.menuButton];
 }
 
 - (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Lyrics Source"
-                                                                   message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    __weak typeof(self) weakSelf = self;
+    NSArray *options = YTMULyricsPageSourceOptions();
+    CGFloat height = 76.0 + MIN((CGFloat)options.count, 6.0) * 50.0;
+    [self ytmu_prepareSheetWithHeight:height title:@"Lyrics Source"];
     NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
-    for (NSDictionary *option in YTMULyricsPageSourceOptions()) {
+    CGFloat y = 58.0;
+    for (NSUInteger idx = 0; idx < options.count; idx++) {
+        NSDictionary *option = options[idx];
         NSString *key = option[@"key"];
-        NSString *title = option[@"title"];
-        if ([key isEqualToString:selected]) title = [title stringByAppendingString:@" Selected"];
-        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-            YTMULyricsPageSetSetting(@"lyricsPreferredSource", key);
-            [weakSelf ytmu_updateSourceButtons];
-        }]];
+        NSString *value = [key isEqualToString:selected] ? @"Selected" : @"";
+        UIButton *row = [self ytmu_addSheetRowAtY:y symbol:@"music.note.list" title:option[@"title"] value:value enabled:YES target:self action:@selector(ytmu_sheetSourceSelected:)];
+        row.tag = idx;
+        y += 50.0;
     }
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [self ytmu_configurePopoverForAlert:alert sourceView:sourceView ?: self.menuButton];
-    [[self ytmu_presentingViewController] presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)ytmu_presentFontSheet {
+    [self ytmu_prepareSheetWithHeight:246.0 title:@"Text Size"];
+    UIView *sheet = self.sheetContentView;
+    CGFloat width = sheet.bounds.size.width;
+
+    UILabel *value = [self ytmu_sheetLabelWithFrame:CGRectMake(22.0, 76.0, width - 44.0, 36.0)
+                                               font:[UIFont systemFontOfSize:28.0 weight:UIFontWeightSemibold]
+                                              color:[UIColor whiteColor]];
+    value.textAlignment = NSTextAlignmentCenter;
+    value.text = [NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()];
+    value.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [sheet addSubview:value];
+    self.sheetValueLabel = value;
+
+    UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(34.0, 132.0, width - 68.0, 34.0)];
+    slider.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    slider.minimumValue = 12.0;
+    slider.maximumValue = 38.0;
+    slider.value = YTMULyricsPageBaseFontSize();
+    slider.minimumTrackTintColor = [UIColor colorWithRed:0.92 green:0.16 blue:0.20 alpha:1.0];
+    slider.maximumTrackTintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
+    [slider addTarget:self action:@selector(ytmu_fontSliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [sheet addSubview:slider];
+
+    UILabel *small = [self ytmu_sheetLabelWithFrame:CGRectMake(34.0, 166.0, 90.0, 22.0)
+                                               font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold]
+                                              color:[[UIColor whiteColor] colorWithAlphaComponent:0.52]];
+    small.text = @"12";
+    [sheet addSubview:small];
+    UILabel *large = [self ytmu_sheetLabelWithFrame:CGRectMake(width - 124.0, 166.0, 90.0, 22.0)
+                                               font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold]
+                                              color:[[UIColor whiteColor] colorWithAlphaComponent:0.52]];
+    large.textAlignment = NSTextAlignmentRight;
+    large.text = @"38";
+    large.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [sheet addSubview:large];
+
+    UIButton *done = [self ytmu_sheetDoneButtonAtY:205.0 title:@"Done"];
+    [sheet addSubview:done];
+}
+
+- (void)ytmu_presentTimingSheet {
+    [self ytmu_prepareSheetWithHeight:270.0 title:@"Timing Offset"];
+    UIView *sheet = self.sheetContentView;
+    CGFloat width = sheet.bounds.size.width;
+
+    UILabel *value = [self ytmu_sheetLabelWithFrame:CGRectMake(22.0, 76.0, width - 44.0, 36.0)
+                                               font:[UIFont systemFontOfSize:28.0 weight:UIFontWeightSemibold]
+                                              color:[UIColor whiteColor]];
+    value.textAlignment = NSTextAlignmentCenter;
+    value.text = [NSString stringWithFormat:@"%+.1fs", YTMULyricsPageTimingOffsetMs() / 1000.0];
+    value.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [sheet addSubview:value];
+    self.sheetValueLabel = value;
+
+    NSArray<NSString *> *titles = @[@"-0.1s", @"Reset", @"+0.1s"];
+    NSArray<NSNumber *> *tags = @[@(-100), @(0), @(100)];
+    CGFloat gap = 10.0;
+    CGFloat buttonWidth = (width - 44.0 - gap * 2.0) / 3.0;
+    for (NSUInteger idx = 0; idx < titles.count; idx++) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.frame = CGRectMake(22.0 + (buttonWidth + gap) * idx, 132.0, buttonWidth, 46.0);
+        button.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        button.tag = tags[idx].integerValue;
+        [button setTitle:titles[idx] forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+        [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        button.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+        button.layer.cornerRadius = 14.0;
+        button.clipsToBounds = YES;
+        [button addTarget:self action:@selector(ytmu_timingButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [sheet addSubview:button];
+    }
+
+    UIButton *done = [self ytmu_sheetDoneButtonAtY:210.0 title:@"Done"];
+    [sheet addSubview:done];
+}
+
+- (UIButton *)ytmu_sheetDoneButtonAtY:(CGFloat)y title:(NSString *)title {
+    UIView *sheet = self.sheetContentView;
+    UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
+    done.frame = CGRectMake(22.0, y, sheet.bounds.size.width - 44.0, 46.0);
+    done.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [done setTitle:title forState:UIControlStateNormal];
+    done.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
+    [done setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    done.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.13];
+    done.layer.cornerRadius = 14.0;
+    done.clipsToBounds = YES;
+    [done addTarget:self action:@selector(ytmu_dismissSheet) forControlEvents:UIControlEventTouchUpInside];
+    return done;
+}
+
+- (void)ytmu_sheetSwitchChanged:(UISwitch *)sender {
+    if (sender.tag == 1) {
+        YTMULyricsPageSetSetting(@"lyricsRomanization", @(sender.on));
+    } else if (sender.tag == 2) {
+        YTMULyricsPageSetSetting(@"lyricsShowTimeCodes", @(sender.on));
+    }
+}
+
+- (void)ytmu_sheetSourceSelected:(UIButton *)sender {
+    NSArray *options = YTMULyricsPageSourceOptions();
+    if (sender.tag >= (NSInteger)options.count) return;
+    NSString *key = options[(NSUInteger)sender.tag][@"key"];
+    YTMULyricsPageSetSetting(@"lyricsPreferredSource", key);
+    [self ytmu_updateSourceButtons];
+    [self ytmu_dismissSheet];
+}
+
+- (void)ytmu_fontSliderChanged:(UISlider *)sender {
+    CGFloat next = round(sender.value);
+    if (fabs(next - YTMULyricsPageBaseFontSize()) < 0.5) return;
+    YTMULyricsPageSetBaseFontSize(next);
+    self.sheetValueLabel.text = [NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()];
+    [self ytmu_updateFontControls];
+}
+
+- (void)ytmu_timingButtonTapped:(UIButton *)sender {
+    NSInteger next = sender.tag == 0 ? 0 : YTMULyricsPageTimingOffsetMs() + sender.tag;
+    YTMULyricsPageSetTimingOffsetMs(next);
+    [self ytmu_applyTimingOffsetChange];
+    self.sheetValueLabel.text = [NSString stringWithFormat:@"%+.1fs", YTMULyricsPageTimingOffsetMs() / 1000.0];
+}
+
+- (void)ytmu_dismissSheet {
+    UIView *backdrop = self.sheetBackdropView;
+    UIView *sheet = self.sheetContentView;
+    self.sheetBackdropView = nil;
+    self.sheetContentView = nil;
+    self.sheetValueLabel = nil;
+    if (!backdrop && !sheet) return;
+    CGRect finalFrame = sheet.frame;
+    finalFrame.origin.y = sheet.superview.bounds.size.height;
+    [UIView animateWithDuration:0.18
+                          delay:0.0
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseIn
+                     animations:^{
+        backdrop.alpha = 0.0;
+        sheet.frame = finalFrame;
+    } completion:^(__unused BOOL finished) {
+        [backdrop removeFromSuperview];
+        [sheet removeFromSuperview];
+    }];
 }
 
 - (void)ytmu_handleLyricsSettingsDidChange:(NSNotification *)notification {
