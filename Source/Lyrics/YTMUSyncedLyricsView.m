@@ -5,6 +5,26 @@
 #import "../Headers/YTPlayerViewController.h"
 #import <MediaPlayer/MediaPlayer.h>
 
+static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
+    static dispatch_once_t onceToken;
+    static Class filterClass;
+    static SEL filterSel;
+    dispatch_once(&onceToken, ^{
+        filterClass = NSClassFromString(@"CAFilter");
+        filterSel = NSSelectorFromString(@"filterWithType:");
+    });
+    if (!filterClass || ![filterClass respondsToSelector:filterSel]) return nil;
+    id (*makeFilter)(id, SEL, NSString *) = (id (*)(id, SEL, NSString *))[filterClass methodForSelector:filterSel];
+    id filter = makeFilter(filterClass, filterSel, @"gaussianBlur");
+    if (!filter) return nil;
+    @try {
+        [filter setValue:@(radius) forKey:@"inputRadius"];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+    return filter;
+}
+
 @interface YTMULyricLineView : UIControl
 @property (nonatomic, strong) UILabel *timeLabel;
 @property (nonatomic, strong) UILabel *mainLabel;
@@ -40,11 +60,11 @@
         _translationLabel.alpha = 0.82;
 
         [NSLayoutConstraint activateConstraints:@[
-            [_timeLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:18],
-            [_timeLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-18],
+            [_timeLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_timeLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
             [_timeLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:9],
-            [_mainLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:18],
-            [_mainLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-18],
+            [_mainLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_mainLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
             [_mainLabel.topAnchor constraintEqualToAnchor:_timeLabel.bottomAnchor constant:2],
             [_romanLabel.leadingAnchor constraintEqualToAnchor:_mainLabel.leadingAnchor],
             [_romanLabel.trailingAnchor constraintEqualToAnchor:_mainLabel.trailingAnchor],
@@ -58,17 +78,41 @@
     return self;
 }
 
-- (void)setActive:(BOOL)active effect:(NSString *)effect {
-    CGFloat activeAlpha = 1.0;
-    CGFloat inactiveAlpha = [effect isEqualToString:@"focus"] ? 0.22 : 0.36;
-    self.alpha = active ? activeAlpha : inactiveAlpha;
+- (void)setActive:(BOOL)active distance:(NSInteger)distance focusBlur:(BOOL)focusBlur {
+    CGFloat alpha = 1.0;
+    CGFloat blurRadius = 0.0;
+
+    if (!active) {
+        if (focusBlur) {
+            NSInteger absDistance = labs(distance);
+            if (absDistance == 1) {
+                alpha = (distance > 0) ? 0.65 : 0.52;
+                blurRadius = 1.6;
+            } else if (absDistance == 2) {
+                alpha = 0.40;
+                blurRadius = 3.0;
+            } else {
+                alpha = 0.24;
+                blurRadius = 5.5;
+            }
+        } else {
+            alpha = 0.36;
+        }
+    }
+
+    self.alpha = alpha;
+    self.transform = CGAffineTransformIdentity;
     self.mainLabel.font = active ? [UIFont boldSystemFontOfSize:self.mainLabel.font.pointSize] : [UIFont systemFontOfSize:self.mainLabel.font.pointSize weight:UIFontWeightRegular];
-    if ([effect isEqualToString:@"scale"]) {
-        self.transform = active ? CGAffineTransformMakeScale(1.08, 1.08) : CGAffineTransformIdentity;
-    } else if ([effect isEqualToString:@"offset"]) {
-        self.transform = active ? CGAffineTransformMakeTranslation(18, 0) : CGAffineTransformIdentity;
-    } else {
-        self.transform = CGAffineTransformIdentity;
+    self.layer.filters = nil;
+
+    for (UILabel *label in @[self.timeLabel, self.mainLabel, self.romanLabel, self.translationLabel]) {
+        if (label.layer.shouldRasterize) label.layer.shouldRasterize = NO;
+        if (blurRadius > 0.01) {
+            id filter = YTMUSyncedLyricsBlurFilter(blurRadius);
+            label.layer.filters = filter ? @[filter] : nil;
+        } else {
+            label.layer.filters = nil;
+        }
     }
 }
 
@@ -136,7 +180,7 @@
     self.translationLabel.attributedText = [self attributedText:self.translationText ?: @""
                                                            font:self.translationLabel.font
                                                          active:active
-                                                       progress:progress
+                                                       progress:active ? 1.0 : 0.0
                                                     activeColor:translation
                                                   inactiveColor:dim];
 }
@@ -162,12 +206,13 @@
     self = [super initWithFrame:frame];
     if (self) {
         self.hidden = YES;
-        self.clipsToBounds = YES;
-        self.layer.cornerRadius = 16;
+        self.clipsToBounds = NO;
+        self.backgroundColor = [UIColor clearColor];
+        self.layer.cornerRadius = 0;
         self.layer.cornerCurve = kCACornerCurveContinuous;
 
-        UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterialDark];
-        _blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
+        _blurView = [[UIVisualEffectView alloc] initWithEffect:nil];
+        _blurView.backgroundColor = [UIColor clearColor];
         _blurView.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_blurView];
 
@@ -176,12 +221,13 @@
         _titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
         _titleLabel.textColor = [UIColor secondaryLabelColor];
         _titleLabel.numberOfLines = 1;
+        _titleLabel.hidden = YES;
         [_blurView.contentView addSubview:_titleLabel];
 
         _stateLabel = [[UILabel alloc] init];
         _stateLabel.translatesAutoresizingMaskIntoConstraints = NO;
         _stateLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
-        _stateLabel.textColor = [UIColor labelColor];
+        _stateLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
         _stateLabel.numberOfLines = 0;
         _stateLabel.textAlignment = NSTextAlignmentCenter;
         [_blurView.contentView addSubview:_stateLabel];
@@ -213,8 +259,8 @@
 
             [_scrollView.leadingAnchor constraintEqualToAnchor:_blurView.contentView.leadingAnchor],
             [_scrollView.trailingAnchor constraintEqualToAnchor:_blurView.contentView.trailingAnchor],
-            [_scrollView.topAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor constant:6],
-            [_scrollView.bottomAnchor constraintEqualToAnchor:_blurView.contentView.bottomAnchor constant:-8],
+            [_scrollView.topAnchor constraintEqualToAnchor:_blurView.contentView.topAnchor],
+            [_scrollView.bottomAnchor constraintEqualToAnchor:_blurView.contentView.bottomAnchor],
 
             [_stackView.leadingAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.leadingAnchor],
             [_stackView.trailingAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.trailingAnchor],
@@ -283,7 +329,7 @@
 
 - (CGFloat)baseFontSize {
     CGFloat pointSize = (CGFloat)YTMULyricsSettingsInteger(@"lyricsFontPointSize", 0);
-    if (pointSize > 0.0) return MIN(38.0, MAX(16.0, pointSize));
+    if (pointSize > 0.0) return MIN(38.0, MAX(12.0, pointSize));
     NSString *size = YTMULyricsSettingsString(@"lyricsFontSize", @"small");
     if ([size isEqualToString:@"large"]) return 33;
     if ([size isEqualToString:@"medium"]) return 27;
@@ -393,10 +439,6 @@
     return line.romanizedText ?: @"";
 }
 
-- (NSString *)lineEffect {
-    return YTMULyricsSettingsString(@"lyricsLineEffect", @"fancy");
-}
-
 - (NSArray<NSString *> *)emptyLineStates {
     NSString *mode = YTMULyricsSettingsString(@"lyricsDefaultText", @"♪");
     if ([mode isEqualToString:@"dots"]) return @[@".", @"..", @"..."];
@@ -438,7 +480,7 @@
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = [self nowPlayingTitleForManager:manager];
-    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%.0f|%@|%@|%@|%@|%@|%@",
+    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%.0f|%@|%@|%@|%@|%@|%@|%@",
                            (long)manager.state,
                            (void *)manager.currentResult,
                            (void *)manager.translatedLines,
@@ -448,6 +490,7 @@
                            YTMULyricsSettingsString(@"lyricsDefaultText", @"♪"),
                            YTMULyricsSettingsBool(@"lyricsRomanization", YES) ? @"1" : @"0",
                            YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO) ? @"1" : @"0",
+                           YTMULyricsSettingsBool(@"lyricsFocusBlur", YES) ? @"1" : @"0",
                            manager.lastErrorMessage ?: @""];
     if ([signature isEqualToString:self.lastReloadSignature]) {
         [self updatePlaybackTimeMs:[self currentPlaybackTimeMs] animated:NO];
@@ -511,7 +554,7 @@
         lineView.translationText = [[YTMULyricsTextProcessor simplifyUnicode:translation] isEqualToString:[YTMULyricsTextProcessor simplifyUnicode:text]] ? @"" : translation;
         lineView.translationLabel.text = lineView.translationText;
         [lineView addTarget:self action:@selector(lineTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [lineView setActive:NO effect:[self lineEffect]];
+        [lineView setActive:NO distance:NSIntegerMax focusBlur:NO];
         [self.stackView addArrangedSubview:lineView];
         [lineViews addObject:lineView];
     }
@@ -568,10 +611,12 @@
     }
 
     self.activeIndex = current;
-    NSString *effect = [self lineEffect];
+    BOOL focusBlur = YTMULyricsSettingsBool(@"lyricsFocusBlur", YES);
     void (^stateUpdates)(void) = ^{
         for (NSUInteger i = 0; i < self.lineViews.count; i++) {
-            [self.lineViews[i] setActive:(NSInteger)i == current effect:effect];
+            BOOL isActive = (NSInteger)i == current;
+            NSInteger distance = (NSInteger)i - current;
+            [self.lineViews[i] setActive:isActive distance:distance focusBlur:focusBlur];
         }
     };
     if (animated) {

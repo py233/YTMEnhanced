@@ -301,8 +301,8 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1;
-    if (section == 1) return 4;
-    if (section == 2) return 3;
+    if (section == 1) return 2;
+    if (section == 2) return 1;
     if (section == 3) return 2;
     if (section == 4) return [self providerConfigRows].count;
     if (section == 5) return 1;
@@ -321,14 +321,6 @@
 
     if (indexPath.section == 1) {
         if (indexPath.row == 0) {
-            NSString *key = [self stringSetting:@"lyricsPreferredSource" fallback:@"auto"];
-            return [self choiceCellWithTitle:LOC(@"LYRICS_SOURCE") detail:[self titleForKey:key inOptions:[self lyricSourceOptions] fallback:key]];
-        }
-        if (indexPath.row == 1) {
-            NSString *key = [self stringSetting:@"lyricsLineEffect" fallback:@"fancy"];
-            return [self choiceCellWithTitle:LOC(@"LYRICS_LINE_EFFECT") detail:[self titleForKey:key inOptions:[self lineEffectOptions] fallback:key]];
-        }
-        if (indexPath.row == 2) {
             NSString *key = [self stringSetting:@"lyricsDefaultText" fallback:@"♪"];
             return [self choiceCellWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") detail:[self titleForKey:key inOptions:[self defaultTextOptions] fallback:key]];
         }
@@ -337,8 +329,6 @@
     }
 
     if (indexPath.section == 2) {
-        if (indexPath.row == 0) return [self switchCellWithTitle:LOC(@"LYRICS_ROMANIZATION") detail:@"" key:@"lyricsRomanization" fallback:YES action:@selector(toggleSwitch:)];
-        if (indexPath.row == 1) return [self switchCellWithTitle:LOC(@"LYRICS_SHOW_TIMECODES") detail:@"" key:@"lyricsShowTimeCodes" fallback:NO action:@selector(toggleSwitch:)];
         return [self switchCellWithTitle:LOC(@"LYRICS_SHOW_INEXACT") detail:@"" key:@"lyricsShowInexact" fallback:YES action:@selector(toggleSwitch:)];
     }
 
@@ -391,9 +381,7 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == 1) {
-        if (indexPath.row == 0) [self showOptionPickerWithTitle:LOC(@"LYRICS_SOURCE") key:@"lyricsPreferredSource" options:[self lyricSourceOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
-        else if (indexPath.row == 1) [self showOptionPickerWithTitle:LOC(@"LYRICS_LINE_EFFECT") key:@"lyricsLineEffect" options:[self lineEffectOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
-        else if (indexPath.row == 2) [self showOptionPickerWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") key:@"lyricsDefaultText" options:[self defaultTextOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
+        if (indexPath.row == 0) [self showOptionPickerWithTitle:LOC(@"LYRICS_DEFAULT_TEXT") key:@"lyricsDefaultText" options:[self defaultTextOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
         else [self showOptionPickerWithTitle:LOC(@"LYRICS_CHINESE_CONVERSION") key:@"lyricsConvertChinese" options:[self chineseConversionOptions] reloadSections:[NSIndexSet indexSetWithIndex:1]];
     } else if (indexPath.section == 3 && indexPath.row == 0) {
         [self showProviderPicker];
