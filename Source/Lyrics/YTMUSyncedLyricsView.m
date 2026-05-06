@@ -19,7 +19,6 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     if (!filter) return nil;
     @try {
         [filter setValue:@(radius) forKey:@"inputRadius"];
-        [filter setValue:@YES forKey:@"inputNormalizeEdges"];
     } @catch (__unused NSException *exception) {
         return nil;
     }
@@ -88,13 +87,13 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
             NSInteger absDistance = labs(distance);
             if (absDistance == 1) {
                 alpha = (distance > 0) ? 0.68 : 0.55;
-                blurRadius = 2.0;
+                blurRadius = 1.0;
             } else if (absDistance == 2) {
                 alpha = 0.42;
-                blurRadius = 6.0;
+                blurRadius = 2.5;
             } else {
-                alpha = 0.24;
-                blurRadius = 12.0;
+                alpha = 0.26;
+                blurRadius = 5.0;
             }
         } else {
             alpha = 0.36;
@@ -104,16 +103,16 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     self.alpha = alpha;
     self.transform = CGAffineTransformIdentity;
     self.mainLabel.font = active ? [UIFont boldSystemFontOfSize:self.mainLabel.font.pointSize] : [UIFont systemFontOfSize:self.mainLabel.font.pointSize weight:UIFontWeightRegular];
+    self.layer.filters = nil;
 
-    for (UILabel *label in @[self.mainLabel, self.romanLabel, self.translationLabel]) {
+    for (UILabel *label in @[self.timeLabel, self.mainLabel, self.romanLabel, self.translationLabel]) {
         if (label.layer.shouldRasterize) label.layer.shouldRasterize = NO;
-    }
-
-    if (blurRadius > 0.01) {
-        id filter = YTMUSyncedLyricsBlurFilter(blurRadius);
-        self.layer.filters = filter ? @[filter] : nil;
-    } else {
-        self.layer.filters = nil;
+        if (blurRadius > 0.01) {
+            id filter = YTMUSyncedLyricsBlurFilter(blurRadius);
+            label.layer.filters = filter ? @[filter] : nil;
+        } else {
+            label.layer.filters = nil;
+        }
     }
 }
 
