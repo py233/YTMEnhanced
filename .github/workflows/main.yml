@@ -179,7 +179,7 @@ jobs:
           name: YTMusicUltimate-${{ github.run_number }}
           path: YTMusicUltimate.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
       - name: Prepare Release Notes
         env:
