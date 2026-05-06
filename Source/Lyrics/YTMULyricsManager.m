@@ -20,6 +20,7 @@
 @property (nonatomic, copy, readwrite) NSArray<NSString *> *translatedLines;
 @property (nonatomic, copy, readwrite) NSString *translationAttribution;
 @property (nonatomic, copy, readwrite) NSString *lastErrorMessage;
+@property (nonatomic, copy, readwrite) NSDictionary<NSString *, NSString *> *sourceAvailability;
 @property (nonatomic) NSUInteger requestGeneration;
 @property (nonatomic, strong, readwrite) YTMULyricsSearchInfo *lastSearchInfo;
 @property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
@@ -73,6 +74,7 @@
         _translatedLines = @[];
         _translationAttribution = @"";
         _lastErrorMessage = @"";
+        _sourceAvailability = @{};
         _romanizationMemoryCache = [[NSCache alloc] init];
         _romanizationMemoryCache.countLimit = 8;
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -107,6 +109,16 @@
         if (![ordered containsObject:provider]) [ordered addObject:provider];
     }
     return ordered;
+}
+
+- (void)setAvailability:(NSString *)availability forProvider:(id<YTMULyricsProvider>)provider notify:(BOOL)notify {
+    NSString *source = [provider providerName];
+    if (!source.length || !availability.length) return;
+    NSMutableDictionary *status = [NSMutableDictionary dictionaryWithDictionary:self.sourceAvailability ?: @{}];
+    if ([status[source] isEqualToString:availability]) return;
+    status[source] = availability;
+    self.sourceAvailability = status;
+    if (notify) [self notify];
 }
 
 - (BOOL)isLyricsEnabled {
@@ -161,6 +173,7 @@
     self.translatedLines = @[];
     self.translationAttribution = @"";
     self.lastErrorMessage = @"";
+    self.sourceAvailability = @{};
     [self notify];
 }
 
@@ -500,6 +513,7 @@
 
 - (void)finishWithResult:(YTMULyricsResult *)result info:(YTMULyricsSearchInfo *)info provider:(id<YTMULyricsProvider>)provider generation:(NSUInteger)generation {
     if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+    [self setAvailability:@"hit" forProvider:provider notify:NO];
     self.currentResult = result;
     self.translatedLines = @[];
     self.translationAttribution = @"";
@@ -538,9 +552,11 @@
     }
 
     id<YTMULyricsProvider> provider = providers[index];
+    [self setAvailability:@"checking" forProvider:provider notify:YES];
     NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
     YTMULyricsResult *cached = [[YTMULyricsCache sharedCache] resultForKey:cacheKey];
     if (cached.hasText) {
+        [self setAvailability:@"hit" forProvider:provider notify:NO];
         YTMULyricsLog(@"lyrics cache hit videoId=%@ source=%@", info.videoId, [provider providerName]);
         NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
         BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
@@ -573,6 +589,7 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
             if (result.hasText) {
+                [self setAvailability:@"hit" forProvider:provider notify:NO];
                 [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
                 NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
                 BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
@@ -596,6 +613,7 @@
                 return;
             }
             NSString *message = error.localizedDescription ?: @"no match";
+            [self setAvailability:@"miss" forProvider:provider notify:YES];
             [lastErrors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
             YTMULyricsLog(@"lyrics source miss videoId=%@ source=%@ reason=%@", info.videoId, [provider providerName], message);
             [self tryProviders:providers
@@ -640,6 +658,7 @@
     self.requestGeneration++;
     NSUInteger generation = self.requestGeneration;
     self.activeVideoId = info.videoId ?: @"";
+    self.sourceAvailability = @{};
     YTMULyricsActivateTimingOffsetForInfo(info, NO);
     if (!sameActiveSong) {
         self.currentResult = nil;

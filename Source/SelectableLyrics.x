@@ -598,13 +598,13 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         self.artworkImageView.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.10];
         self.artworkImageView.contentMode = UIViewContentModeScaleAspectFill;
         self.artworkImageView.clipsToBounds = YES;
-        self.artworkImageView.layer.cornerRadius = 9.0;
+        self.artworkImageView.layer.cornerRadius = 8.0;
         self.artworkImageView.layer.cornerCurve = kCACornerCurveContinuous;
         [self addSubview:self.artworkImageView];
 
         self.nowPlayingTitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         self.nowPlayingTitleLabel.backgroundColor = [UIColor clearColor];
-        self.nowPlayingTitleLabel.font = [UIFont systemFontOfSize:20.0 weight:UIFontWeightBold];
+        self.nowPlayingTitleLabel.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightBold];
         self.nowPlayingTitleLabel.textColor = [UIColor whiteColor];
         self.nowPlayingTitleLabel.numberOfLines = 1;
         self.nowPlayingTitleLabel.adjustsFontSizeToFitWidth = YES;
@@ -613,7 +613,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
         self.nowPlayingArtistLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         self.nowPlayingArtistLabel.backgroundColor = [UIColor clearColor];
-        self.nowPlayingArtistLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
+        self.nowPlayingArtistLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
         self.nowPlayingArtistLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.66];
         self.nowPlayingArtistLabel.numberOfLines = 1;
         self.nowPlayingArtistLabel.adjustsFontSizeToFitWidth = YES;
@@ -631,7 +631,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         }
         self.menuButton.tintColor = [UIColor whiteColor];
         self.menuButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
-        self.menuButton.layer.cornerRadius = 18.0;
+        self.menuButton.layer.cornerRadius = 17.0;
         self.menuButton.clipsToBounds = YES;
         [self.menuButton addTarget:self action:@selector(ytmu_presentLyricsMenu:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.menuButton];
@@ -782,22 +782,22 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         safeRight = self.safeAreaInsets.right;
     }
     CGFloat attributionHeight = self.attributionLabel.text.length ? 30.0 : 0.0;
-    CGFloat headerTop = safeTop + 14.0;
-    CGFloat artworkSize = 56.0;
-    CGFloat closeReserve = 50.0;
-    CGFloat menuSize = 36.0;
+    CGFloat headerTop = safeTop + 8.0;
+    CGFloat artworkSize = 48.0;
+    CGFloat closeReserve = 46.0;
+    CGFloat menuSize = 34.0;
     CGFloat menuX = self.bounds.size.width - safeRight - sideInset - closeReserve - menuSize;
     if (menuX < sideInset + artworkSize + 16.0) menuX = self.bounds.size.width - safeRight - sideInset - menuSize;
     self.artworkImageView.frame = CGRectMake(sideInset, headerTop, artworkSize, artworkSize);
-    self.menuButton.frame = CGRectMake(menuX, headerTop + 10.0, menuSize, menuSize);
+    self.menuButton.frame = CGRectMake(menuX, headerTop + 7.0, menuSize, menuSize);
 
     CGFloat labelX = CGRectGetMaxX(self.artworkImageView.frame) + 14.0;
     CGFloat labelRight = MIN(menuX - 12.0, self.bounds.size.width - safeRight - sideInset);
     CGFloat labelWidth = MAX(80.0, labelRight - labelX);
-    self.nowPlayingTitleLabel.frame = CGRectMake(labelX, headerTop + 6.0, labelWidth, 24.0);
-    self.nowPlayingArtistLabel.frame = CGRectMake(labelX, CGRectGetMaxY(self.nowPlayingTitleLabel.frame) + 3.0, labelWidth, 20.0);
+    self.nowPlayingTitleLabel.frame = CGRectMake(labelX, headerTop + 4.0, labelWidth, 22.0);
+    self.nowPlayingArtistLabel.frame = CGRectMake(labelX, CGRectGetMaxY(self.nowPlayingTitleLabel.frame) + 1.0, labelWidth, 19.0);
     self.headerSeparatorView.frame = CGRectMake(sideInset,
-                                                CGRectGetMaxY(self.artworkImageView.frame) + 24.0,
+                                                CGRectGetMaxY(self.artworkImageView.frame) + 18.0,
                                                 self.bounds.size.width - sideInset * 2.0 - safeRight,
                                                 1.0 / MAX(1.0, UIScreen.mainScreen.scale));
 
@@ -809,7 +809,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     self.fontSizeLabel.frame = CGRectZero;
     self.fontIncreaseButton.frame = CGRectZero;
 
-    CGFloat textY = CGRectGetMaxY(self.headerSeparatorView.frame) + 18.0;
+    CGFloat textY = CGRectGetMaxY(self.headerSeparatorView.frame) + 12.0;
     CGFloat attributionY = self.bounds.size.height - bottomInset - attributionHeight;
     self.lyricsTextView.frame = CGRectMake(sideInset,
                                            textY,
@@ -930,7 +930,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     UIView *host = [self ytmu_sheetHostView];
     UIEdgeInsets safe = UIEdgeInsetsZero;
     if (@available(iOS 11.0, *)) safe = host.safeAreaInsets;
-    CGFloat sheetHeight = MIN(host.bounds.size.height * 0.56, height + safe.bottom);
+    CGFloat sheetHeight = MIN(host.bounds.size.height * 0.50, height + safe.bottom);
 
     UIView *backdrop = [[UIView alloc] initWithFrame:host.bounds];
     backdrop.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.32];
@@ -955,7 +955,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [host addSubview:sheet];
     self.sheetContentView = sheet;
 
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(22.0, 18.0, sheet.bounds.size.width - 44.0, 24.0)];
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(22.0, 12.0, sheet.bounds.size.width - 44.0, 22.0)];
     titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     titleLabel.text = title;
     titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
@@ -963,7 +963,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     titleLabel.textAlignment = NSTextAlignmentCenter;
     [sheet addSubview:titleLabel];
 
-    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(0.0, 56.0, sheet.bounds.size.width, 1.0 / MAX(1.0, UIScreen.mainScreen.scale))];
+    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(0.0, 44.0, sheet.bounds.size.width, 1.0 / MAX(1.0, UIScreen.mainScreen.scale))];
     separator.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     separator.backgroundColor = [self ytmu_sheetSeparatorColor];
     [sheet addSubview:separator];
@@ -1001,7 +1001,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     UIView *sheet = self.sheetContentView;
     CGFloat width = sheet.bounds.size.width;
     UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
-    row.frame = CGRectMake(0.0, y, width, 56.0);
+    row.frame = CGRectMake(0.0, y, width, 48.0);
     row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     row.enabled = enabled;
     row.backgroundColor = [UIColor clearColor];
@@ -1012,23 +1012,23 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     if (@available(iOS 13.0, *)) image = [UIImage systemImageNamed:symbol];
     if (image) {
         UIImageView *icon = [[UIImageView alloc] initWithImage:image];
-        icon.frame = CGRectMake(22.0, 16.0, 24.0, 24.0);
+        icon.frame = CGRectMake(22.0, 14.0, 20.0, 20.0);
         icon.contentMode = UIViewContentModeScaleAspectFit;
         icon.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:enabled ? 0.74 : 0.32];
         icon.userInteractionEnabled = NO;
         [row addSubview:icon];
     }
 
-    UILabel *titleLabel = [self ytmu_sheetLabelWithFrame:CGRectMake(62.0, 0.0, width * 0.48, 56.0)
-                                                    font:[UIFont systemFontOfSize:16.0 weight:UIFontWeightMedium]
+    UILabel *titleLabel = [self ytmu_sheetLabelWithFrame:CGRectMake(58.0, 0.0, width * 0.50, 48.0)
+                                                    font:[UIFont systemFontOfSize:15.0 weight:UIFontWeightMedium]
                                                    color:[[UIColor whiteColor] colorWithAlphaComponent:enabled ? 0.92 : 0.38]];
     titleLabel.text = title;
     titleLabel.userInteractionEnabled = NO;
     [row addSubview:titleLabel];
 
     CGFloat valueWidth = width - CGRectGetMaxX(titleLabel.frame) - 66.0;
-    UILabel *valueLabel = [self ytmu_sheetLabelWithFrame:CGRectMake(width - valueWidth - 46.0, 0.0, valueWidth, 56.0)
-                                                    font:[UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold]
+    UILabel *valueLabel = [self ytmu_sheetLabelWithFrame:CGRectMake(width - valueWidth - 46.0, 0.0, valueWidth, 48.0)
+                                                    font:[UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold]
                                                    color:[[UIColor whiteColor] colorWithAlphaComponent:enabled ? 0.50 : 0.25]];
     valueLabel.text = value;
     valueLabel.textAlignment = NSTextAlignmentRight;
@@ -1037,8 +1037,8 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [row addSubview:valueLabel];
 
     if (action) {
-        UILabel *chevron = [self ytmu_sheetLabelWithFrame:CGRectMake(width - 34.0, 0.0, 14.0, 56.0)
-                                                     font:[UIFont systemFontOfSize:23.0 weight:UIFontWeightRegular]
+        UILabel *chevron = [self ytmu_sheetLabelWithFrame:CGRectMake(width - 34.0, 0.0, 14.0, 48.0)
+                                                     font:[UIFont systemFontOfSize:21.0 weight:UIFontWeightRegular]
                                                     color:[[UIColor whiteColor] colorWithAlphaComponent:0.30]];
         chevron.text = @">";
         chevron.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
@@ -1046,7 +1046,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         [row addSubview:chevron];
     }
 
-    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(62.0, 55.5, width - 62.0, 0.5)];
+    UIView *separator = [[UIView alloc] initWithFrame:CGRectMake(58.0, 47.5, width - 58.0, 0.5)];
     separator.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     separator.backgroundColor = [self ytmu_sheetSeparatorColor];
     separator.userInteractionEnabled = NO;
@@ -1071,17 +1071,17 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 }
 
 - (void)ytmu_presentLyricsMenu:(UIButton *)sender {
-    [self ytmu_prepareSheetWithHeight:388.0 title:@"Lyrics"];
-    CGFloat y = 58.0;
+    [self ytmu_prepareSheetWithHeight:292.0 title:@"Lyrics"];
+    CGFloat y = 46.0;
     NSString *source = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
     [self ytmu_addSheetRowAtY:y symbol:@"text.bubble" title:@"Lyrics Source" value:YTMULyricsPageSourceTitle(source) enabled:YES target:self action:@selector(ytmu_presentSourceMenuFromCurrentSheet)];
-    y += 56.0;
+    y += 48.0;
     [self ytmu_addSheetRowAtY:y symbol:@"textformat.size" title:@"Text Size" value:[NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()] enabled:YES target:self action:@selector(ytmu_presentFontSheet)];
-    y += 56.0;
+    y += 48.0;
     [self ytmu_addSheetRowAtY:y symbol:@"arrow.up.arrow.down" title:@"Timing Offset" value:[NSString stringWithFormat:@"%+.1fs", YTMULyricsPageTimingOffsetMs() / 1000.0] enabled:YES target:self action:@selector(ytmu_presentTimingSheet)];
-    y += 56.0;
+    y += 48.0;
     [self ytmu_addSwitchRowAtY:y symbol:@"textformat.abc" title:@"Romanization" on:YTMULyricsPageBoolDefault(@"lyricsRomanization", YES) tag:1];
-    y += 56.0;
+    y += 48.0;
     [self ytmu_addSwitchRowAtY:y symbol:@"clock" title:@"Timecodes" on:YTMULyricsPageBoolDefault(@"lyricsShowTimeCodes", NO) tag:2];
 }
 
@@ -1091,27 +1091,41 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
 - (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView {
     NSArray *options = YTMULyricsPageSourceOptions();
-    CGFloat height = 76.0 + MIN((CGFloat)options.count, 6.0) * 50.0;
+    CGFloat height = 54.0 + MIN((CGFloat)options.count, 6.0) * 48.0;
     [self ytmu_prepareSheetWithHeight:height title:@"Lyrics Source"];
     NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
-    CGFloat y = 58.0;
+    NSDictionary *availability = [YTMULyricsManager sharedManager].sourceAvailability ?: @{};
+    CGFloat y = 46.0;
     for (NSUInteger idx = 0; idx < options.count; idx++) {
         NSDictionary *option = options[idx];
         NSString *key = option[@"key"];
-        NSString *value = [key isEqualToString:selected] ? @"Selected" : @"";
-        UIButton *row = [self ytmu_addSheetRowAtY:y symbol:@"music.note.list" title:option[@"title"] value:value enabled:YES target:self action:@selector(ytmu_sheetSourceSelected:)];
+        NSString *status = [key isEqualToString:@"auto"] ? @"" : availability[key];
+        BOOL selectedSource = [key isEqualToString:selected];
+        BOOL missed = [status isEqualToString:@"miss"];
+        BOOL enabled = !missed;
+        NSString *value = selectedSource ? @"Selected" : @"";
+        if (!value.length && [status isEqualToString:@"hit"]) value = @"Matched";
+        if (!value.length && [status isEqualToString:@"checking"]) value = @"Checking";
+        if (missed) value = @"No Match";
+        UIButton *row = [self ytmu_addSheetRowAtY:y
+                                           symbol:@"music.note.list"
+                                            title:option[@"title"]
+                                            value:value
+                                          enabled:enabled
+                                           target:enabled ? self : nil
+                                           action:enabled ? @selector(ytmu_sheetSourceSelected:) : nil];
         row.tag = idx;
-        y += 50.0;
+        y += 48.0;
     }
 }
 
 - (void)ytmu_presentFontSheet {
-    [self ytmu_prepareSheetWithHeight:246.0 title:@"Text Size"];
+    [self ytmu_prepareSheetWithHeight:214.0 title:@"Text Size"];
     UIView *sheet = self.sheetContentView;
     CGFloat width = sheet.bounds.size.width;
 
-    UILabel *value = [self ytmu_sheetLabelWithFrame:CGRectMake(22.0, 76.0, width - 44.0, 36.0)
-                                               font:[UIFont systemFontOfSize:28.0 weight:UIFontWeightSemibold]
+    UILabel *value = [self ytmu_sheetLabelWithFrame:CGRectMake(22.0, 58.0, width - 44.0, 32.0)
+                                               font:[UIFont systemFontOfSize:24.0 weight:UIFontWeightSemibold]
                                               color:[UIColor whiteColor]];
     value.textAlignment = NSTextAlignmentCenter;
     value.text = [NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()];
@@ -1119,7 +1133,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [sheet addSubview:value];
     self.sheetValueLabel = value;
 
-    UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(34.0, 132.0, width - 68.0, 34.0)];
+    UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(34.0, 108.0, width - 68.0, 34.0)];
     slider.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     slider.minimumValue = 12.0;
     slider.maximumValue = 38.0;
@@ -1129,12 +1143,12 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [slider addTarget:self action:@selector(ytmu_fontSliderChanged:) forControlEvents:UIControlEventValueChanged];
     [sheet addSubview:slider];
 
-    UILabel *small = [self ytmu_sheetLabelWithFrame:CGRectMake(34.0, 166.0, 90.0, 22.0)
+    UILabel *small = [self ytmu_sheetLabelWithFrame:CGRectMake(34.0, 140.0, 90.0, 22.0)
                                                font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold]
                                               color:[[UIColor whiteColor] colorWithAlphaComponent:0.52]];
     small.text = @"12";
     [sheet addSubview:small];
-    UILabel *large = [self ytmu_sheetLabelWithFrame:CGRectMake(width - 124.0, 166.0, 90.0, 22.0)
+    UILabel *large = [self ytmu_sheetLabelWithFrame:CGRectMake(width - 124.0, 140.0, 90.0, 22.0)
                                                font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold]
                                               color:[[UIColor whiteColor] colorWithAlphaComponent:0.52]];
     large.textAlignment = NSTextAlignmentRight;
@@ -1142,17 +1156,17 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     large.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [sheet addSubview:large];
 
-    UIButton *done = [self ytmu_sheetDoneButtonAtY:205.0 title:@"Done"];
+    UIButton *done = [self ytmu_sheetDoneButtonAtY:166.0 title:@"Done"];
     [sheet addSubview:done];
 }
 
 - (void)ytmu_presentTimingSheet {
-    [self ytmu_prepareSheetWithHeight:270.0 title:@"Timing Offset"];
+    [self ytmu_prepareSheetWithHeight:226.0 title:@"Timing Offset"];
     UIView *sheet = self.sheetContentView;
     CGFloat width = sheet.bounds.size.width;
 
-    UILabel *value = [self ytmu_sheetLabelWithFrame:CGRectMake(22.0, 76.0, width - 44.0, 36.0)
-                                               font:[UIFont systemFontOfSize:28.0 weight:UIFontWeightSemibold]
+    UILabel *value = [self ytmu_sheetLabelWithFrame:CGRectMake(22.0, 58.0, width - 44.0, 32.0)
+                                               font:[UIFont systemFontOfSize:24.0 weight:UIFontWeightSemibold]
                                               color:[UIColor whiteColor]];
     value.textAlignment = NSTextAlignmentCenter;
     value.text = [NSString stringWithFormat:@"%+.1fs", YTMULyricsPageTimingOffsetMs() / 1000.0];
@@ -1166,7 +1180,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     CGFloat buttonWidth = (width - 44.0 - gap * 2.0) / 3.0;
     for (NSUInteger idx = 0; idx < titles.count; idx++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-        button.frame = CGRectMake(22.0 + (buttonWidth + gap) * idx, 132.0, buttonWidth, 46.0);
+        button.frame = CGRectMake(22.0 + (buttonWidth + gap) * idx, 112.0, buttonWidth, 42.0);
         button.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         button.tag = tags[idx].integerValue;
         [button setTitle:titles[idx] forState:UIControlStateNormal];
@@ -1179,14 +1193,14 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         [sheet addSubview:button];
     }
 
-    UIButton *done = [self ytmu_sheetDoneButtonAtY:210.0 title:@"Done"];
+    UIButton *done = [self ytmu_sheetDoneButtonAtY:174.0 title:@"Done"];
     [sheet addSubview:done];
 }
 
 - (UIButton *)ytmu_sheetDoneButtonAtY:(CGFloat)y title:(NSString *)title {
     UIView *sheet = self.sheetContentView;
     UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
-    done.frame = CGRectMake(22.0, y, sheet.bounds.size.width - 44.0, 46.0);
+    done.frame = CGRectMake(22.0, y, sheet.bounds.size.width - 44.0, 42.0);
     done.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [done setTitle:title forState:UIControlStateNormal];
     done.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
@@ -1372,7 +1386,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     self.closeButton.tintColor = [UIColor whiteColor];
     [self.closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     self.closeButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
-    self.closeButton.layer.cornerRadius = 18.0;
+    self.closeButton.layer.cornerRadius = 17.0;
     self.closeButton.clipsToBounds = YES;
     [self.closeButton addTarget:self action:@selector(ytmu_closeLyricsPanel:) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.closeButton];
@@ -1388,12 +1402,12 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [super viewDidLayoutSubviews];
     UIEdgeInsets safe = UIEdgeInsetsZero;
     if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
-    CGFloat top = safe.top + 24.0;
-    CGFloat closeWidth = 36.0;
+    CGFloat top = safe.top + 15.0;
+    CGFloat closeWidth = 34.0;
     self.closeButton.frame = CGRectMake(self.view.bounds.size.width - safe.right - closeWidth - 14.0,
                                         top,
                                         closeWidth,
-                                        36.0);
+                                        34.0);
     self.lyricsOverlayView.frame = self.view.bounds;
 }
 
@@ -1743,7 +1757,7 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
 
     YTMULyricsPanelViewController *controller = [[YTMULyricsPanelViewController alloc] init];
     controller.playerViewController = YTMULyricsPagePlayerFromCandidate(self) ?: [YTMULyricsPlaybackState sharedState].playerViewController;
-    controller.modalPresentationStyle = UIModalPresentationPageSheet;
+    controller.modalPresentationStyle = UIModalPresentationFullScreen;
     [presenter presentViewController:controller animated:YES completion:nil];
     YTMULyricsLog(@"lyrics panel presented from=%@", NSStringFromClass([presenter class]));
 }
