@@ -60,28 +60,20 @@
 
 - (void)setActive:(BOOL)active distance:(NSInteger)distance focusBlur:(BOOL)focusBlur {
     CGFloat alpha = 1.0;
-    CGFloat shadowRadius = 0.0;
-    CGFloat shadowOpacity = 0.0;
+    CGFloat rasterScale = 0.0;
 
     if (!active) {
         if (focusBlur) {
             NSInteger absDistance = labs(distance);
-            if (distance == 1) {
-                alpha = 0.50;
-                shadowRadius = 1.5;
-                shadowOpacity = 0.35;
-            } else if (distance == -1) {
-                alpha = 0.35;
-                shadowRadius = 1.5;
-                shadowOpacity = 0.30;
+            if (absDistance == 1) {
+                alpha = (distance > 0) ? 0.62 : 0.45;
+                rasterScale = 0.55;
             } else if (absDistance == 2) {
-                alpha = 0.22;
-                shadowRadius = 4.0;
-                shadowOpacity = 0.45;
+                alpha = 0.32;
+                rasterScale = 0.28;
             } else {
-                alpha = 0.16;
-                shadowRadius = 7.0;
-                shadowOpacity = 0.50;
+                alpha = 0.18;
+                rasterScale = 0.16;
             }
         } else {
             alpha = 0.36;
@@ -92,16 +84,14 @@
     self.transform = CGAffineTransformIdentity;
     self.mainLabel.font = active ? [UIFont boldSystemFontOfSize:self.mainLabel.font.pointSize] : [UIFont systemFontOfSize:self.mainLabel.font.pointSize weight:UIFontWeightRegular];
 
+    CGFloat screenScale = UIScreen.mainScreen.scale ?: 2.0;
     for (UILabel *label in @[self.mainLabel, self.romanLabel, self.translationLabel]) {
-        if (shadowRadius > 0.01) {
-            label.layer.shadowColor = [UIColor whiteColor].CGColor;
-            label.layer.shadowOpacity = shadowOpacity;
-            label.layer.shadowOffset = CGSizeZero;
-            label.layer.shadowRadius = shadowRadius;
-            label.layer.masksToBounds = NO;
-        } else if (label.layer.shadowOpacity > 0.001) {
-            label.layer.shadowOpacity = 0.0;
-            label.layer.shadowRadius = 0.0;
+        if (rasterScale > 0.01) {
+            label.layer.shouldRasterize = YES;
+            label.layer.rasterizationScale = rasterScale * screenScale;
+        } else if (label.layer.shouldRasterize) {
+            label.layer.shouldRasterize = NO;
+            label.layer.rasterizationScale = screenScale;
         }
     }
 }
