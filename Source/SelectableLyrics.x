@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <MediaPlayer/MediaPlayer.h>
 #import <objc/runtime.h>
 #import "Headers/YTPlayerViewController.h"
 #import "Headers/YTIFormattedString.h"
@@ -15,6 +16,11 @@ static NSDictionary *YTMULyricsPageSettings(void) {
 
 static BOOL YTMULyricsPageBool(NSString *key) {
     return [YTMULyricsPageSettings()[key] boolValue];
+}
+
+static BOOL YTMULyricsPageBoolDefault(NSString *key, BOOL fallback) {
+    id value = YTMULyricsPageSettings()[key];
+    return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : fallback;
 }
 
 static NSString *YTMULyricsPageString(NSString *key, NSString *fallback) {
@@ -77,6 +83,28 @@ static NSUInteger YTMULyricsPageSourceIndex(NSString *key) {
         if ([options[idx][@"key"] isEqualToString:key]) return idx;
     }
     return 0;
+}
+
+static NSString *YTMULyricsPageNowPlayingTitle(void) {
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    if (manager.currentResult.title.length) return manager.currentResult.title;
+    NSString *title = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo[MPMediaItemPropertyTitle];
+    return title.length ? title : @"Lyrics";
+}
+
+static NSString *YTMULyricsPageNowPlayingArtist(void) {
+    YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    if (manager.currentResult.artists.count) return [manager.currentResult.artists componentsJoinedByString:@", "];
+    NSString *artist = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo[MPMediaItemPropertyArtist];
+    return artist.length ? artist : @"YouTube Music";
+}
+
+static UIImage *YTMULyricsPageNowPlayingArtwork(CGSize size) {
+    id artwork = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo[MPMediaItemPropertyArtwork];
+    if ([artwork respondsToSelector:@selector(imageWithSize:)]) {
+        return [artwork imageWithSize:size];
+    }
+    return nil;
 }
 
 static NSString *YTMULyricsPageTranslationProviderTitle(void) {
@@ -511,6 +539,11 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 @interface YTMULyricsTabOverlayView : UIView
 @property (retain, nonatomic) UIScrollView *sourceScrollView;
 @property (retain, nonatomic) NSArray *sourceButtons;
+@property (retain, nonatomic) UIImageView *artworkImageView;
+@property (retain, nonatomic) UILabel *nowPlayingTitleLabel;
+@property (retain, nonatomic) UILabel *nowPlayingArtistLabel;
+@property (retain, nonatomic) UIButton *menuButton;
+@property (retain, nonatomic) UIView *headerSeparatorView;
 @property (retain, nonatomic) UITextView *lyricsTextView;
 @property (retain, nonatomic) YTMUSyncedLyricsView *syncedLyricsView;
 @property (retain, nonatomic) UILabel *attributionLabel;
@@ -527,6 +560,9 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 - (void)ytmu_updateSourceButtons;
 - (void)ytmu_updateFontControls;
 - (void)ytmu_updateTimingControls;
+- (void)ytmu_updateNowPlayingHeader;
+- (void)ytmu_presentLyricsMenu:(UIButton *)sender;
+- (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView;
 - (void)ytmu_handleLyricsSettingsDidChange:(NSNotification *)notification;
 - (void)ytmu_applyTimingOffsetChange;
 - (void)ytmu_scrollSourceButtonIntoView:(UIButton *)button animated:(BOOL)animated;
@@ -546,10 +582,57 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         self.userInteractionEnabled = YES;
         self.backgroundColor = [UIColor colorWithRed:0.035 green:0.095 blue:0.135 alpha:0.99];
 
+        self.artworkImageView = [[UIImageView alloc] initWithFrame:CGRectZero];
+        self.artworkImageView.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.10];
+        self.artworkImageView.contentMode = UIViewContentModeScaleAspectFill;
+        self.artworkImageView.clipsToBounds = YES;
+        self.artworkImageView.layer.cornerRadius = 9.0;
+        self.artworkImageView.layer.cornerCurve = kCACornerCurveContinuous;
+        [self addSubview:self.artworkImageView];
+
+        self.nowPlayingTitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        self.nowPlayingTitleLabel.backgroundColor = [UIColor clearColor];
+        self.nowPlayingTitleLabel.font = [UIFont systemFontOfSize:20.0 weight:UIFontWeightBold];
+        self.nowPlayingTitleLabel.textColor = [UIColor whiteColor];
+        self.nowPlayingTitleLabel.numberOfLines = 1;
+        self.nowPlayingTitleLabel.adjustsFontSizeToFitWidth = YES;
+        self.nowPlayingTitleLabel.minimumScaleFactor = 0.72;
+        [self addSubview:self.nowPlayingTitleLabel];
+
+        self.nowPlayingArtistLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        self.nowPlayingArtistLabel.backgroundColor = [UIColor clearColor];
+        self.nowPlayingArtistLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
+        self.nowPlayingArtistLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.66];
+        self.nowPlayingArtistLabel.numberOfLines = 1;
+        self.nowPlayingArtistLabel.adjustsFontSizeToFitWidth = YES;
+        self.nowPlayingArtistLabel.minimumScaleFactor = 0.76;
+        [self addSubview:self.nowPlayingArtistLabel];
+
+        self.menuButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        UIImage *menuImage = nil;
+        if (@available(iOS 13.0, *)) menuImage = [UIImage systemImageNamed:@"ellipsis"];
+        if (menuImage) {
+            [self.menuButton setImage:menuImage forState:UIControlStateNormal];
+        } else {
+            [self.menuButton setTitle:@"..." forState:UIControlStateNormal];
+            self.menuButton.titleLabel.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightBold];
+        }
+        self.menuButton.tintColor = [UIColor whiteColor];
+        self.menuButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+        self.menuButton.layer.cornerRadius = 18.0;
+        self.menuButton.clipsToBounds = YES;
+        [self.menuButton addTarget:self action:@selector(ytmu_presentLyricsMenu:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.menuButton];
+
+        self.headerSeparatorView = [[UIView alloc] initWithFrame:CGRectZero];
+        self.headerSeparatorView.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.13];
+        [self addSubview:self.headerSeparatorView];
+
         self.sourceScrollView = [[UIScrollView alloc] initWithFrame:CGRectZero];
         self.sourceScrollView.backgroundColor = [UIColor clearColor];
         self.sourceScrollView.showsHorizontalScrollIndicator = NO;
         self.sourceScrollView.alwaysBounceHorizontal = YES;
+        self.sourceScrollView.hidden = YES;
         [self addSubview:self.sourceScrollView];
 
         NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
@@ -613,7 +696,10 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
             button.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
             button.layer.cornerRadius = 15.0;
             button.clipsToBounds = YES;
+            button.hidden = YES;
         }
+        self.offsetLabel.hidden = YES;
+        self.fontSizeLabel.hidden = YES;
 
         self.lyricsTextView = [[UITextView alloc] initWithFrame:CGRectZero];
         self.lyricsTextView.backgroundColor = [UIColor clearColor];
@@ -638,6 +724,13 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
         right.direction = UISwipeGestureRecognizerDirectionRight;
         [self.lyricsTextView addGestureRecognizer:right];
 
+        UISwipeGestureRecognizer *syncedLeft = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_cycleLyricsSource:)];
+        syncedLeft.direction = UISwipeGestureRecognizerDirectionLeft;
+        [self.syncedLyricsView addGestureRecognizer:syncedLeft];
+        UISwipeGestureRecognizer *syncedRight = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_cycleLyricsSource:)];
+        syncedRight.direction = UISwipeGestureRecognizerDirectionRight;
+        [self.syncedLyricsView addGestureRecognizer:syncedRight];
+
         self.attributionLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         self.attributionLabel.backgroundColor = [UIColor clearColor];
         self.attributionLabel.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
@@ -656,6 +749,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
                                                      name:YTMULyricsSettingsDidChangeNotification
                                                    object:nil];
         [self ytmu_updateSourceButtons];
+        [self ytmu_updateNowPlayingHeader];
     }
     return self;
 }
@@ -666,26 +760,44 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGFloat sideInset = MAX(20.0, MIN(34.0, self.bounds.size.width * 0.065));
-    CGFloat topInset = 14.0;
+    CGFloat sideInset = MAX(24.0, MIN(34.0, self.bounds.size.width * 0.07));
     CGFloat bottomInset = 12.0;
-    if (@available(iOS 11.0, *)) bottomInset += self.safeAreaInsets.bottom;
+    CGFloat safeTop = 0.0;
+    CGFloat safeRight = 0.0;
+    if (@available(iOS 11.0, *)) {
+        bottomInset += self.safeAreaInsets.bottom;
+        safeTop = self.safeAreaInsets.top;
+        safeRight = self.safeAreaInsets.right;
+    }
     CGFloat attributionHeight = self.attributionLabel.text.length ? 30.0 : 0.0;
-    self.sourceScrollView.frame = CGRectMake(sideInset, topInset, self.bounds.size.width - sideInset * 2.0, 34.0);
+    CGFloat headerTop = safeTop + 14.0;
+    CGFloat artworkSize = 56.0;
+    CGFloat closeReserve = 50.0;
+    CGFloat menuSize = 36.0;
+    CGFloat menuX = self.bounds.size.width - safeRight - sideInset - closeReserve - menuSize;
+    if (menuX < sideInset + artworkSize + 16.0) menuX = self.bounds.size.width - safeRight - sideInset - menuSize;
+    self.artworkImageView.frame = CGRectMake(sideInset, headerTop, artworkSize, artworkSize);
+    self.menuButton.frame = CGRectMake(menuX, headerTop + 10.0, menuSize, menuSize);
 
-    CGFloat secondRowY = CGRectGetMaxY(self.sourceScrollView.frame) + 8.0;
-    CGFloat offsetButtonWidth = 46.0;
-    CGFloat offsetLabelWidth = 66.0;
-    self.offsetDecreaseButton.frame = CGRectMake(sideInset, secondRowY + 2.0, offsetButtonWidth, 30.0);
-    self.offsetLabel.frame = CGRectMake(CGRectGetMaxX(self.offsetDecreaseButton.frame) + 4.0, secondRowY + 2.0, offsetLabelWidth, 30.0);
-    self.offsetIncreaseButton.frame = CGRectMake(CGRectGetMaxX(self.offsetLabel.frame) + 4.0, secondRowY + 2.0, offsetButtonWidth, 30.0);
+    CGFloat labelX = CGRectGetMaxX(self.artworkImageView.frame) + 14.0;
+    CGFloat labelRight = MIN(menuX - 12.0, self.bounds.size.width - safeRight - sideInset);
+    CGFloat labelWidth = MAX(80.0, labelRight - labelX);
+    self.nowPlayingTitleLabel.frame = CGRectMake(labelX, headerTop + 6.0, labelWidth, 24.0);
+    self.nowPlayingArtistLabel.frame = CGRectMake(labelX, CGRectGetMaxY(self.nowPlayingTitleLabel.frame) + 3.0, labelWidth, 20.0);
+    self.headerSeparatorView.frame = CGRectMake(sideInset,
+                                                CGRectGetMaxY(self.artworkImageView.frame) + 24.0,
+                                                self.bounds.size.width - sideInset * 2.0 - safeRight,
+                                                1.0 / MAX(1.0, UIScreen.mainScreen.scale));
 
-    CGFloat controlWidth = 110.0;
-    CGFloat controlX = MAX(CGRectGetMaxX(self.offsetIncreaseButton.frame) + 12.0, self.bounds.size.width - sideInset - controlWidth);
-    self.fontDecreaseButton.frame = CGRectMake(controlX, secondRowY + 2.0, 30.0, 30.0);
-    self.fontSizeLabel.frame = CGRectMake(CGRectGetMaxX(self.fontDecreaseButton.frame) + 4.0, secondRowY + 2.0, 38.0, 30.0);
-    self.fontIncreaseButton.frame = CGRectMake(CGRectGetMaxX(self.fontSizeLabel.frame) + 4.0, secondRowY + 2.0, 30.0, 30.0);
-    CGFloat textY = secondRowY + 42.0;
+    self.sourceScrollView.frame = CGRectMake(sideInset, CGRectGetMaxY(self.headerSeparatorView.frame), self.bounds.size.width - sideInset * 2.0, 1.0);
+    self.offsetDecreaseButton.frame = CGRectZero;
+    self.offsetLabel.frame = CGRectZero;
+    self.offsetIncreaseButton.frame = CGRectZero;
+    self.fontDecreaseButton.frame = CGRectZero;
+    self.fontSizeLabel.frame = CGRectZero;
+    self.fontIncreaseButton.frame = CGRectZero;
+
+    CGFloat textY = CGRectGetMaxY(self.headerSeparatorView.frame) + 18.0;
     CGFloat attributionY = self.bounds.size.height - bottomInset - attributionHeight;
     self.lyricsTextView.frame = CGRectMake(sideInset,
                                            textY,
@@ -703,6 +815,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     }
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
+    [self ytmu_updateNowPlayingHeader];
     BOOL canDisplayResult = manager.currentResult.hasText &&
                             (manager.state == YTMULyricsFetchStateDone || manager.state == YTMULyricsFetchStateFetching);
     BOOL useSynced = manager.currentResult.isSynced && canDisplayResult;
@@ -766,6 +879,109 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     self.offsetIncreaseButton.enabled = offset < 10000;
     self.offsetDecreaseButton.alpha = self.offsetDecreaseButton.enabled ? 1.0 : 0.38;
     self.offsetIncreaseButton.alpha = self.offsetIncreaseButton.enabled ? 1.0 : 0.38;
+}
+
+- (void)ytmu_updateNowPlayingHeader {
+    self.nowPlayingTitleLabel.text = YTMULyricsPageNowPlayingTitle();
+    self.nowPlayingArtistLabel.text = YTMULyricsPageNowPlayingArtist();
+    UIImage *artwork = YTMULyricsPageNowPlayingArtwork(CGSizeMake(96.0, 96.0));
+    self.artworkImageView.image = artwork;
+    self.artworkImageView.backgroundColor = artwork ? [UIColor clearColor] : [[UIColor whiteColor] colorWithAlphaComponent:0.10];
+}
+
+- (UIViewController *)ytmu_presentingViewController {
+    UIResponder *responder = self;
+    while (responder) {
+        if ([responder isKindOfClass:[UIViewController class]]) return (UIViewController *)responder;
+        responder = responder.nextResponder;
+    }
+    UIViewController *controller = UIApplication.sharedApplication.keyWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+    return controller;
+}
+
+- (void)ytmu_configurePopoverForAlert:(UIAlertController *)alert sourceView:(UIView *)sourceView {
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (!popover) return;
+    popover.sourceView = sourceView ?: self;
+    popover.sourceRect = (sourceView ?: self).bounds;
+    popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+}
+
+- (void)ytmu_presentLyricsMenu:(UIButton *)sender {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Lyrics"
+                                                                   message:nil
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    NSString *source = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
+    NSString *sourceTitle = [NSString stringWithFormat:@"Source: %@", YTMULyricsPageSourceTitle(source)];
+    [alert addAction:[UIAlertAction actionWithTitle:sourceTitle style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [weakSelf ytmu_presentSourceMenuFromView:sender];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Text Size: %.0f", YTMULyricsPageBaseFontSize()]
+                                             style:UIAlertActionStyleDefault
+                                           handler:nil]];
+    [alert.actions.lastObject setEnabled:NO];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Smaller Text" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetBaseFontSize(YTMULyricsPageBaseFontSize() - 2.0);
+        [weakSelf ytmu_updateFontControls];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Larger Text" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetBaseFontSize(YTMULyricsPageBaseFontSize() + 2.0);
+        [weakSelf ytmu_updateFontControls];
+    }]];
+
+    NSInteger offset = YTMULyricsPageTimingOffsetMs();
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Offset: %+.1fs", offset / 1000.0]
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetTimingOffsetMs(0);
+        [weakSelf ytmu_applyTimingOffsetChange];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Earlier -0.1s" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetTimingOffsetMs(YTMULyricsPageTimingOffsetMs() - 100);
+        [weakSelf ytmu_applyTimingOffsetChange];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Later +0.1s" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetTimingOffsetMs(YTMULyricsPageTimingOffsetMs() + 100);
+        [weakSelf ytmu_applyTimingOffsetChange];
+    }]];
+
+    BOOL romanization = YTMULyricsPageBoolDefault(@"lyricsRomanization", YES);
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Romanization: %@", romanization ? @"On" : @"Off"]
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetSetting(@"lyricsRomanization", @(!romanization));
+    }]];
+    BOOL timeCodes = YTMULyricsPageBoolDefault(@"lyricsShowTimeCodes", NO);
+    [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Timecodes: %@", timeCodes ? @"On" : @"Off"]
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        YTMULyricsPageSetSetting(@"lyricsShowTimeCodes", @(!timeCodes));
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self ytmu_configurePopoverForAlert:alert sourceView:sender ?: self.menuButton];
+    [[self ytmu_presentingViewController] presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Lyrics Source"
+                                                                   message:nil
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
+    for (NSDictionary *option in YTMULyricsPageSourceOptions()) {
+        NSString *key = option[@"key"];
+        NSString *title = option[@"title"];
+        if ([key isEqualToString:selected]) title = [title stringByAppendingString:@" Selected"];
+        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            YTMULyricsPageSetSetting(@"lyricsPreferredSource", key);
+            [weakSelf ytmu_updateSourceButtons];
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self ytmu_configurePopoverForAlert:alert sourceView:sourceView ?: self.menuButton];
+    [[self ytmu_presentingViewController] presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)ytmu_handleLyricsSettingsDidChange:(NSNotification *)notification {
@@ -878,15 +1094,26 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     self.view.backgroundColor = [UIColor colorWithRed:0.035 green:0.095 blue:0.135 alpha:1.0];
 
     self.closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.closeButton setTitle:@"Close" forState:UIControlStateNormal];
-    self.closeButton.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
+    UIImage *closeImage = nil;
+    if (@available(iOS 13.0, *)) closeImage = [UIImage systemImageNamed:@"xmark"];
+    if (closeImage) {
+        [self.closeButton setImage:closeImage forState:UIControlStateNormal];
+    } else {
+        [self.closeButton setTitle:@"Close" forState:UIControlStateNormal];
+        self.closeButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
+    }
+    self.closeButton.tintColor = [UIColor whiteColor];
     [self.closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.closeButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
+    self.closeButton.layer.cornerRadius = 18.0;
+    self.closeButton.clipsToBounds = YES;
     [self.closeButton addTarget:self action:@selector(ytmu_closeLyricsPanel:) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.closeButton];
 
     self.lyricsOverlayView = [[YTMULyricsTabOverlayView alloc] initWithFrame:CGRectZero];
     self.lyricsOverlayView.playerViewController = self.playerViewController;
     [self.view addSubview:self.lyricsOverlayView];
+    [self.view bringSubviewToFront:self.closeButton];
     [self.lyricsOverlayView ytmu_renderTabOverlay];
 }
 
@@ -894,16 +1121,13 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [super viewDidLayoutSubviews];
     UIEdgeInsets safe = UIEdgeInsetsZero;
     if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
-    CGFloat top = safe.top + 10.0;
-    CGFloat closeWidth = 86.0;
+    CGFloat top = safe.top + 24.0;
+    CGFloat closeWidth = 36.0;
     self.closeButton.frame = CGRectMake(self.view.bounds.size.width - safe.right - closeWidth - 14.0,
                                         top,
                                         closeWidth,
-                                        38.0);
-    self.lyricsOverlayView.frame = CGRectMake(0.0,
-                                              CGRectGetMaxY(self.closeButton.frame) + 2.0,
-                                              self.view.bounds.size.width,
-                                              MAX(120.0, self.view.bounds.size.height - CGRectGetMaxY(self.closeButton.frame) - 2.0));
+                                        36.0);
+    self.lyricsOverlayView.frame = self.view.bounds;
 }
 
 - (void)ytmu_closeLyricsPanel:(id)sender {

@@ -40,11 +40,11 @@
         _translationLabel.alpha = 0.82;
 
         [NSLayoutConstraint activateConstraints:@[
-            [_timeLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:18],
-            [_timeLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-18],
+            [_timeLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_timeLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
             [_timeLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:9],
-            [_mainLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:18],
-            [_mainLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-18],
+            [_mainLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_mainLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
             [_mainLabel.topAnchor constraintEqualToAnchor:_timeLabel.bottomAnchor constant:2],
             [_romanLabel.leadingAnchor constraintEqualToAnchor:_mainLabel.leadingAnchor],
             [_romanLabel.trailingAnchor constraintEqualToAnchor:_mainLabel.trailingAnchor],
@@ -162,12 +162,13 @@
     self = [super initWithFrame:frame];
     if (self) {
         self.hidden = YES;
-        self.clipsToBounds = YES;
-        self.layer.cornerRadius = 16;
+        self.clipsToBounds = NO;
+        self.backgroundColor = [UIColor clearColor];
+        self.layer.cornerRadius = 0;
         self.layer.cornerCurve = kCACornerCurveContinuous;
 
-        UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterialDark];
-        _blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
+        _blurView = [[UIVisualEffectView alloc] initWithEffect:nil];
+        _blurView.backgroundColor = [UIColor clearColor];
         _blurView.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:_blurView];
 
@@ -176,12 +177,13 @@
         _titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
         _titleLabel.textColor = [UIColor secondaryLabelColor];
         _titleLabel.numberOfLines = 1;
+        _titleLabel.hidden = YES;
         [_blurView.contentView addSubview:_titleLabel];
 
         _stateLabel = [[UILabel alloc] init];
         _stateLabel.translatesAutoresizingMaskIntoConstraints = NO;
         _stateLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
-        _stateLabel.textColor = [UIColor labelColor];
+        _stateLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
         _stateLabel.numberOfLines = 0;
         _stateLabel.textAlignment = NSTextAlignmentCenter;
         [_blurView.contentView addSubview:_stateLabel];
@@ -213,8 +215,8 @@
 
             [_scrollView.leadingAnchor constraintEqualToAnchor:_blurView.contentView.leadingAnchor],
             [_scrollView.trailingAnchor constraintEqualToAnchor:_blurView.contentView.trailingAnchor],
-            [_scrollView.topAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor constant:6],
-            [_scrollView.bottomAnchor constraintEqualToAnchor:_blurView.contentView.bottomAnchor constant:-8],
+            [_scrollView.topAnchor constraintEqualToAnchor:_blurView.contentView.topAnchor],
+            [_scrollView.bottomAnchor constraintEqualToAnchor:_blurView.contentView.bottomAnchor],
 
             [_stackView.leadingAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.leadingAnchor],
             [_stackView.trailingAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.trailingAnchor],
