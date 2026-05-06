@@ -1362,10 +1362,9 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
 @end
 
-@interface YTMULyricsPanelViewController : UIViewController <UIGestureRecognizerDelegate>
+@interface YTMULyricsPanelViewController : UIViewController
 @property (retain, nonatomic) YTMULyricsTabOverlayView *lyricsOverlayView;
 @property (retain, nonatomic) UIButton *closeButton;
-@property (retain, nonatomic) UIPanGestureRecognizer *dismissPanGesture;
 @property (assign, nonatomic) YTPlayerViewController *playerViewController;
 @end
 
@@ -1392,10 +1391,6 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     [self.closeButton addTarget:self action:@selector(ytmu_closeLyricsPanel:) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.closeButton];
 
-    self.dismissPanGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_handleDismissPan:)];
-    self.dismissPanGesture.delegate = self;
-    [self.view addGestureRecognizer:self.dismissPanGesture];
-
     self.lyricsOverlayView = [[YTMULyricsTabOverlayView alloc] initWithFrame:CGRectZero];
     self.lyricsOverlayView.playerViewController = self.playerViewController;
     [self.view addSubview:self.lyricsOverlayView];
@@ -1418,48 +1413,6 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
 - (void)ytmu_closeLyricsPanel:(id)sender {
     [self dismissViewControllerAnimated:YES completion:nil];
-}
-
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
-    if (gestureRecognizer != self.dismissPanGesture) return YES;
-    CGPoint point = [touch locationInView:self.view];
-    UIEdgeInsets safe = UIEdgeInsetsZero;
-    if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
-    return point.y <= safe.top + 118.0;
-}
-
-- (void)ytmu_handleDismissPan:(UIPanGestureRecognizer *)gesture {
-    CGPoint translation = [gesture translationInView:self.view];
-    CGPoint velocity = [gesture velocityInView:self.view];
-    CGFloat offset = MAX(0.0, translation.y);
-    if (gesture.state == UIGestureRecognizerStateChanged) {
-        CGFloat scale = MAX(0.96, 1.0 - offset / MAX(1.0, self.view.bounds.size.height) * 0.04);
-        self.view.transform = CGAffineTransformTranslate(CGAffineTransformMakeScale(scale, scale), 0.0, offset);
-        return;
-    }
-    if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
-        BOOL shouldDismiss = offset > 90.0 || velocity.y > 850.0;
-        if (shouldDismiss) {
-            [UIView animateWithDuration:0.18
-                                  delay:0.0
-                                options:UIViewAnimationOptionCurveEaseIn
-                             animations:^{
-                self.view.transform = CGAffineTransformTranslate(CGAffineTransformIdentity, 0.0, self.view.bounds.size.height);
-            } completion:^(__unused BOOL finished) {
-                self.view.transform = CGAffineTransformIdentity;
-                [self dismissViewControllerAnimated:NO completion:nil];
-            }];
-        } else {
-            [UIView animateWithDuration:0.22
-                                  delay:0.0
-                 usingSpringWithDamping:0.86
-                  initialSpringVelocity:0.0
-                                options:UIViewAnimationOptionBeginFromCurrentState
-                             animations:^{
-                self.view.transform = CGAffineTransformIdentity;
-            } completion:nil];
-        }
-    }
 }
 
 @end
@@ -2152,6 +2105,12 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 
 %new
 - (void)ytmu_hideOfficialLyricsActions {
+    static const void *kLastHideTimeKey = &kLastHideTimeKey;
+    NSNumber *last = objc_getAssociatedObject(self, kLastHideTimeKey);
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (last && now - last.doubleValue < 0.5) return;
+    objc_setAssociatedObject(self, kLastHideTimeKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
     UIView *root = self;
     for (NSUInteger depth = 0; depth < 8 && root.superview && ![root.superview isKindOfClass:[UIWindow class]]; depth++) {
         root = root.superview;

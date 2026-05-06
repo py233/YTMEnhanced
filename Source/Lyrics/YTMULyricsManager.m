@@ -528,6 +528,50 @@
     [self notify];
     [self fetchRomanizationIfNeededForInfo:info generation:generation];
     [self fetchTranslationForInfo:info generation:generation];
+    [self probeRemainingProvidersForInfo:info generation:generation];
+}
+
+- (void)probeRemainingProvidersForInfo:(YTMULyricsSearchInfo *)info generation:(NSUInteger)generation {
+    if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+    [self probeProviders:self.providers index:0 info:info generation:generation];
+}
+
+- (void)probeProviders:(NSArray<id<YTMULyricsProvider>> *)providers
+                 index:(NSUInteger)index
+                  info:(YTMULyricsSearchInfo *)info
+            generation:(NSUInteger)generation {
+    if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+    if (index >= providers.count) return;
+
+    id<YTMULyricsProvider> provider = providers[index];
+    NSString *status = self.sourceAvailability[[provider providerName]];
+    if ([status isEqualToString:@"hit"] || [status isEqualToString:@"miss"]) {
+        [self probeProviders:providers index:index + 1 info:info generation:generation];
+        return;
+    }
+
+    NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
+    YTMULyricsResult *cached = [[YTMULyricsCache sharedCache] resultForKey:cacheKey];
+    if (cached.hasText) {
+        [self setAvailability:@"hit" forProvider:provider notify:YES];
+        [self probeProviders:providers index:index + 1 info:info generation:generation];
+        return;
+    }
+
+    [self setAvailability:@"checking" forProvider:provider notify:YES];
+    YTMULyricsLog(@"lyrics availability probe videoId=%@ source=%@", info.videoId, [provider providerName]);
+    [provider searchWithInfo:info completion:^(YTMULyricsResult *result, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+            if (result.hasText) {
+                [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
+                [self setAvailability:@"hit" forProvider:provider notify:YES];
+            } else {
+                [self setAvailability:@"miss" forProvider:provider notify:YES];
+            }
+            [self probeProviders:providers index:index + 1 info:info generation:generation];
+        });
+    }];
 }
 
 - (void)tryProviders:(NSArray<id<YTMULyricsProvider>> *)providers
@@ -548,6 +592,7 @@
         self.lastErrorMessage = lastErrors.count ? [lastErrors componentsJoinedByString:@" | "] : @"No lyrics found";
         YTMULyricsLog(@"lyrics lookup exhausted videoId=%@ errors=%@", info.videoId, self.lastErrorMessage);
         [self notify];
+        [self probeRemainingProvidersForInfo:info generation:generation];
         return;
     }
 
@@ -659,7 +704,11 @@
     NSUInteger generation = self.requestGeneration;
     self.activeVideoId = info.videoId ?: @"";
     if (!sameSongIdentity) {
-        self.sourceAvailability = @{};
+        NSMutableDictionary *initial = [NSMutableDictionary dictionary];
+        for (id<YTMULyricsProvider> provider in self.providers) {
+            initial[[provider providerName]] = @"checking";
+        }
+        self.sourceAvailability = initial;
     }
     YTMULyricsActivateTimingOffsetForInfo(info, NO);
     if (!sameActiveSong) {
