@@ -9,6 +9,7 @@
 #import "Providers/YTMUNetEaseProvider.h"
 #import "Providers/YTMUMusixMatchProvider.h"
 #import "Providers/YTMUGeniusProvider.h"
+#import <NaturalLanguage/NaturalLanguage.h>
 
 @interface YTMULyricsManager ()
 @property (nonatomic, strong) NSArray<id<YTMULyricsProvider>> *providers;
@@ -180,6 +181,52 @@
 - (BOOL)isChineseTarget {
     NSString *target = [YTMUPromptBuilder effectiveTargetCode:YTMULyricsSettingsString(@"translationTargetLang", @"auto")];
     return [target.lowercaseString hasPrefix:@"zh"];
+}
+
+- (NSString *)normalizedLanguageFamily:(NSString *)language {
+    NSString *normalized = [[language ?: @"" lowercaseString] stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+    if (!normalized.length) return @"";
+    NSString *primary = [normalized componentsSeparatedByString:@"-"].firstObject ?: normalized;
+    if ([primary isEqualToString:@"cmn"] || [primary isEqualToString:@"yue"] || [primary isEqualToString:@"zh"]) return @"zh";
+    if ([primary isEqualToString:@"nb"] || [primary isEqualToString:@"nn"]) return @"no";
+    if ([primary isEqualToString:@"tl"]) return @"fil";
+    return primary;
+}
+
+- (NSDictionary<NSString *, id> *)detectLyricsLanguageForLines:(NSArray<NSString *> *)lines {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *line in lines ?: @[]) {
+        NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (trimmed.length) [parts addObject:trimmed];
+    }
+
+    NSString *text = [parts componentsJoinedByString:@"\n"];
+    if (text.length < 24) return nil;
+
+    NLLanguageRecognizer *recognizer = [[NLLanguageRecognizer alloc] init];
+    [recognizer processString:text];
+    NSDictionary<NLLanguage, NSNumber *> *hypotheses = [recognizer languageHypothesesWithMaximum:1];
+    NLLanguage bestLanguage = recognizer.dominantLanguage;
+    NSNumber *accuracy = bestLanguage.length ? hypotheses[bestLanguage] : nil;
+    if (!bestLanguage.length || [bestLanguage isEqualToString:NLLanguageUndetermined]) {
+        bestLanguage = hypotheses.allKeys.firstObject;
+        accuracy = bestLanguage.length ? hypotheses[bestLanguage] : nil;
+    }
+    if (!bestLanguage.length || [bestLanguage isEqualToString:NLLanguageUndetermined]) return nil;
+    if (accuracy.doubleValue < 0.55) return nil;
+
+    return @{@"language": bestLanguage, @"accuracy": accuracy};
+}
+
+- (NSDictionary<NSString *, id> *)sourceLanguageMatchesTargetForLines:(NSArray<NSString *> *)lines targetLanguage:(NSString *)targetLanguage {
+    NSDictionary<NSString *, id> *detected = [self detectLyricsLanguageForLines:lines];
+    if (!detected) return nil;
+
+    NSString *sourceFamily = [self normalizedLanguageFamily:detected[@"language"]];
+    NSString *targetFamily = [self normalizedLanguageFamily:targetLanguage];
+    if (!sourceFamily.length || !targetFamily.length || ![sourceFamily isEqualToString:targetFamily]) return nil;
+
+    return detected;
 }
 
 - (BOOL)translationEnabled {
@@ -403,11 +450,27 @@
         return;
     }
 
-    [self applyOfficialTranslationIfAvailableForInfo:info generation:generation];
-    if (self.translatedLines.count == self.displayLineTexts.count && self.translatedLines.count) return;
-
     NSArray *sourceLines = [self displayLineTexts];
     if (!sourceLines.count) return;
+
+    NSString *targetLanguage = [YTMUPromptBuilder effectiveTargetCode:YTMULyricsSettingsString(@"translationTargetLang", @"auto")];
+    NSDictionary<NSString *, id> *sameLanguage = [self sourceLanguageMatchesTargetForLines:sourceLines targetLanguage:targetLanguage];
+    if (sameLanguage) {
+        self.translatedLines = @[];
+        self.translationAttribution = @"";
+        YTMULyricsLog(@"translation skipped: source language matches target videoId=%@ source=%@ detected=%@ accuracy=%.2f target=%@",
+                      info.videoId,
+                      self.currentResult.sourceName,
+                      sameLanguage[@"language"],
+                      [sameLanguage[@"accuracy"] doubleValue],
+                      targetLanguage);
+        [self notify];
+        return;
+    }
+
+    [self applyOfficialTranslationIfAvailableForInfo:info generation:generation];
+    if (self.translatedLines.count == sourceLines.count && self.translatedLines.count) return;
+
     NSString *title = self.currentResult.title.length ? self.currentResult.title : info.title;
     NSString *artist = self.currentResult.artists.count ? [self.currentResult.artists componentsJoinedByString:@", "] : info.artist;
     YTMULyricsLog(@"translation requested for lyrics source=%@ videoId=%@ lines=%lu",
