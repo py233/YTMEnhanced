@@ -239,13 +239,24 @@
 }
 
 - (void)setHidden:(BOOL)hidden {
+    BOOL wasHidden = self.hidden;
     [super setHidden:hidden];
     [self updateDisplayLinkState];
+    if (wasHidden && !hidden) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self reloadFromManager];
+        });
+    }
 }
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     [self updateDisplayLinkState];
+    if (self.window) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self reloadFromManager];
+        });
+    }
 }
 
 - (BOOL)ytmu_isEffectivelyVisible {
@@ -424,7 +435,6 @@
 
 - (void)reloadFromManager {
     [self updateDisplayLinkState];
-    if (![self ytmu_isEffectivelyVisible]) return;
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = [self nowPlayingTitleForManager:manager];
@@ -504,25 +514,6 @@
         [lineView setActive:NO effect:[self lineEffect]];
         [self.stackView addArrangedSubview:lineView];
         [lineViews addObject:lineView];
-    }
-
-    if (manager.translationAttribution.length) {
-        UILabel *label = [[UILabel alloc] init];
-        label.numberOfLines = 0;
-        label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
-        label.textColor = [UIColor secondaryLabelColor];
-        label.text = manager.translationAttribution;
-        label.textAlignment = NSTextAlignmentLeft;
-        UIView *wrap = [[UIView alloc] init];
-        label.translatesAutoresizingMaskIntoConstraints = NO;
-        [wrap addSubview:label];
-        [NSLayoutConstraint activateConstraints:@[
-            [label.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:18],
-            [label.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor constant:-18],
-            [label.topAnchor constraintEqualToAnchor:wrap.topAnchor constant:14],
-            [label.bottomAnchor constraintEqualToAnchor:wrap.bottomAnchor constant:-18],
-        ]];
-        [self.stackView addArrangedSubview:wrap];
     }
 
     self.lineViews = lineViews;

@@ -16,6 +16,11 @@ static BOOL YTMUNetEaseHasLatin(NSString *value) {
     return [value rangeOfString:@"[A-Za-z]" options:NSRegularExpressionSearch].location != NSNotFound;
 }
 
+static BOOL YTMUNetEaseHasNonLatinRomanizableText(NSString *value) {
+    return [value rangeOfString:@"[\\u3040-\\u30ff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0980-\\u09ff\\u0900-\\u097f]"
+                        options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
 static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return [value rangeOfString:pattern options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound;
 }
@@ -236,6 +241,168 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return YTMUNetEaseRegexTest(value ?: @"", @"(?:初音ミク|Hatsune\\s*Miku|鏡音|Kagamine|巡音|Megurine|音街ウナ|Otomachi\\s*Una|重音テト|Kasane\\s*Teto|可不|KAFU|星界|SEKAI|裏命|RIME|狐子|COKO|羽累|HARU|花隈千冬|Hanakuma\\s*Chifuyu|ナースロボ|Nurse\\s*Robot|タイプT|Type\\s*T|ずんだもん|Zundamon|KAITO|MEIKO|GUMI|IA|ONE|flower|vflower|CeVIO|VOCALOID|UTAU|SynthV|VOICEVOX|VOICEROID)");
 }
 
+- (NSArray<NSString *> *)uniqueStringsByCompact:(NSArray<NSString *> *)values {
+    NSMutableArray<NSString *> *output = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSString *value in values ?: @[]) {
+        NSString *key = YTMULyricsCompactString(value ?: @"");
+        if (!key.length || [seen containsObject:key]) continue;
+        [seen addObject:key];
+        [output addObject:value];
+    }
+    return output;
+}
+
+- (NSArray<NSString *> *)uniqueStringsBySearchText:(NSArray<NSString *> *)values {
+    NSMutableArray<NSString *> *output = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSString *value in values ?: @[]) {
+        NSString *key = YTMULyricsNormalizeLoose(value ?: @"");
+        if (!key.length || [seen containsObject:key]) continue;
+        [seen addObject:key];
+        [output addObject:value];
+    }
+    return output;
+}
+
+- (NSString *)stripSearchPunctuation:(NSString *)value {
+    if (!value.length) return @"";
+    NSMutableString *mutable = [[value stringByFoldingWithOptions:NSWidthInsensitiveSearch
+                                                           locale:[NSLocale currentLocale]] mutableCopy];
+    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
+    NSRegularExpression *punctuation = [NSRegularExpression regularExpressionWithPattern:@"[^\\p{L}\\p{N}\\s]+"
+                                                                                 options:0
+                                                                                   error:nil];
+    NSString *stripped = [punctuation stringByReplacingMatchesInString:mutable
+                                                               options:0
+                                                                 range:NSMakeRange(0, mutable.length)
+                                                          withTemplate:@" "];
+    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSString *collapsed = [spaces stringByReplacingMatchesInString:stripped
+                                                           options:0
+                                                             range:NSMakeRange(0, stripped.length)
+                                                      withTemplate:@" "];
+    return [collapsed stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+- (NSDictionary *)filterArtistTagValuesForTitle:(NSString *)title
+                               alternativeTitle:(NSString *)alternativeTitle
+                                          album:(NSString *)album
+                                         artist:(NSString *)artist
+                                           tags:(NSArray<NSString *> *)tags {
+    NSArray<NSString *> *primaryArtistNames = YTMULyricsSplitArtists(artist, nil);
+    BOOL hasFeaturedArtist = [self featuredArtistNamesFromTitles:@[title ?: @"", alternativeTitle ?: @""]].count > 0;
+    NSMutableArray<NSString *> *songTitleValues = [NSMutableArray array];
+    if (title.length) [songTitleValues addObject:title];
+    if (alternativeTitle.length) [songTitleValues addObject:alternativeTitle];
+
+    if (album.length) {
+        BOOL albumLooksLikeTitle = NO;
+        for (NSString *value in songTitleValues) {
+            if (YTMULyricsSimilarity(album, value) >= 0.92) {
+                albumLooksLikeTitle = YES;
+                break;
+            }
+        }
+        if (albumLooksLikeTitle) [songTitleValues addObject:album];
+    }
+
+    NSMutableArray<NSString *> *titleKeyValues = [NSMutableArray array];
+    for (NSString *value in songTitleValues) {
+        if (value.length) [titleKeyValues addObject:value];
+        NSString *stripped = YTMULyricsStripSearchNoise(value);
+        if (stripped.length) [titleKeyValues addObject:stripped];
+    }
+    NSArray<NSString *> *titleKeys = [self uniqueStringsByCompact:titleKeyValues];
+    NSMutableArray<NSString *> *compactTitleKeys = [NSMutableArray array];
+    for (NSString *value in titleKeys ?: @[]) {
+        NSString *key = YTMULyricsCompactString(value);
+        if (key.length) [compactTitleKeys addObject:key];
+    }
+
+    NSMutableArray<NSString *> *artistTags = [NSMutableArray array];
+    NSMutableArray<NSString *> *titleTags = [NSMutableArray array];
+    NSMutableArray<NSString *> *ignored = [NSMutableArray array];
+    BOOL seenTitleTag = NO;
+    for (NSString *tag in tags ?: @[]) {
+        NSMutableArray<NSString *> *tagKeys = [NSMutableArray array];
+        NSString *rawKey = YTMULyricsCompactString(tag ?: @"");
+        NSString *strippedKey = YTMULyricsCompactString(YTMULyricsStripSearchNoise(tag ?: @""));
+        if (rawKey.length) [tagKeys addObject:rawKey];
+        if (strippedKey.length) [tagKeys addObject:strippedKey];
+
+        BOOL titleLike = NO;
+        for (NSString *tagKey in tagKeys) {
+            if ([compactTitleKeys containsObject:tagKey]) {
+                titleLike = YES;
+                break;
+            }
+        }
+        BOOL localizedTitleLike = !hasFeaturedArtist &&
+                                  seenTitleTag &&
+                                  YTMUNetEaseHasNonLatinRomanizableText(tag ?: @"") &&
+                                  ![self isArtistLike:tag artistNames:primaryArtistNames] &&
+                                  ![self isLikelyArtistFragment:tag];
+        if (titleLike || localizedTitleLike) {
+            [ignored addObject:tag ?: @""];
+            [titleTags addObject:tag ?: @""];
+            if (titleLike) seenTitleTag = YES;
+            continue;
+        }
+        if (tag.length) [artistTags addObject:tag];
+    }
+
+    return @{
+        @"artistTags": artistTags,
+        @"titleTags": [self uniqueStringsByCompact:titleTags],
+        @"ignored": ignored,
+    };
+}
+
+- (NSArray<NSString *> *)featuredArtistNamesFromTitles:(NSArray<NSString *> *)titles {
+    NSMutableArray<NSString *> *featured = [NSMutableArray array];
+    NSRegularExpression *block = [NSRegularExpression regularExpressionWithPattern:@"[\\(\\[\\{（【［][^\\)\\]\\}】］）]*(?:feat|ft|featuring)\\.?\\s+([^\\)\\]\\}】］）]+)[\\)\\]\\}】］）]"
+                                                                           options:NSRegularExpressionCaseInsensitive
+                                                                             error:nil];
+    NSRegularExpression *tail = [NSRegularExpression regularExpressionWithPattern:@"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+(.+)$"
+                                                                          options:NSRegularExpressionCaseInsensitive
+                                                                            error:nil];
+    for (NSString *title in titles ?: @[]) {
+        if (!title.length) continue;
+        NSArray<NSTextCheckingResult *> *matches = [block matchesInString:title options:0 range:NSMakeRange(0, title.length)];
+        for (NSTextCheckingResult *match in matches) {
+            if (match.numberOfRanges < 2) continue;
+            NSString *value = [title substringWithRange:[match rangeAtIndex:1]];
+            if (value.length) [featured addObject:value];
+        }
+        NSTextCheckingResult *tailMatch = [tail firstMatchInString:title options:0 range:NSMakeRange(0, title.length)];
+        if (tailMatch && tailMatch.numberOfRanges >= 2) {
+            NSString *value = [title substringWithRange:[tailMatch rangeAtIndex:1]];
+            if (value.length) [featured addObject:value];
+        }
+    }
+    return YTMULyricsSplitArtists([featured componentsJoinedByString:@","], nil);
+}
+
+- (NSArray<NSString *> *)searchArtistNamesForArtistNames:(NSArray<NSString *> *)artistNames
+                                     featuredArtistNames:(NSArray<NSString *> *)featuredArtistNames {
+    NSMutableArray<NSString *> *values = [NSMutableArray array];
+    NSUInteger primaryCount = MIN((NSUInteger)2, artistNames.count);
+    for (NSUInteger idx = 0; idx < primaryCount; idx++) {
+        NSString *artist = artistNames[idx];
+        if (artist.length) [values addObject:artist];
+        NSString *withoutPunctuation = [self stripSearchPunctuation:artist];
+        if (withoutPunctuation.length && ![withoutPunctuation isEqualToString:artist]) {
+            [values addObject:withoutPunctuation];
+        }
+    }
+    for (NSString *featured in featuredArtistNames ?: @[]) {
+        if (featured.length) [values addObject:featured];
+    }
+    NSArray<NSString *> *unique = [self uniqueStringsBySearchText:values];
+    return unique.count > 4 ? [unique subarrayWithRange:NSMakeRange(0, 4)] : unique;
+}
+
 - (BOOL)isArtistLike:(NSString *)fragment artistNames:(NSArray<NSString *> *)artistNames {
     NSString *key = YTMULyricsCompactString(fragment ?: @"");
     if (!key.length) return YES;
@@ -312,18 +479,24 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return unique;
 }
 
-- (NSArray<NSDictionary *> *)titleCandidatesForInfo:(YTMULyricsSearchInfo *)info artistNames:(NSArray<NSString *> *)artistNames {
+- (NSArray<NSDictionary *> *)titleCandidatesForInfo:(YTMULyricsSearchInfo *)info
+                                        artistNames:(NSArray<NSString *> *)artistNames
+                                          titleTags:(NSArray<NSString *> *)titleTags {
     NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
-    NSMutableSet<NSString *> *seen = [NSMutableSet set];
     void (^addCandidate)(NSString *, CGFloat, BOOL) = ^(NSString *title, CGFloat weight, BOOL withArtist) {
         NSString *clean = [self cleanTitleFragment:title artistNames:artistNames];
         NSString *key = YTMULyricsCompactString(clean);
-        if (!key.length || [seen containsObject:key] || [self isArtistLike:clean artistNames:artistNames]) return;
-        [seen addObject:key];
+        if (!key.length || [self isArtistLike:clean artistNames:artistNames]) return;
         [candidates addObject:@{@"title": clean, @"weight": @(weight), @"withArtist": @(withArtist)}];
     };
 
-    NSArray *sourceTitles = @[info.title ?: @"", info.alternativeTitle ?: @""];
+    NSMutableArray<NSString *> *rawSourceTitles = [NSMutableArray array];
+    if (info.title.length) [rawSourceTitles addObject:info.title];
+    if (info.alternativeTitle.length) [rawSourceTitles addObject:info.alternativeTitle];
+    for (NSString *tag in titleTags ?: @[]) {
+        if (tag.length) [rawSourceTitles addObject:tag];
+    }
+    NSArray *sourceTitles = [self uniqueStringsByCompact:rawSourceTitles];
     for (NSString *sourceTitle in sourceTitles) {
         if (!sourceTitle.length) continue;
         BOOL sourceLooksSplit = YTMUNetEaseRegexTest(YTMULyricsStripSearchNoise(sourceTitle), @"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]");
@@ -345,13 +518,30 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         if (a < b) return NSOrderedDescending;
         return NSOrderedSame;
     }];
-    if (candidates.count > 8) return [candidates subarrayWithRange:NSMakeRange(0, 8)];
-    return candidates;
+    NSMutableArray<NSDictionary *> *unique = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSDictionary *candidate in candidates) {
+        NSString *key = YTMULyricsCompactString(candidate[@"title"] ?: @"");
+        if (!key.length || [seen containsObject:key]) continue;
+        [seen addObject:key];
+        [unique addObject:candidate];
+        if (unique.count >= 8) break;
+    }
+    return unique;
 }
 
 - (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info {
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, info.tags);
-    NSArray<NSDictionary *> *titles = [self titleCandidatesForInfo:info artistNames:artists];
+    NSDictionary *tagGroups = [self filterArtistTagValuesForTitle:info.title
+                                                 alternativeTitle:info.alternativeTitle
+                                                            album:info.album
+                                                           artist:info.artist
+                                                             tags:info.tags];
+    NSArray *artistTags = tagGroups[@"artistTags"] ?: @[];
+    NSArray *titleTags = tagGroups[@"titleTags"] ?: @[];
+    NSArray *artists = YTMULyricsSplitArtists(info.artist, artistTags);
+    NSArray *featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
+    NSArray<NSDictionary *> *titles = [self titleCandidatesForInfo:info artistNames:artists titleTags:titleTags];
+    NSArray<NSString *> *searchArtists = [self searchArtistNamesForArtistNames:artists featuredArtistNames:featured];
     NSMutableArray *keywords = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
     for (NSDictionary *candidate in titles) {
@@ -362,7 +552,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
             [keywords addObject:title];
         }
         if (![candidate[@"withArtist"] boolValue]) continue;
-        for (NSString *artist in [artists subarrayWithRange:NSMakeRange(0, MIN(2, artists.count))]) {
+        for (NSString *artist in searchArtists) {
             NSString *combined = [NSString stringWithFormat:@"%@ %@", title, artist];
             NSString *combinedKey = YTMULyricsCompactString(combined);
             if (combinedKey.length && ![seen containsObject:combinedKey]) {
@@ -372,6 +562,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
         if (keywords.count >= 16) break;
     }
+    YTMULyricsLog(@"NetEase prepared search candidates=%lu keywords=%@ artistTags=%@ titleTags=%@ featured=%@",
+                  (unsigned long)titles.count,
+                  keywords,
+                  artistTags,
+                  titleTags,
+                  featured);
     return keywords;
 }
 
@@ -402,11 +598,56 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return artistNames.count ? best : 0.5;
 }
 
-- (NSDictionary *)bestSongFromSongs:(NSArray<NSDictionary *> *)songs info:(YTMULyricsSearchInfo *)info {
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, info.tags);
-    NSArray *titleCandidates = [self titleCandidatesForInfo:info artistNames:artists];
-    NSDictionary *best = nil;
-    CGFloat bestScore = 0;
+- (BOOL)isAllowedStrictRankedSong:(NSDictionary *)item hasComparableDuration:(BOOL)hasDuration hasArtistNames:(BOOL)hasArtists {
+    CGFloat titleScore = [item[@"titleScore"] doubleValue];
+    CGFloat artistScore = [item[@"artistScore"] doubleValue];
+    NSTimeInterval durationDelta = [item[@"durationDelta"] doubleValue];
+    CGFloat score = [item[@"score"] doubleValue];
+    BOOL latinOnlyTitle = [item[@"latinOnlyTitle"] boolValue];
+    BOOL ambiguousLatinTitle = [item[@"ambiguousLatinTitle"] boolValue];
+
+    if (titleScore < 0.72) return NO;
+    if (hasDuration && durationDelta > 25) return NO;
+    if (hasDuration && durationDelta > 15 && titleScore < 0.90) return NO;
+    if (artistScore < 0.35 && titleScore < 0.92) return NO;
+    if (latinOnlyTitle && hasArtists && artistScore < 0.35) return NO;
+    if (ambiguousLatinTitle && artistScore < 0.55) return NO;
+    return score >= 1.55;
+}
+
+- (BOOL)isAllowedInexactRankedSong:(NSDictionary *)item hasComparableDuration:(BOOL)hasDuration hasArtistNames:(BOOL)hasArtists {
+    if (!YTMULyricsSettingsBool(@"lyricsShowInexact", YES)) return NO;
+
+    CGFloat titleScore = [item[@"titleScore"] doubleValue];
+    CGFloat artistScore = [item[@"artistScore"] doubleValue];
+    NSTimeInterval durationDelta = [item[@"durationDelta"] doubleValue];
+    CGFloat score = [item[@"score"] doubleValue];
+    BOOL latinOnlyTitle = [item[@"latinOnlyTitle"] boolValue];
+    BOOL ambiguousLatinTitle = [item[@"ambiguousLatinTitle"] boolValue];
+
+    if (titleScore < 0.62) return NO;
+    if (hasDuration && durationDelta > 45) return NO;
+    if (titleScore < 0.80 && artistScore < 0.25) return NO;
+    if (latinOnlyTitle && hasArtists && artistScore < 0.25 && titleScore < 0.90) return NO;
+    if (ambiguousLatinTitle && artistScore < 0.45) return NO;
+    return score >= 1.25;
+}
+
+- (NSArray<NSDictionary *> *)candidateSongsFromSongs:(NSArray<NSDictionary *> *)songs info:(YTMULyricsSearchInfo *)info {
+    NSDictionary *tagGroups = [self filterArtistTagValuesForTitle:info.title
+                                                 alternativeTitle:info.alternativeTitle
+                                                            album:info.album
+                                                           artist:info.artist
+                                                             tags:info.tags];
+    NSArray *artistTags = tagGroups[@"artistTags"] ?: @[];
+    NSArray *titleTags = tagGroups[@"titleTags"] ?: @[];
+    NSArray *artists = YTMULyricsSplitArtists(info.artist, artistTags);
+    NSArray *featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
+    NSMutableArray<NSString *> *scoreArtistValues = [NSMutableArray arrayWithArray:artists ?: @[]];
+    [scoreArtistValues addObjectsFromArray:featured ?: @[]];
+    NSArray *scoreArtistNames = [self uniqueStringsBySearchText:scoreArtistValues];
+    NSArray *titleCandidates = [self titleCandidatesForInfo:info artistNames:artists titleTags:titleTags];
+    NSMutableArray<NSDictionary *> *ranked = [NSMutableArray array];
     BOOL hasDuration = isfinite(info.duration) && info.duration > 0;
     for (id candidate in songs) {
         if (![candidate isKindOfClass:[NSDictionary class]]) continue;
@@ -416,25 +657,85 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         NSDictionary *titleMatch = [self bestTitleScoreForSongTitle:cleanName candidates:titleCandidates fallbackInfo:info];
         CGFloat titleScore = [titleMatch[@"score"] doubleValue];
         NSString *bestTitle = titleMatch[@"title"] ?: @"";
-        CGFloat artistScore = [self artistScoreForSong:song artistNames:artists];
+        CGFloat artistScore = [self artistScoreForSong:song artistNames:scoreArtistNames];
         NSTimeInterval duration = [YTMULyricsJSONNumberAtPath(song, @[@"duration"]) doubleValue] / 1000.0;
         NSTimeInterval delta = hasDuration ? fabs(duration - info.duration) : 0;
         BOOL latinOnlyTitle = YTMUNetEaseHasLatin(bestTitle.length ? bestTitle : info.title) && !YTMUNetEaseHasJapaneseOrCJK(bestTitle.length ? bestTitle : info.title);
         BOOL ambiguousLatinTitle = latinOnlyTitle && YTMULyricsCompactString(bestTitle.length ? bestTitle : info.title).length <= 6;
-        if (titleScore < 0.72) continue;
-        if (hasDuration && delta > 25) continue;
-        if (hasDuration && delta > 15 && titleScore < 0.90) continue;
-        if (artistScore < 0.35 && titleScore < 0.92) continue;
-        if (latinOnlyTitle && artists.count > 0 && artistScore < 0.35) continue;
-        if (ambiguousLatinTitle && artistScore < 0.55) continue;
         CGFloat durationScore = hasDuration ? MAX(0, 1 - delta / 25.0) : 0.2;
         CGFloat score = titleScore * 1.65 + artistScore * 0.7 + durationScore * 0.4;
-        if (score > bestScore) {
-            bestScore = score;
-            best = song;
-        }
+        [ranked addObject:@{
+            @"song": song,
+            @"titleScore": @(titleScore),
+            @"artistScore": @(artistScore),
+            @"durationDelta": @(delta),
+            @"score": @(score),
+            @"ambiguousLatinTitle": @(ambiguousLatinTitle),
+            @"latinOnlyTitle": @(latinOnlyTitle),
+        }];
     }
-    return bestScore >= 1.55 ? best : nil;
+
+    [ranked sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        CGFloat a = [left[@"score"] doubleValue];
+        CGFloat b = [right[@"score"] doubleValue];
+        if (fabs(b - a) > 0.08) {
+            if (a > b) return NSOrderedAscending;
+            if (a < b) return NSOrderedDescending;
+        }
+        NSTimeInterval leftDelta = [left[@"durationDelta"] doubleValue];
+        NSTimeInterval rightDelta = [right[@"durationDelta"] doubleValue];
+        if (leftDelta < rightDelta) return NSOrderedAscending;
+        if (leftDelta > rightDelta) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    BOOL hasArtists = scoreArtistNames.count > 0;
+    NSMutableArray<NSDictionary *> *strictMatches = [NSMutableArray array];
+    NSMutableSet<NSNumber *> *strictIds = [NSMutableSet set];
+    for (NSDictionary *item in ranked) {
+        if (![self isAllowedStrictRankedSong:item hasComparableDuration:hasDuration hasArtistNames:hasArtists]) continue;
+        NSMutableDictionary *match = [item mutableCopy];
+        match[@"strict"] = @YES;
+        [strictMatches addObject:match];
+        NSNumber *songId = YTMULyricsJSONNumberAtPath(item[@"song"], @[@"id"]);
+        if (songId) [strictIds addObject:songId];
+    }
+
+    NSMutableArray<NSDictionary *> *matches = [NSMutableArray arrayWithArray:strictMatches];
+    for (NSDictionary *item in ranked) {
+        NSNumber *songId = YTMULyricsJSONNumberAtPath(item[@"song"], @[@"id"]);
+        if (songId && [strictIds containsObject:songId]) continue;
+        if (![self isAllowedInexactRankedSong:item hasComparableDuration:hasDuration hasArtistNames:hasArtists]) continue;
+        NSMutableDictionary *match = [item mutableCopy];
+        match[@"strict"] = @NO;
+        [matches addObject:match];
+    }
+
+    NSMutableArray *debugTop = [NSMutableArray array];
+    for (NSUInteger idx = 0; idx < MIN((NSUInteger)8, ranked.count); idx++) {
+        NSDictionary *item = ranked[idx];
+        NSDictionary *song = item[@"song"];
+        NSMutableArray *names = [NSMutableArray array];
+        for (id artist in YTMULyricsJSONArrayAtPath(song, @[@"artists"]) ?: @[]) {
+            NSString *artistName = YTMULyricsJSONStringAtPath(artist, @[@"name"]);
+            if (artistName.length) [names addObject:artistName];
+        }
+        [debugTop addObject:@{
+            @"id": YTMULyricsJSONNumberAtPath(song, @[@"id"]) ?: @0,
+            @"title": YTMULyricsJSONStringAtPath(song, @[@"name"]) ?: @"",
+            @"artists": names,
+            @"titleScore": item[@"titleScore"] ?: @0,
+            @"artistScore": item[@"artistScore"] ?: @0,
+            @"durationDelta": item[@"durationDelta"] ?: @0,
+            @"score": item[@"score"] ?: @0,
+        }];
+    }
+    YTMULyricsLog(@"NetEase ranked results count=%lu matches=%lu scoreArtists=%@ top=%@",
+                  (unsigned long)ranked.count,
+                  (unsigned long)matches.count,
+                  scoreArtistNames,
+                  debugTop);
+    return matches;
 }
 
 - (void)getLyric:(NSNumber *)songId completion:(void(^)(NSDictionary *lyric))completion {
@@ -466,6 +767,36 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return YTMUNetEaseRegexTest(trimmed, @"^(?:作词|作詞|作曲|编曲|編曲|制作人|和声|和聲|混音|母带|母帶|录音|錄音|吉他|贝斯|貝斯|鼓|钢琴|鋼琴|键盘|鍵盤|Lyricist|Composer|Arranger|Producer|Mixing|Mastering|Vocal|Guitar|Bass|Drums)\\s*[:：]");
 }
 
+- (NSArray<YTMULyricLine *> *)normalizedNetEaseLines:(NSArray<YTMULyricLine *> *)sourceLines {
+    NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:sourceLines.count];
+    for (YTMULyricLine *line in sourceLines ?: @[]) {
+        if (line) [lines addObject:[line copy]];
+    }
+
+    [lines sortUsingComparator:^NSComparisonResult(YTMULyricLine *a, YTMULyricLine *b) {
+        if (a.timeInMs < b.timeInMs) return NSOrderedAscending;
+        if (a.timeInMs > b.timeInMs) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    for (NSUInteger idx = 0; idx < lines.count; idx++) {
+        YTMULyricLine *line = lines[idx];
+        if (idx + 1 < lines.count) {
+            line.durationMs = MAX(0, lines[idx + 1].timeInMs - line.timeInMs);
+        } else if (!isfinite(line.durationMs) || line.durationMs <= 0) {
+            line.durationMs = 3500;
+        }
+    }
+    if (lines.firstObject && lines.firstObject.timeInMs > 300) {
+        YTMULyricLine *empty = [YTMULyricLine lineWithTime:@"00:00.00"
+                                                  timeInMs:0
+                                                durationMs:lines.firstObject.timeInMs
+                                                      text:@""];
+        [lines insertObject:empty atIndex:0];
+    }
+    return lines;
+}
+
 - (NSArray<YTMULyricLine *> *)parseNetEaseJSONLyrics:(NSString *)lyrics {
     if (!lyrics.length) return @[];
     NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray array];
@@ -493,34 +824,20 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                                           durationMs:INFINITY
                                                 text:trimmed]];
     }
-
-    [lines sortUsingComparator:^NSComparisonResult(YTMULyricLine *a, YTMULyricLine *b) {
-        if (a.timeInMs < b.timeInMs) return NSOrderedAscending;
-        if (a.timeInMs > b.timeInMs) return NSOrderedDescending;
-        return NSOrderedSame;
-    }];
-
-    for (NSUInteger idx = 0; idx < lines.count; idx++) {
-        YTMULyricLine *line = lines[idx];
-        if (idx + 1 < lines.count) {
-            line.durationMs = MAX(0, lines[idx + 1].timeInMs - line.timeInMs);
-        } else {
-            line.durationMs = 3500;
-        }
-    }
-    if (lines.firstObject && lines.firstObject.timeInMs > 300) {
-        YTMULyricLine *empty = [YTMULyricLine lineWithTime:@"00:00.00"
-                                                  timeInMs:0
-                                                durationMs:lines.firstObject.timeInMs
-                                                      text:@""];
-        [lines insertObject:empty atIndex:0];
-    }
-    return lines;
+    return [self normalizedNetEaseLines:lines];
 }
 
 - (NSArray<YTMULyricLine *> *)parseNetEaseLyrics:(NSString *)lyrics {
     NSArray<YTMULyricLine *> *lrcLines = [YTMULRCParser parseLRC:[YTMULRCParser stripNetEaseMetadata:lyrics]];
-    if (lrcLines.count) return lrcLines;
+    NSMutableArray<YTMULyricLine *> *kept = [NSMutableArray array];
+    BOOL hasText = NO;
+    for (YTMULyricLine *line in lrcLines ?: @[]) {
+        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([self isNetEaseCreditLine:line.text timeInMs:line.timeInMs]) continue;
+        [kept addObject:line];
+        if (text.length) hasText = YES;
+    }
+    if (hasText) return [self normalizedNetEaseLines:kept];
     return [self parseNetEaseJSONLyrics:lyrics];
 }
 
@@ -573,6 +890,85 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return aligned;
 }
 
+- (void)resolveCandidateMatches:(NSArray<NSDictionary *> *)matches
+                           index:(NSUInteger)index
+                            info:(YTMULyricsSearchInfo *)info
+                      completion:(void (^)(YTMULyricsResult *, NSError *))completion {
+    if (index >= matches.count) {
+        completion(nil, nil);
+        return;
+    }
+
+    NSDictionary *match = matches[index];
+    NSDictionary *best = match[@"song"];
+    NSNumber *songId = YTMULyricsJSONNumberAtPath(best, @[@"id"]);
+    if (!songId) {
+        [self resolveCandidateMatches:matches index:index + 1 info:info completion:completion];
+        return;
+    }
+
+    [self getLyric:songId completion:^(NSDictionary *lyric) {
+        NSString *rawLyrics = YTMULyricsJSONStringAtPath(lyric, @[@"lrc", @"lyric"]) ?: @"";
+        NSArray<YTMULyricLine *> *parsedLines = [self parseNetEaseLyrics:rawLyrics];
+        NSString *plainLyrics = [self plainLyricsFromLines:parsedLines];
+        if (!plainLyrics.length) {
+            YTMULyricsLog(@"NetEase skipped empty lyric id=%@ title=%@ rawLength=%lu",
+                          songId,
+                          YTMULyricsJSONStringAtPath(best, @[@"name"]) ?: @"",
+                          (unsigned long)rawLyrics.length);
+            [self resolveCandidateMatches:matches index:index + 1 info:info completion:completion];
+            return;
+        }
+
+        NSString *translation = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"tlyric", @"lyric"]) ?: @""];
+        YTMULyricsResult *result = [[YTMULyricsResult alloc] init];
+        result.sourceName = [self providerName];
+        result.title = YTMULyricsJSONStringAtPath(best, @[@"name"]) ?: info.title;
+        NSMutableArray *artistNames = [NSMutableArray array];
+        for (id artist in YTMULyricsJSONArrayAtPath(best, @[@"artists"]) ?: @[]) {
+            NSString *name = YTMULyricsJSONStringAtPath(artist, @[@"name"]);
+            if (name.length) [artistNames addObject:name];
+        }
+        result.artists = artistNames.count ? artistNames : (info.artist.length ? @[info.artist] : @[]);
+        result.plainLyrics = plainLyrics;
+        result.lines = parsedLines;
+        result.duration = [YTMULyricsJSONNumberAtPath(best, @[@"duration"]) doubleValue] / 1000.0;
+        result.inexact = ![match[@"strict"] boolValue];
+
+        NSString *romanized = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"romalrc", @"lyric"]) ?: @""];
+        NSArray<NSString *> *romanizedTexts = [self romanizedTextsFromLyrics:romanized sourceLines:result.lines];
+        if (romanizedTexts.count == result.lines.count) {
+            result.romanizedLineTexts = romanizedTexts;
+            NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:result.lines.count];
+            for (NSUInteger idx = 0; idx < result.lines.count; idx++) {
+                YTMULyricLine *line = [result.lines[idx] copy];
+                line.romanizedText = idx < romanizedTexts.count ? romanizedTexts[idx] : @"";
+                [lines addObject:line];
+            }
+            result.lines = lines;
+        }
+        if (translation.length) {
+            NSArray *translatedSynced = [YTMULRCParser parseLRC:translation];
+            NSMutableArray *translatedTexts = [NSMutableArray array];
+            if (translatedSynced.count) {
+                for (YTMULyricLine *line in translatedSynced) [translatedTexts addObject:line.text ?: @""];
+            } else {
+                [translatedTexts addObjectsFromArray:[YTMULRCParser plainLinesFromLyrics:translation]];
+            }
+            result.officialTranslatedLines = translatedTexts;
+            result.officialTranslationLanguage = @"zh-CN";
+            result.officialTranslationProvider = [self providerName];
+        }
+        YTMULyricsLog(@"NetEase match title=%@ artists=%@ lines=%lu inexact=%d translation=%d",
+                      result.title,
+                      result.artists,
+                      (unsigned long)result.lineTexts.count,
+                      result.inexact,
+                      result.officialTranslatedLines.count > 0);
+        completion(result.hasText ? result : nil, nil);
+    }];
+}
+
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     [self registerIfNeeded:^{
         NSArray *keywords = [self keywordsForInfo:info];
@@ -598,61 +994,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                 NSNumber *songId = YTMULyricsJSONNumberAtPath(song, @[@"id"]);
                 if (songId) unique[songId] = song;
             }
-            NSDictionary *best = [self bestSongFromSongs:unique.allValues info:info];
-            if (!best) {
+            NSArray<NSDictionary *> *matches = [self candidateSongsFromSongs:unique.allValues info:info];
+            if (!matches.count) {
                 completion(nil, nil);
                 return;
             }
-            [self getLyric:YTMULyricsJSONNumberAtPath(best, @[@"id"]) completion:^(NSDictionary *lyric) {
-                NSString *rawLyrics = YTMULyricsJSONStringAtPath(lyric, @[@"lrc", @"lyric"]) ?: @"";
-                NSArray<YTMULyricLine *> *parsedLines = [self parseNetEaseLyrics:rawLyrics];
-                if (!parsedLines.count) {
-                    completion(nil, nil);
-                    return;
-                }
-                NSString *translation = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"tlyric", @"lyric"]) ?: @""];
-                YTMULyricsResult *result = [[YTMULyricsResult alloc] init];
-                result.sourceName = [self providerName];
-                result.title = YTMULyricsJSONStringAtPath(best, @[@"name"]) ?: info.title;
-                NSMutableArray *artistNames = [NSMutableArray array];
-                for (id artist in YTMULyricsJSONArrayAtPath(best, @[@"artists"]) ?: @[]) {
-                    NSString *name = YTMULyricsJSONStringAtPath(artist, @[@"name"]);
-                    if (name.length) [artistNames addObject:name];
-                }
-                result.artists = artistNames.count ? artistNames : (info.artist.length ? @[info.artist] : @[]);
-                result.plainLyrics = [self plainLyricsFromLines:parsedLines];
-                result.lines = parsedLines;
-                result.duration = [YTMULyricsJSONNumberAtPath(best, @[@"duration"]) doubleValue] / 1000.0;
-                NSString *romanized = [YTMULRCParser stripNetEaseMetadata:YTMULyricsJSONStringAtPath(lyric, @[@"romalrc", @"lyric"]) ?: @""];
-                NSArray<NSString *> *romanizedTexts = [self romanizedTextsFromLyrics:romanized sourceLines:result.lines];
-                if (romanizedTexts.count == result.lines.count) {
-                    result.romanizedLineTexts = romanizedTexts;
-                    NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray arrayWithCapacity:result.lines.count];
-                    for (NSUInteger idx = 0; idx < result.lines.count; idx++) {
-                        YTMULyricLine *line = [result.lines[idx] copy];
-                        line.romanizedText = idx < romanizedTexts.count ? romanizedTexts[idx] : @"";
-                        [lines addObject:line];
-                    }
-                    result.lines = lines;
-                }
-                if (translation.length) {
-                    NSArray *translatedSynced = [YTMULRCParser parseLRC:translation];
-                    NSMutableArray *translatedTexts = [NSMutableArray array];
-                    if (translatedSynced.count) {
-                        for (YTMULyricLine *line in translatedSynced) [translatedTexts addObject:line.text ?: @""];
-                    } else {
-                        [translatedTexts addObjectsFromArray:[YTMULRCParser plainLinesFromLyrics:translation]];
-                    }
-                    result.officialTranslatedLines = translatedTexts;
-                    result.officialTranslationLanguage = @"zh-CN";
-                    result.officialTranslationProvider = [self providerName];
-                }
-                YTMULyricsLog(@"NetEase match title=%@ lines=%lu officialTranslation=%d",
-                              result.title,
-                              (unsigned long)result.lineTexts.count,
-                              result.officialTranslatedLines.count > 0);
-                completion(result.hasText ? result : nil, nil);
-            }];
+            [self resolveCandidateMatches:matches index:0 info:info completion:completion];
         });
     } failure:^(NSError *error) {
         completion(nil, error);
