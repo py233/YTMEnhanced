@@ -642,11 +642,11 @@
     NSString *incomingArtist = info.artist ?: @"";
     NSString *lastTitle = self.lastSearchInfo.title ?: @"";
     NSString *lastArtist = self.lastSearchInfo.artist ?: @"";
-    BOOL sameActiveSong = self.currentResult.hasText &&
-                          ((info.videoId.length && [info.videoId isEqualToString:self.activeVideoId]) ||
-                           (!info.videoId.length &&
-                            [incomingTitle isEqualToString:lastTitle] &&
-                            [incomingArtist isEqualToString:lastArtist]));
+    BOOL sameSongIdentity = (info.videoId.length && [info.videoId isEqualToString:self.activeVideoId]) ||
+                            (!info.videoId.length &&
+                             [incomingTitle isEqualToString:lastTitle] &&
+                             [incomingArtist isEqualToString:lastArtist]);
+    BOOL sameActiveSong = self.currentResult.hasText && sameSongIdentity;
     self.lastSearchInfo = [info copy];
 
     if (![self isLyricsEnabled]) {
@@ -658,7 +658,9 @@
     self.requestGeneration++;
     NSUInteger generation = self.requestGeneration;
     self.activeVideoId = info.videoId ?: @"";
-    self.sourceAvailability = @{};
+    if (!sameSongIdentity) {
+        self.sourceAvailability = @{};
+    }
     YTMULyricsActivateTimingOffsetForInfo(info, NO);
     if (!sameActiveSong) {
         self.currentResult = nil;

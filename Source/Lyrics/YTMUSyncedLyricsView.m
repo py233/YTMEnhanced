@@ -396,7 +396,7 @@
 }
 
 - (NSString *)lineEffect {
-    return YTMULyricsSettingsString(@"lyricsLineEffect", @"fancy");
+    return @"fancy";
 }
 
 - (NSArray<NSString *> *)emptyLineStates {
