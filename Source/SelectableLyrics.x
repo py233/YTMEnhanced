@@ -556,6 +556,8 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 @property (retain, nonatomic) UIView *sheetBackdropView;
 @property (retain, nonatomic) UIView *sheetContentView;
 @property (retain, nonatomic) UILabel *sheetValueLabel;
+@property (weak, nonatomic) UISlider *pendingFontSlider;
+@property (assign, nonatomic) NSTimeInterval lastFontCommitTime;
 @property (copy, nonatomic) NSString *lastRenderSignature;
 @property (assign, nonatomic) YTPlayerViewController *playerViewController;
 - (void)ytmu_renderTabOverlay;
@@ -1143,6 +1145,7 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     slider.minimumTrackTintColor = [UIColor colorWithRed:0.92 green:0.16 blue:0.20 alpha:1.0];
     slider.maximumTrackTintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.22];
     [slider addTarget:self action:@selector(ytmu_fontSliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [slider addTarget:self action:@selector(ytmu_fontSliderTouchEnded:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     [sheet addSubview:slider];
 
     UILabel *small = [self ytmu_sheetLabelWithFrame:CGRectMake(34.0, 140.0, 90.0, 22.0)
@@ -1235,9 +1238,32 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
 - (void)ytmu_fontSliderChanged:(UISlider *)sender {
     CGFloat next = round(sender.value);
+    self.sheetValueLabel.text = [NSString stringWithFormat:@"%.0f", next];
+    if (fabs(next - YTMULyricsPageBaseFontSize()) < 0.5) return;
+    self.pendingFontSlider = sender;
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now - self.lastFontCommitTime >= 0.13) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(ytmu_commitFontSlider) object:nil];
+        [self ytmu_commitFontSlider];
+    } else {
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(ytmu_commitFontSlider) object:nil];
+        [self performSelector:@selector(ytmu_commitFontSlider) withObject:nil afterDelay:0.13];
+    }
+}
+
+- (void)ytmu_fontSliderTouchEnded:(UISlider *)sender {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(ytmu_commitFontSlider) object:nil];
+    self.pendingFontSlider = sender;
+    [self ytmu_commitFontSlider];
+}
+
+- (void)ytmu_commitFontSlider {
+    UISlider *slider = self.pendingFontSlider;
+    if (!slider) return;
+    CGFloat next = round(slider.value);
     if (fabs(next - YTMULyricsPageBaseFontSize()) < 0.5) return;
     YTMULyricsPageSetBaseFontSize(next);
-    self.sheetValueLabel.text = [NSString stringWithFormat:@"%.0f", YTMULyricsPageBaseFontSize()];
+    self.lastFontCommitTime = [NSDate timeIntervalSinceReferenceDate];
     [self ytmu_updateFontControls];
 }
 
