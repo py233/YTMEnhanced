@@ -183,11 +183,6 @@ static NSString *YTMUDownloadSanitizeFileComponent(NSString *string) {
         return %orig;
     }
 
-    BOOL wantsCustomDownload = YTMU(@"downloadAudio") || YTMU(@"downloadCoverImage");
-    if (!wantsCustomDownload) {
-        return %orig;
-    }
-
     YTMNowPlayingViewController *playingVC = (YTMNowPlayingViewController *)tapRecognizer.view._viewControllerForAncestor;
     YTPlayerViewController *playerVC = YTMUDownloadPlayerFromViewHierarchy(tapRecognizer.view);
     if (!playerVC) playerVC = YTMUDownloadPlayerFromObject(playingVC, 0);
