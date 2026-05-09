@@ -197,6 +197,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 @property (nonatomic) NSInteger activeIndex;
 @property (nonatomic, strong) CADisplayLink *displayLink;
 @property (nonatomic, copy) NSString *lastReloadSignature;
+@property (nonatomic, copy) NSString *lastReloadContentSignature;
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs animated:(BOOL)animated;
 @end
 
@@ -475,16 +476,36 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     self.activeIndex = -1;
 }
 
+- (void)applyBaseFontSizeToExistingLines:(CGFloat)base {
+    if (!self.lineViews.count) return;
+
+    [UIView performWithoutAnimation:^{
+        NSInteger activeIndex = self.activeIndex;
+        for (YTMULyricLineView *lineView in self.lineViews) {
+            BOOL active = (NSInteger)lineView.index == activeIndex;
+            lineView.mainLabel.font = active ? [UIFont boldSystemFontOfSize:base] : [UIFont systemFontOfSize:base weight:UIFontWeightRegular];
+            lineView.romanLabel.font = [UIFont italicSystemFontOfSize:base * 0.78];
+            lineView.translationLabel.font = [UIFont systemFontOfSize:base * 0.88 weight:UIFontWeightRegular];
+            [lineView updateKaraokeProgress:active ? 1.0 : 0.0 active:active];
+        }
+        [self setNeedsLayout];
+        [self layoutIfNeeded];
+        [self.scrollView layoutIfNeeded];
+        [self.stackView layoutIfNeeded];
+    }];
+    [self updatePlaybackTimeMs:[self currentPlaybackTimeMs] animated:NO];
+}
+
 - (void)reloadFromManager {
     [self updateDisplayLinkState];
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = [self nowPlayingTitleForManager:manager];
-    NSString *signature = [NSString stringWithFormat:@"%ld|%p|%p|%.0f|%@|%@|%@|%@|%@|%@|%@",
+    CGFloat base = [self baseFontSize];
+    NSString *contentSignature = [NSString stringWithFormat:@"%ld|%p|%p|%@|%@|%@|%@|%@|%@|%@",
                            (long)manager.state,
                            (void *)manager.currentResult,
                            (void *)manager.translatedLines,
-                           [self baseFontSize],
                            YTMULyricsSettingsString(@"lyricsConvertChinese", @"disabled"),
                            YTMULyricsSettingsString(@"lyricsLineEffect", @"fancy"),
                            YTMULyricsSettingsString(@"lyricsDefaultText", @"♪"),
@@ -492,11 +513,20 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
                            YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO) ? @"1" : @"0",
                            YTMULyricsSettingsBool(@"lyricsFocusBlur", YES) ? @"1" : @"0",
                            manager.lastErrorMessage ?: @""];
+    NSString *signature = [NSString stringWithFormat:@"%@|%.0f", contentSignature, base];
     if ([signature isEqualToString:self.lastReloadSignature]) {
         [self updatePlaybackTimeMs:[self currentPlaybackTimeMs] animated:NO];
         return;
     }
+    if ([contentSignature isEqualToString:self.lastReloadContentSignature] &&
+        self.lineViews.count &&
+        manager.currentResult.hasText) {
+        self.lastReloadSignature = signature;
+        [self applyBaseFontSizeToExistingLines:base];
+        return;
+    }
     self.lastReloadSignature = signature;
+    self.lastReloadContentSignature = contentSignature;
 
     [self clearLineViews];
     self.scrollView.hidden = YES;
@@ -518,7 +548,6 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 
     self.scrollView.hidden = NO;
     self.stateLabel.hidden = YES;
-    CGFloat base = [self baseFontSize];
     NSString *convertMode = YTMULyricsSettingsString(@"lyricsConvertChinese", @"disabled");
     BOOL romanizationEnabled = YTMULyricsSettingsBool(@"lyricsRomanization", YES);
     BOOL showTimeCodes = YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO);
