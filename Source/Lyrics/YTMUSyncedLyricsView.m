@@ -2,8 +2,13 @@
 #import "YTMULyricsManager.h"
 #import "YTMULyricsPlaybackState.h"
 #import "YTMULyricsTextProcessor.h"
+#import "../Headers/Localization.h"
 #import "../Headers/YTPlayerViewController.h"
 #import <MediaPlayer/MediaPlayer.h>
+
+static NSString *YTMUSyncedLyricsLocalized(NSString *key, NSString *fallback) {
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+}
 
 static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     static dispatch_once_t onceToken;
@@ -464,7 +469,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     if (artist.length && title.length) return [NSString stringWithFormat:@"%@ · %@", artist, title];
     if (title.length) return title;
     if (artist.length) return artist;
-    return manager.activeVideoId.length ? manager.activeVideoId : @"Synced lyrics";
+    return manager.activeVideoId.length ? manager.activeVideoId : YTMUSyncedLyricsLocalized(@"SYNCED_LYRICS", @"Synced lyrics");
 }
 
 - (void)clearLineViews {
@@ -533,16 +538,16 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     self.stateLabel.hidden = NO;
 
     if (manager.state == YTMULyricsFetchStateFetching && !manager.currentResult.hasText) {
-        self.stateLabel.text = @"Searching lyrics...";
+        self.stateLabel.text = YTMUSyncedLyricsLocalized(@"LYRICS_STATE_SEARCHING", @"Searching lyrics...");
         return;
     }
     if (manager.state == YTMULyricsFetchStateError) {
-        self.stateLabel.text = manager.lastErrorMessage.length ? manager.lastErrorMessage : @"No lyrics found";
+        self.stateLabel.text = manager.lastErrorMessage.length ? manager.lastErrorMessage : YTMUSyncedLyricsLocalized(@"LYRICS_STATE_NO_LYRICS", @"No lyrics found");
         return;
     }
     YTMULyricsResult *result = manager.currentResult;
     if (!result.hasText) {
-        self.stateLabel.text = @"No lyrics found";
+        self.stateLabel.text = YTMUSyncedLyricsLocalized(@"LYRICS_STATE_NO_LYRICS", @"No lyrics found");
         return;
     }
 

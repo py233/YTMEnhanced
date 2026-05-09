@@ -451,7 +451,10 @@
         [[YTMULyricsManager sharedManager] clearRomanizationCache];
         dispatch_async(dispatch_get_main_queue(), ^{
             cell.accessoryView = nil;
-            NSString *message = [NSString stringWithFormat:@"Lyrics: %lu\nTranslations: %lu\nRomanization: memory cleared", (unsigned long)lyrics, (unsigned long)translations];
+            NSString *format = [NSBundle.ytmu_defaultBundle localizedStringForKey:@"TRANSLATION_CACHE_CLEARED_FORMAT"
+                                                                            value:@"Lyrics: %lu\nTranslations: %lu\nRomanization: memory cleared"
+                                                                            table:nil];
+            NSString *message = [NSString stringWithFormat:format, (unsigned long)lyrics, (unsigned long)translations];
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"DONE") message:message preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DONE") style:UIAlertActionStyleDefault handler:nil]];
             [self presentViewController:alert animated:YES completion:nil];
