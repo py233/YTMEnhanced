@@ -12,8 +12,7 @@ PACKAGE_VERSION = 2.5.0
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = YTMusicUltimate
-$(TWEAK_NAME)_FILES = $(filter-out Source/Sideloading.x, $(wildcard Source/*.x))
-$(TWEAK_NAME)_FILES += $(shell find Source -name '*.m')
+$(TWEAK_NAME)_FILES = $(filter-out Source/Sideloading.x, $(shell find Source \( -name '*.x' -o -name '*.xm' -o -name '*.m' \)))
 $(TWEAK_NAME)_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -DTWEAK_VERSION=$(PACKAGE_VERSION)
 $(TWEAK_NAME)_FRAMEWORKS = UIKit Foundation AVFoundation AudioToolbox VideoToolbox NaturalLanguage MediaPlayer QuartzCore
 $(TWEAK_NAME)_OBJ_FILES = $(shell find Source/Utils/lib -name '*.a')
