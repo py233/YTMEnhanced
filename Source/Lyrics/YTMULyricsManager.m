@@ -9,7 +9,12 @@
 #import "Providers/YTMUNetEaseProvider.h"
 #import "Providers/YTMUMusixMatchProvider.h"
 #import "Providers/YTMUGeniusProvider.h"
+#import "../Utils/NSBundle+YTMU.h"
 #import <NaturalLanguage/NaturalLanguage.h>
+
+static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+}
 
 @interface YTMULyricsManager ()
 @property (nonatomic, strong) NSArray<id<YTMULyricsProvider>> *providers;
@@ -33,20 +38,20 @@
     NSString *name = nil;
     NSString *model = nil;
     if ([provider isEqualToString:YTMUTranslationProviderGoogle]) {
-        name = @"Google Translate";
+        name = YTMULyricsManagerLocalized(@"PROVIDER_GOOGLE", @"Google Translate");
         model = @"google-translate";
     } else if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) {
-        name = @"Anthropic";
+        name = YTMULyricsManagerLocalized(@"PROVIDER_ANTHROPIC", @"Anthropic");
         model = YTMULyricsSettingsString(@"translationModel_anthropic", @"claude-haiku-4-5-20251001");
     } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
-        name = @"Gemini";
+        name = YTMULyricsManagerLocalized(@"PROVIDER_GEMINI", @"Gemini");
         model = YTMULyricsSettingsString(@"translationModel_gemini", @"gemini-2.0-flash");
     } else if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
-        name = @"OpenAI-compatible";
+        name = YTMULyricsManagerLocalized(@"PROVIDER_OPENAI", @"OpenAI-compatible");
         model = YTMULyricsSettingsString(@"translationModel_openai-compatible", @"gpt-4o-mini");
     }
 
-    if (!name.length) name = provider.length ? provider : @"translator";
+    if (!name.length) name = provider.length ? provider : YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_FALLBACK", @"translator");
     return model.length ? [NSString stringWithFormat:@"%@ (%@)", name, model] : name;
 }
 
@@ -590,7 +595,7 @@
             return;
         }
         self.state = YTMULyricsFetchStateError;
-        self.lastErrorMessage = lastErrors.count ? [lastErrors componentsJoinedByString:@" | "] : @"No lyrics found";
+        self.lastErrorMessage = lastErrors.count ? [lastErrors componentsJoinedByString:@" | "] : YTMULyricsManagerLocalized(@"LYRICS_STATE_NO_LYRICS", @"No lyrics found");
         YTMULyricsLog(@"lyrics lookup exhausted videoId=%@ errors=%@", info.videoId, self.lastErrorMessage);
         [self notify];
         [self probeRemainingProvidersForInfo:info generation:generation];
@@ -658,7 +663,7 @@
                 [self finishWithResult:result info:info provider:provider generation:generation];
                 return;
             }
-            NSString *message = error.localizedDescription ?: @"no match";
+            NSString *message = error.localizedDescription ?: YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_NO_MATCH", @"no match");
             [self setAvailability:@"miss" forProvider:provider notify:YES];
             [lastErrors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
             YTMULyricsLog(@"lyrics source miss videoId=%@ source=%@ reason=%@", info.videoId, [provider providerName], message);

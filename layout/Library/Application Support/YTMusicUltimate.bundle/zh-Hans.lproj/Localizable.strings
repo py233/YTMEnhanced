@@ -97,12 +97,12 @@
 "YES" = "是";
 "REGIONAL_RESTRICTION" = "貌似YouTube Music在您所在的国家\/地区受到限制。\n\n请使用VPN访问YouTube Music。";
 
-"DONT_RUSH" = "不要急。请等待！";
-"DONT_RUSH_DESC" = "需要播放歌曲才能提取链接";
+"DONT_RUSH" = "请稍候";
+"DONT_RUSH_DESC" = "请先播放一首歌曲，再尝试下载";
 "SELECT_ACTION" = "选择操作";
 "DOWNLOADING" = "下载中";
-"DOWNLOAD_PREMIUM" = "下载(需付费)";
-"OOPS" = "哎呀\n出现了一些问题";
+"DOWNLOAD_PREMIUM" = "下载（Premium）";
+"OOPS" = "出错了";
 "LINK_NOT_FOUND" = "未找到链接";
 "SAVED_TO_PHOTOS" = "已保存到照片";
 "DONE" = "完成";
@@ -135,7 +135,7 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI 兼容";
 "SYNCED_LYRICS" = "同步歌词浮层";
-"SYNCED_LYRICS_DESC" = "从多个来源查找歌词，并在播放器上渲染我们自己的同步歌词面板";
+"SYNCED_LYRICS_DESC" = "从多个来源查找歌词，使用自定义的同步歌词面板替代官方版本";
 "LYRICS_SOURCE" = "歌词来源";
 "LYRICS_SOURCE_AUTO" = "自动";
 "LYRICS_LINE_EFFECT" = "行效果";
@@ -147,7 +147,7 @@
 "LYRICS_FONT_SMALL" = "小";
 "LYRICS_FONT_MEDIUM" = "中";
 "LYRICS_FONT_LARGE" = "大";
-"LYRICS_DEFAULT_TEXT" = "空歌词显示";
+"LYRICS_DEFAULT_TEXT" = "空白行符号";
 "LYRICS_CHINESE_CONVERSION" = "简繁转换";
 "LYRICS_CHINESE_DISABLED" = "关闭";
 "LYRICS_CHINESE_S2T" = "简体转繁体";
@@ -157,3 +157,22 @@
 "LYRICS_SHOW_INEXACT" = "允许非精确匹配";
 "TRANSLATION_DEBUG_LOGS" = "调试日志";
 "TRANSLATION_DEBUG_LOGS_DESC" = "向设备日志输出 YTMULyrics 和 YTMUTranslation 诊断信息";
+"LYRICS_PANEL_TITLE" = "歌词";
+"LYRICS_TEXT_SIZE" = "歌词字号";
+"LYRICS_TIMING_OFFSET" = "歌词时间调整";
+"LYRICS_FOCUS_BLUR" = "聚焦模糊";
+"LYRICS_TIMECODES" = "时间码";
+"LYRICS_SELECTED" = "已选择";
+"LYRICS_MATCHED" = "已匹配";
+"LYRICS_CHECKING" = "检查中";
+"LYRICS_NO_MATCH" = "无匹配";
+"LYRICS_RESET" = "重置";
+"LYRICS_STATE_SEARCHING" = "正在搜索歌词...";
+"LYRICS_STATE_NO_LYRICS" = "未找到歌词";
+"LYRICS_STATE_OPEN_SONG" = "打开歌曲后加载歌词。";
+"LYRICS_ATTRIBUTION_BOTH_FORMAT" = "歌词和翻译来自 %@";
+"LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "歌词来自 %@";
+"LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "翻译来自 %@";
+"LYRICS_PROVIDER_NO_MATCH" = "无匹配";
+"LYRICS_PROVIDER_FALLBACK" = "翻译服务";
+"TRANSLATION_CACHE_CLEARED_FORMAT" = "歌词：%lu\n翻译：%lu\n罗马音：内存缓存已清除";
