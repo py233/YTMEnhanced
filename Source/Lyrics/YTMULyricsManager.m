@@ -67,12 +67,18 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 - (instancetype)init {
     self = [super init];
     if (self) {
+        // LRCLib is intentionally last: when its primary `search` API
+        // misses it falls back to up to six serial HTTP queries (one per
+        // title-fragment candidate), which on slow networks routinely
+        // pushes a single song's lookup past 30s. The faster providers
+        // ahead of it usually answer first; LRCLib remains the deepest
+        // lyric DB and still gets its turn if everyone above misses.
         _providers = @[
             [[YTMUYTMusicProvider alloc] init],
-            [[YTMULRCLibProvider alloc] init],
             [[YTMUNetEaseProvider alloc] init],
             [[YTMUMusixMatchProvider alloc] init],
             [[YTMUGeniusProvider alloc] init],
+            [[YTMULRCLibProvider alloc] init],
         ];
         _state = YTMULyricsFetchStateIdle;
         _activeVideoId = @"";
@@ -539,28 +545,28 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 
 - (void)probeRemainingProvidersForInfo:(YTMULyricsSearchInfo *)info generation:(NSUInteger)generation {
     if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
-    [self probeProviders:self.providers index:0 info:info generation:generation];
+    // Fire every unsettled provider in parallel so a slow one (LRCLib's
+    // multi-query fallback path can take 30s+ on a poor connection)
+    // doesn't block the others' status indicators. Each provider's
+    // completion is independent — they only update sourceAvailability
+    // for themselves and notify, so racing is safe.
+    for (id<YTMULyricsProvider> provider in self.providers) {
+        [self probeSingleProvider:provider info:info generation:generation];
+    }
 }
 
-- (void)probeProviders:(NSArray<id<YTMULyricsProvider>> *)providers
-                 index:(NSUInteger)index
-                  info:(YTMULyricsSearchInfo *)info
-            generation:(NSUInteger)generation {
+- (void)probeSingleProvider:(id<YTMULyricsProvider>)provider
+                       info:(YTMULyricsSearchInfo *)info
+                 generation:(NSUInteger)generation {
     if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
-    if (index >= providers.count) return;
 
-    id<YTMULyricsProvider> provider = providers[index];
     NSString *status = self.sourceAvailability[[provider providerName]];
-    if ([status isEqualToString:@"hit"] || [status isEqualToString:@"miss"]) {
-        [self probeProviders:providers index:index + 1 info:info generation:generation];
-        return;
-    }
+    if ([status isEqualToString:@"hit"] || [status isEqualToString:@"miss"]) return;
 
     NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
     YTMULyricsResult *cached = [[YTMULyricsCache sharedCache] resultForKey:cacheKey];
     if (cached.hasText) {
         [self setAvailability:@"hit" forProvider:provider notify:YES];
-        [self probeProviders:providers index:index + 1 info:info generation:generation];
         return;
     }
 
@@ -575,7 +581,6 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
             } else {
                 [self setAvailability:@"miss" forProvider:provider notify:YES];
             }
-            [self probeProviders:providers index:index + 1 info:info generation:generation];
         });
     }];
 }
