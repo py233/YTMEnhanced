@@ -34,6 +34,46 @@ static NSString *YTMULyricsPageLocalized(NSString *key, NSString *fallback) {
     return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
 }
 
+static NSMutableSet<NSString *> *YTMULyricsOfficialAvailableVideoIds(void) {
+    static NSMutableSet *set;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ set = [NSMutableSet set]; });
+    return set;
+}
+
+static void YTMULyricsMarkOfficialAvailableForCurrentSong(NSString *trigger) {
+    NSString *videoId = [YTMULyricsManager sharedManager].activeVideoId;
+    if (!videoId.length) return;
+    NSMutableSet *set = YTMULyricsOfficialAvailableVideoIds();
+    BOOL inserted = NO;
+    @synchronized (set) {
+        if (![set containsObject:videoId]) {
+            [set addObject:videoId];
+            inserted = YES;
+        }
+    }
+    if (inserted) YTMULyricsLog(@"actionRow: renderer-fired trigger=%@ videoId=%@", trigger, videoId);
+}
+
+static BOOL YTMULyricsHasOfficialForCurrentSong(void) {
+    NSString *videoId = [YTMULyricsManager sharedManager].activeVideoId;
+    if (!videoId.length) return NO;
+    NSMutableSet *set = YTMULyricsOfficialAvailableVideoIds();
+    @synchronized (set) {
+        return [set containsObject:videoId];
+    }
+}
+
+// (Previously a bridge cache mapping action-bar instances to "saw chip"
+// timestamps lived here. It was used to carry over a chipPresent
+// observation from the videoId-not-yet-known window into the next frame
+// where videoId arrived, then promote it into the per-videoId set.
+// Removed because the promotion path was attributing the previous song's
+// Lyrics cell to the new song whenever YTMNowPlayingViewController flipped
+// activeVideoId before tearing down the previous action bar — a window
+// that can stretch past two seconds. Detection now runs fresh every
+// frame off the dataSource, with no UI-side cache writes.)
+
 static BOOL YTMULyricsPageCustomSourceEnabled(void);
 
 static BOOL YTMULyricsPageReplacementEnabled(void) {
@@ -407,6 +447,52 @@ static id YTMULyricsPageSafeValueForKey(id object, NSString *key) {
     }
 }
 
+static void YTMULyricsPageAppendObjectText(id object, NSMutableArray<NSString *> *parts, NSUInteger depth);
+
+static void YTMULyricsPageAppendStringValue(id value, NSMutableArray<NSString *> *parts) {
+    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) {
+        [parts addObject:value];
+    } else if ([value isKindOfClass:[NSAttributedString class]] && [(NSAttributedString *)value string].length) {
+        [parts addObject:[(NSAttributedString *)value string]];
+    }
+}
+
+static void YTMULyricsPageAppendObjectText(id object, NSMutableArray<NSString *> *parts, NSUInteger depth) {
+    if (!object || depth > 2) return;
+    YTMULyricsPageAppendStringValue(object, parts);
+
+    NSArray<NSString *> *textKeys = @[
+        @"accessibilityLabel",
+        @"accessibilityValue",
+        @"accessibilityHint",
+        @"text",
+        @"attributedText",
+        @"title",
+        @"currentTitle",
+        @"key"
+    ];
+    for (NSString *key in textKeys) {
+        YTMULyricsPageAppendStringValue(YTMULyricsPageSafeValueForKey(object, key), parts);
+    }
+
+    NSArray<NSString *> *childKeys = @[
+        @"_asyncdisplaykit_node",
+        @"asyncdisplaykit_node",
+        @"_node",
+        @"node",
+        @"_controller",
+        @"controller",
+        @"_element",
+        @"element",
+        @"_renderer",
+        @"renderer"
+    ];
+    for (NSString *key in childKeys) {
+        id child = YTMULyricsPageSafeValueForKey(object, key);
+        if (child && child != object) YTMULyricsPageAppendObjectText(child, parts, depth + 1);
+    }
+}
+
 static UIView *YTMULyricsPageActionTargetForView(UIView *view) {
     UIView *candidate = view;
     for (NSUInteger depth = 0; candidate && depth < 4; depth++) {
@@ -458,6 +544,8 @@ static NSString *YTMULyricsPageAccessibilityText(UIView *view) {
     if ([hint isKindOfClass:[NSString class]] && hint.length) [parts addObject:hint];
     NSString *viewText = YTMULyricsPageViewText(view);
     if (viewText.length) [parts addObject:viewText];
+    YTMULyricsPageAppendObjectText(YTMULyricsPageSafeValueForKey(view, @"_asyncdisplaykit_node"), parts, 0);
+    YTMULyricsPageAppendObjectText(YTMULyricsPageSafeValueForKey(view, @"_element"), parts, 0);
     return [[parts componentsJoinedByString:@" "] lowercaseString];
 }
 
@@ -1526,6 +1614,7 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 %hook YTIMusicLyricsRenderer
 
 - (id)lyricsText {
+    YTMULyricsMarkOfficialAvailableForCurrentSong(@"lyricsText");
     id original = %orig;
     if (!YTMULyricsPageCustomSourceEnabled()) return original;
 
@@ -1541,6 +1630,7 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 }
 
 - (id)lyricsAccessibilityText {
+    YTMULyricsMarkOfficialAvailableForCurrentSong(@"lyricsAccessibilityText");
     id original = %orig;
     if (!YTMULyricsPageCustomSourceEnabled()) return original;
 
@@ -1552,6 +1642,7 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 }
 
 - (id)lyricsSourceMessage {
+    YTMULyricsMarkOfficialAvailableForCurrentSong(@"lyricsSourceMessage");
     id original = %orig;
     if (!YTMULyricsPageCustomSourceEnabled()) return original;
 
@@ -1574,71 +1665,317 @@ static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller
 - (UIViewController *)_viewControllerForAncestor;
 @end
 
-static UIView *YTMULyricsPageFindOfficialLyricsEntry(UIView *view, UIView *root, NSUInteger depth) {
-    if (!view || view.hidden || view.alpha <= 0.03 || depth > 18) return nil;
+static const void *YTMULyricsActionBarOriginalInsetKey = &YTMULyricsActionBarOriginalInsetKey;
+
+static NSString *YTMULyricsPageNodeAttributedText(id node, NSUInteger depth) {
+    if (!node || depth > 8) return @"";
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    NSArray<NSString *> *attrKeys = @[@"attributedText", @"_attributedText", @"attributedString", @"_attributedString"];
+    NSString *own = nil;
+    for (NSString *key in attrKeys) {
+        @try {
+            id value = [node valueForKey:key];
+            if ([value isKindOfClass:[NSAttributedString class]]) {
+                own = [(NSAttributedString *)value string];
+            } else if ([value isKindOfClass:[NSString class]]) {
+                own = (NSString *)value;
+            }
+        } @catch (__unused NSException *e) {}
+        if (own.length) break;
+    }
+    if (own.length) [parts addObject:own];
+
+    NSArray *children = nil;
+    NSArray<NSString *> *childKeys = @[@"subnodes", @"_subnodes"];
+    for (NSString *key in childKeys) {
+        @try {
+            id value = [node valueForKey:key];
+            if ([value isKindOfClass:[NSArray class]]) {
+                children = value;
+            }
+        } @catch (__unused NSException *e) {}
+        if (children) break;
+    }
+    for (id sub in children ?: @[]) {
+        NSString *t = YTMULyricsPageNodeAttributedText(sub, depth + 1);
+        if (t.length) [parts addObject:t];
+    }
+    return [parts componentsJoinedByString:@" "];
+}
+
+static NSString *YTMULyricsPageCellNodeKey(UIView *cell) {
+    NSArray<NSString *> *paths = @[
+        @"_node._controller.key",
+        @"node._controller.key",
+        @"_node.controller.key",
+        @"node.controller.key",
+        @"_controller.key",
+    ];
+    for (NSString *path in paths) {
+        @try {
+            id value = [cell valueForKeyPath:path];
+            if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return (NSString *)value;
+        } @catch (__unused NSException *e) {}
+    }
+    return @"";
+}
+
+static NSString *YTMULyricsPageCellNodeText(UIView *cell) {
+    NSArray<NSString *> *keys = @[@"_node", @"node"];
+    for (NSString *key in keys) {
+        @try {
+            id node = [cell valueForKey:key];
+            NSString *text = YTMULyricsPageNodeAttributedText(node, 0);
+            if (text.length) return text;
+        } @catch (__unused NSException *e) {}
+    }
+    return @"";
+}
+
+static BOOL YTMULyricsPageStringHasLyricsToken(NSString *value) {
+    if (!value.length) return NO;
+    NSString *lowered = [value lowercaseString];
+    return [lowered containsString:@"lyrics"] ||
+           [lowered containsString:@"歌词"] ||
+           [lowered containsString:@"歌詞"] ||
+           [lowered containsString:@"가사"];
+}
+
+static NSString *YTMULyricsPageNodeControllerKey(id node);
+
+// (Previously a `YTMULyricsForceBindAllCells` helper called
+// `[cv.dataSource collectionView:cv cellForItemAtIndexPath:ip]` to coerce
+// off-screen cells into binding their text. This had a catastrophic side
+// effect: ASCollectionView's dataSource implementation isn't purely
+// functional — every call dequeues a real UICollectionViewCell into the
+// view hierarchy, and ours never get reclaimed because we don't drive a
+// layout pass. Each update tick added N orphan cells; after 30 seconds
+// we'd accumulated 70+ ghost cells, the collection view's internal
+// indexing got corrupted, and tapping anything inside (a comment, a
+// chip, even Save) would crash. Don't try to force-bind from outside
+// UIKit's layout pipeline.)
+
+// Returns YES if any prefetched ASCellNode in the dataSource still has
+// neither attributedText nor a controller key — i.e. binding hasn't
+// completed for that cell. While this is true, our chipPresent verdict
+// is unreliable: there might be a Lyrics cell hiding in an unbound slot.
+static BOOL YTMULyricsCollectionViewHasUnboundNodes(UIScrollView *bar) {
+    if (![bar isKindOfClass:[UICollectionView class]]) return NO;
+    UICollectionView *cv = (UICollectionView *)bar;
+    NSInteger sections = 0;
+    @try { sections = cv.numberOfSections; } @catch (__unused NSException *e) { return NO; }
+    SEL nodeSel = @selector(nodeForItemAtIndexPath:);
+    if (![cv respondsToSelector:nodeSel]) return NO;
+    for (NSInteger s = 0; s < sections; s++) {
+        NSInteger items = 0;
+        @try { items = [cv numberOfItemsInSection:s]; } @catch (__unused NSException *e) { continue; }
+        for (NSInteger i = 0; i < items; i++) {
+            NSIndexPath *ip = [NSIndexPath indexPathForItem:i inSection:s];
+            id node = nil;
+            @try {
+                #pragma clang diagnostic push
+                #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                node = [cv performSelector:nodeSel withObject:ip];
+                #pragma clang diagnostic pop
+            } @catch (__unused NSException *e) {}
+            if (!node) continue;
+            NSString *text = YTMULyricsPageNodeAttributedText(node, 0);
+            if (text.length) continue;
+            NSString *key = YTMULyricsPageNodeControllerKey(node);
+            if (key.length) continue;
+            return YES;
+        }
+    }
+    return NO;
+}
+
+// ELMCellNode (used by the YTMusic action row) wraps an ELMNodeController
+// whose `key` carries the binding identity (e.g. "Element|...|Lyrics|...")
+// even before the cell renders. We rely on this because for off-screen
+// cells the node exists but `attributedText` is still empty — only after
+// layout/measurement does the text get filled in. The controller key, by
+// contrast, is set at element-binding time and is stable.
+static NSString *YTMULyricsPageNodeControllerKey(id node) {
+    if (!node) return @"";
+    NSArray<NSString *> *paths = @[
+        @"_controller.key",
+        @"controller.key",
+        @"_controller.elementKey",
+        @"controller.elementKey",
+        @"_element.identifier",
+        @"element.identifier",
+        @"_element.elementIdentifier",
+        @"element.elementIdentifier",
+    ];
+    for (NSString *path in paths) {
+        @try {
+            id v = [node valueForKeyPath:path];
+            if ([v isKindOfClass:[NSString class]] && [(NSString *)v length]) return (NSString *)v;
+        } @catch (__unused NSException *e) {}
+    }
+    return @"";
+}
+
+// ASCollectionView keeps prefetched ASCellNodes alive even when the cell
+// isn't in the visible window — the action bar is horizontally scrollable
+// (contentSize.width often exceeds bounds.width), so the native "Lyrics"
+// cell can be off-screen at the right edge and never appear in subviews.
+// We need to iterate the dataSource's cells directly and ask each cell's
+// node for its text. -[ASCollectionView nodeForItemAtIndexPath:] is the
+// public AsyncDisplayKit accessor for that. For nodes that exist but
+// haven't been laid out yet (attributedText still nil), we fall back to
+// the controller key which is set up at binding time.
+static BOOL YTMULyricsCollectionViewHasLyricsCell(UIScrollView *bar) {
+    if (![bar isKindOfClass:[UICollectionView class]]) return NO;
+    UICollectionView *cv = (UICollectionView *)bar;
+    NSInteger sections = 0;
+    @try { sections = cv.numberOfSections; } @catch (__unused NSException *e) { return NO; }
+    SEL nodeSel = @selector(nodeForItemAtIndexPath:);
+    BOOL hasNodeAccessor = [cv respondsToSelector:nodeSel];
+    for (NSInteger s = 0; s < sections; s++) {
+        NSInteger items = 0;
+        @try { items = [cv numberOfItemsInSection:s]; } @catch (__unused NSException *e) { continue; }
+        for (NSInteger i = 0; i < items; i++) {
+            NSIndexPath *ip = [NSIndexPath indexPathForItem:i inSection:s];
+            if (hasNodeAccessor) {
+                id node = nil;
+                @try {
+                    #pragma clang diagnostic push
+                    #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                    node = [cv performSelector:nodeSel withObject:ip];
+                    #pragma clang diagnostic pop
+                } @catch (__unused NSException *e) {}
+                if (node) {
+                    NSString *text = YTMULyricsPageNodeAttributedText(node, 0);
+                    if (text.length &&
+                        YTMULyricsPageStringHasLyricsToken(text) &&
+                        ![[text lowercaseString] containsString:@"close"]) {
+                        return YES;
+                    }
+                    // Fallback for off-screen cells whose text isn't laid
+                    // out yet: read the controller key, which is set at
+                    // binding time and reliably contains the action
+                    // identifier (e.g. "...|Lyrics|...").
+                    NSString *ctrlKey = YTMULyricsPageNodeControllerKey(node);
+                    if (ctrlKey.length &&
+                        YTMULyricsPageStringHasLyricsToken(ctrlKey) &&
+                        ![[ctrlKey lowercaseString] containsString:@"close"]) {
+                        return YES;
+                    }
+                }
+            }
+            UICollectionViewCell *cell = nil;
+            @try {
+                cell = [cv cellForItemAtIndexPath:ip];
+            } @catch (__unused NSException *e) {}
+            if (cell) {
+                NSString *cellKey = YTMULyricsPageCellNodeKey(cell);
+                if (YTMULyricsPageStringHasLyricsToken(cellKey)) return YES;
+                NSString *nodeText = YTMULyricsPageCellNodeText(cell);
+                if (nodeText.length &&
+                    YTMULyricsPageStringHasLyricsToken(nodeText) &&
+                    ![[nodeText lowercaseString] containsString:@"close"]) return YES;
+            }
+        }
+    }
+    return NO;
+}
+
+static BOOL YTMULyricsPageContainsOfficialLyricsEntry(UIView *view, NSUInteger depth) {
+    if (!view || view.hidden || view.alpha <= 0.03 || depth > 18) return NO;
     NSString *identifier = view.accessibilityIdentifier;
-    if ([identifier isKindOfClass:[NSString class]] && [identifier isEqualToString:@"ytmu.lyrics.entry"]) return nil;
+    if ([identifier isKindOfClass:[NSString class]] && [identifier isEqualToString:@"ytmu.lyrics.entry"]) return NO;
 
     NSString *text = YTMULyricsPageAccessibilityText(view);
-    CGRect frame = [view convertRect:view.bounds toView:root];
-    BOOL buttonSized = frame.size.width >= 48.0 &&
-                       frame.size.width <= 160.0 &&
-                       frame.size.height >= 24.0 &&
-                       frame.size.height <= 64.0;
-    BOOL insideRoot = CGRectIntersectsRect(root.bounds, frame);
-    if (buttonSized && insideRoot && YTMULyricsPageTextHasLyricsToken(text) && ![text containsString:@"close"]) {
-        return view;
+    CGRect bounds = view.bounds;
+    BOOL buttonSized = bounds.size.width >= 48.0 &&
+                       bounds.size.width <= 180.0 &&
+                       bounds.size.height >= 24.0 &&
+                       bounds.size.height <= 72.0;
+    if ((buttonSized || depth > 0) && YTMULyricsPageTextHasLyricsToken(text) && ![text containsString:@"close"]) {
+        return YES;
     }
 
+    NSString *nodeKey = YTMULyricsPageCellNodeKey(view);
+    if (YTMULyricsPageStringHasLyricsToken(nodeKey)) return YES;
+
+    NSString *nodeText = YTMULyricsPageCellNodeText(view);
+    if (YTMULyricsPageStringHasLyricsToken(nodeText) && ![[nodeText lowercaseString] containsString:@"close"]) return YES;
+
     for (UIView *subview in view.subviews) {
-        UIView *found = YTMULyricsPageFindOfficialLyricsEntry(subview, root, depth + 1);
+        if (YTMULyricsPageContainsOfficialLyricsEntry(subview, depth + 1)) return YES;
+    }
+    return NO;
+}
+
+static UIScrollView *YTMULyricsPageFindActionBarScrollView(UIView *view, NSUInteger depth) {
+    if (!view || depth > 12) return nil;
+    NSString *identifier = view.accessibilityIdentifier;
+    if ([view isKindOfClass:[UIScrollView class]] &&
+        [identifier isKindOfClass:[NSString class]] &&
+        [identifier isEqualToString:@"id.video.scrollable_action_bar"]) {
+        return (UIScrollView *)view;
+    }
+    for (UIView *subview in view.subviews) {
+        UIScrollView *found = YTMULyricsPageFindActionBarScrollView(subview, depth + 1);
         if (found) return found;
     }
     return nil;
 }
 
-static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteger depth) {
-    if (!view || view.hidden || view.alpha <= 0.03 || depth > 18) return nil;
-    NSString *identifier = view.accessibilityIdentifier;
-    if ([identifier isKindOfClass:[NSString class]] && [identifier isEqualToString:@"ytmu.lyrics.entry"]) return nil;
+static CGFloat YTMULyricsPageActionBarContentWidth(UIScrollView *scrollView, UIView *button) {
+    // Collection-view layout publishes the full native content width via
+    // contentSize, including cells that have been recycled out of subviews.
+    // Subview maxX alone misses those, which is what made our chip overlap
+    // with cells that loaded in later (e.g. Download appearing on top of
+    // our button after the first layout pass).
+    CGFloat contentSizeWidth = scrollView.contentSize.width;
+    if (contentSizeWidth >= 1.0) return contentSizeWidth;
 
-    UIView *best = nil;
-    NSString *text = YTMULyricsPageAccessibilityText(view);
-    CGRect frame = [view convertRect:view.bounds toView:root];
-    BOOL chipSized = frame.size.width >= 52.0 &&
-                     frame.size.width <= 230.0 &&
-                     frame.size.height >= 26.0 &&
-                     frame.size.height <= 58.0 &&
-                     CGRectGetMidY(frame) >= root.bounds.size.height * 0.32 &&
-                     CGRectGetMidY(frame) <= root.bounds.size.height * 0.82 &&
-                     CGRectIntersectsRect(root.bounds, frame);
-    BOOL chipText = [text containsString:@"mix"] ||
-                    [text containsString:@"live chat"] ||
-                    [text containsString:@"replay"] ||
-                    [text containsString:@"comment"] ||
-                    [text containsString:@"related"] ||
-                    [text containsString:@"up next"] ||
-                    [text containsString:@"queue"] ||
-                    [text containsString:@"混音"] ||
-                    [text containsString:@"聊天"] ||
-                    [text containsString:@"相关"] ||
-                    [text containsString:@"相關"] ||
-                    [text containsString:@"队列"] ||
-                    [text containsString:@"佇列"];
-    if (chipSized && chipText) best = view;
-
-    for (UIView *subview in view.subviews) {
-        UIView *candidate = YTMULyricsPageFindChipAnchor(subview, root, depth + 1);
-        if (!candidate) continue;
-        if (!best) {
-            best = candidate;
-            continue;
-        }
-        CGRect bestFrame = [best convertRect:best.bounds toView:root];
-        CGRect candidateFrame = [candidate convertRect:candidate.bounds toView:root];
-        if (CGRectGetMinX(candidateFrame) < CGRectGetMinX(bestFrame)) best = candidate;
+    CGFloat maxX = 0.0;
+    for (UIView *subview in scrollView.subviews) {
+        if (subview == button) continue;
+        if (subview.hidden || subview.alpha <= 0.03) continue;
+        if ([NSStringFromClass([subview class]) containsString:@"ScrollIndicator"]) continue;
+        CGRect frame = subview.frame;
+        if (frame.size.width < 8.0 || frame.size.height < 8.0) continue;
+        maxX = MAX(maxX, CGRectGetMaxX(frame));
     }
-    return best;
+    return maxX;
+}
+
+static UIImage *YTMULyricsPageLyricsIcon(void) {
+    NSArray<NSString *> *names = @[@"quote.bubble", @"text.quote", @"quote.opening"];
+    for (NSString *name in names) {
+        UIImage *image = [UIImage systemImageNamed:name];
+        if (image) return image;
+    }
+    return nil;
+}
+
+static void YTMULyricsPageApplyActionBarInset(UIScrollView *scrollView, CGFloat requiredRightInset) {
+    if (!scrollView) return;
+    NSValue *originalValue = objc_getAssociatedObject(scrollView, YTMULyricsActionBarOriginalInsetKey);
+    if (!originalValue) {
+        originalValue = [NSValue valueWithUIEdgeInsets:scrollView.contentInset];
+        objc_setAssociatedObject(scrollView, YTMULyricsActionBarOriginalInsetKey, originalValue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    UIEdgeInsets originalInset = originalValue.UIEdgeInsetsValue;
+    UIEdgeInsets inset = scrollView.contentInset;
+    inset.right = MAX(originalInset.right, requiredRightInset);
+    scrollView.contentInset = inset;
+    scrollView.scrollIndicatorInsets = inset;
+}
+
+static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
+    if (!scrollView) return;
+    NSValue *originalValue = objc_getAssociatedObject(scrollView, YTMULyricsActionBarOriginalInsetKey);
+    if (!originalValue) return;
+    UIEdgeInsets originalInset = originalValue.UIEdgeInsetsValue;
+    scrollView.contentInset = originalInset;
+    scrollView.scrollIndicatorInsets = originalInset;
+    objc_setAssociatedObject(scrollView, YTMULyricsActionBarOriginalInsetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 %hook YTMNowPlayingViewController
@@ -1685,7 +2022,138 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
 %new
 - (void)ytmu_updateLyricsEntryButton {
     if (!YTMULyricsPageCustomSourceEnabled()) {
+        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
+            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
+        }
         self.ytmuLyricsEntryButton.hidden = YES;
+        [self.ytmuLyricsEntryButton removeFromSuperview];
+        return;
+    }
+
+    NSString *currentVideoId = [YTMULyricsManager sharedManager].activeVideoId;
+    UIScrollView *actionBar = YTMULyricsPageFindActionBarScrollView(self.view, 0);
+
+    static NSString *gLastEntryButtonVideoId = nil;
+    static __weak UIScrollView *gStaleActionBarFromPrevVideo = nil;
+    static CFAbsoluteTime gStaleActionBarTimestamp = 0;
+    if (gLastEntryButtonVideoId && currentVideoId.length &&
+        ![gLastEntryButtonVideoId isEqualToString:currentVideoId]) {
+        // Song changed since the last update. Two things to do:
+        //   1. Retract any chip we left attached to the old action bar so
+        //      we never co-render with the new song's native Lyrics chip
+        //      during the transition window.
+        //   2. Remember the current bar as "stale". manager.activeVideoId
+        //      flips to the new song *before* YTMNowPlayingViewController
+        //      tears down the old action bar, so for a few frames the old
+        //      bar's Lyrics cell is still in the hierarchy even though it
+        //      belongs to the previous song. If we mark chipPresent
+        //      against the new videoId during that window we permanently
+        //      cache the wrong "this song has official lyrics" verdict
+        //      (and then hide our chip every time the user comes back).
+        if (actionBar) {
+            gStaleActionBarFromPrevVideo = actionBar;
+            gStaleActionBarTimestamp = CFAbsoluteTimeGetCurrent();
+        }
+        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
+            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
+        }
+        self.ytmuLyricsEntryButton.hidden = YES;
+        [self.ytmuLyricsEntryButton removeFromSuperview];
+        YTMULyricsLog(@"actionRow: videoId changed %@ -> %@; retracting chip; staleBar=%p",
+                      gLastEntryButtonVideoId, currentVideoId, (__bridge void *)actionBar);
+    }
+    if (currentVideoId.length) {
+        gLastEntryButtonVideoId = [currentVideoId copy];
+    }
+
+    if (!actionBar) {
+        YTMULyricsLog(@"actionRow: no action bar yet");
+        // Make sure the chip isn't lingering inside an action bar that's about
+        // to disappear from the hierarchy (otherwise it stays visible during
+        // the song-change animation).
+        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
+            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
+        }
+        self.ytmuLyricsEntryButton.hidden = YES;
+        [self.ytmuLyricsEntryButton removeFromSuperview];
+        return;
+    }
+
+    // Note: we used to force-bind every dataSource entry here so off-screen
+    // cells revealed their attributedText. That route is poison — see the
+    // comment near the (deleted) YTMULyricsForceBindAllCells helper. We
+    // now accept that off-screen cells stay unbound and rely on the
+    // unbound-guard below to keep our chip retracted while the verdict is
+    // ambiguous; subsequent retries will catch up once natural binding
+    // completes.
+
+    if (actionBar == gStaleActionBarFromPrevVideo) {
+        // Same bar instance we recorded at the videoId switch — its cells
+        // most likely still belong to the previous song. Skip this tick:
+        // don't mark, don't render, don't take any chipPresent verdict.
+        // Time-bound the suppression at 3.0s so that if YTMusic reuses
+        // the same ASCollectionView for the new song we don't deadlock
+        // ourselves into permanent silence. (Previously 1.5s, but real
+        // device logs showed the manager-vs-actionBar lag can stretch
+        // past 2s, after which we'd start hiding/showing for the wrong
+        // song.)
+        CFAbsoluteTime age = CFAbsoluteTimeGetCurrent() - gStaleActionBarTimestamp;
+        if (age < 3.0) {
+            YTMULyricsLog(@"actionRow: skip — actionBar=%p still stale (age=%.2fs); current=%@",
+                          (__bridge void *)actionBar, age,
+                          currentVideoId.length ? currentVideoId : @"<none>");
+            return;
+        }
+        YTMULyricsLog(@"actionRow: stale bar=%p timed out (age=%.2fs) — releasing",
+                      (__bridge void *)actionBar, age);
+        gStaleActionBarFromPrevVideo = nil;
+        gStaleActionBarTimestamp = 0;
+    }
+
+    // Fresh detection every frame — no cross-frame cache writes from this
+    // UI path. Earlier versions cached "this song has official lyrics"
+    // into a per-videoId set whenever we saw a Lyrics cell, plus a bridge
+    // map keyed by action-bar instance for the videoId-not-yet-known
+    // window. Both were a footgun: when YTMNowPlayingViewController flips
+    // manager.activeVideoId before tearing down the previous song's
+    // action bar (a window that can stretch past a couple of seconds),
+    // the stale Lyrics cell got attributed to the new videoId and cached
+    // permanently. The user then sees us hide the chip on songs that
+    // genuinely have no lyrics. The renderer hook still writes the set
+    // when it fires (rare, but more authoritative), so we read it but
+    // never write from here.
+    BOOL rendererSawLyrics = YTMULyricsHasOfficialForCurrentSong();
+    BOOL chipPresent = NO;
+    if (!rendererSawLyrics) {
+        chipPresent = YTMULyricsCollectionViewHasLyricsCell(actionBar)
+            || YTMULyricsPageContainsOfficialLyricsEntry(actionBar, 0);
+    }
+
+    if (rendererSawLyrics || chipPresent) {
+        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
+            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
+        }
+        self.ytmuLyricsEntryButton.hidden = YES;
+        [self.ytmuLyricsEntryButton removeFromSuperview];
+        YTMULyricsLog(@"actionRow: hide rendererSeen=%d chipPresent=%d videoId=%@",
+                      rendererSawLyrics, chipPresent,
+                      currentVideoId.length ? currentVideoId : @"<none>");
+        return;
+    }
+
+    if (YTMULyricsCollectionViewHasUnboundNodes(actionBar)) {
+        // Some cells in the action bar's dataSource haven't bound yet —
+        // their text/key are both empty so we can't tell whether one of
+        // them is the native Lyrics chip. Stay retracted and wait for
+        // the next refresh to retry; surfacing the chip now would risk
+        // double-rendering once the unbound cell finally lays out.
+        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
+            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
+        }
+        self.ytmuLyricsEntryButton.hidden = YES;
+        [self.ytmuLyricsEntryButton removeFromSuperview];
+        YTMULyricsLog(@"actionRow: skip — dataSource has unbound nodes; current=%@",
+                      currentVideoId.length ? currentVideoId : @"<none>");
         return;
     }
 
@@ -1694,72 +2162,66 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
         self.ytmuLyricsEntryButton.accessibilityIdentifier = @"ytmu.lyrics.entry";
         self.ytmuLyricsEntryButton.accessibilityLabel = YTMULyricsPageLocalized(@"LYRICS_PANEL_TITLE", @"Lyrics");
         [self.ytmuLyricsEntryButton setTitle:YTMULyricsPageLocalized(@"LYRICS_PANEL_TITLE", @"Lyrics") forState:UIControlStateNormal];
-        self.ytmuLyricsEntryButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+        UIImage *icon = YTMULyricsPageLyricsIcon();
+        if (icon) [self.ytmuLyricsEntryButton setImage:icon forState:UIControlStateNormal];
+        self.ytmuLyricsEntryButton.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
         [self.ytmuLyricsEntryButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        self.ytmuLyricsEntryButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.16];
-        self.ytmuLyricsEntryButton.layer.cornerRadius = 17.0;
-        self.ytmuLyricsEntryButton.layer.borderWidth = 0.0;
+        self.ytmuLyricsEntryButton.tintColor = [UIColor whiteColor];
+        self.ytmuLyricsEntryButton.imageView.contentMode = UIViewContentModeScaleAspectFit;
+        self.ytmuLyricsEntryButton.contentEdgeInsets = UIEdgeInsetsMake(0.0, 14.0, 0.0, 14.0);
+        self.ytmuLyricsEntryButton.imageEdgeInsets = UIEdgeInsetsMake(0.0, -4.0, 0.0, 6.0);
+        self.ytmuLyricsEntryButton.titleEdgeInsets = UIEdgeInsetsMake(0.0, 6.0, 0.0, -4.0);
         self.ytmuLyricsEntryButton.clipsToBounds = YES;
         [self.ytmuLyricsEntryButton addTarget:self action:@selector(ytmu_openLyricsPanel:) forControlEvents:UIControlEventTouchUpInside];
-        [self.view addSubview:self.ytmuLyricsEntryButton];
-        YTMULyricsLog(@"lyrics entry button attached controller=%@", NSStringFromClass([self class]));
-    }
-    if (self.ytmuLyricsEntryButton.superview != self.view) {
-        [self.view addSubview:self.ytmuLyricsEntryButton];
     }
 
-    UIEdgeInsets safe = UIEdgeInsetsZero;
-    if (@available(iOS 11.0, *)) safe = self.view.safeAreaInsets;
-    CGFloat width = 86.0;
-    CGFloat height = 34.0;
-    UIView *official = YTMULyricsPageFindOfficialLyricsEntry(self.view, self.view, 0);
-    CGRect frame = CGRectZero;
-    if (official) {
-        UIView *target = YTMULyricsPageActionTargetForView(official);
-        CGRect officialFrame = [target convertRect:target.bounds toView:self.view];
-        frame = officialFrame;
-        if (frame.size.width < 72.0 || frame.size.width > 180.0) {
-            frame = CGRectMake(CGRectGetMinX(officialFrame),
-                               CGRectGetMidY(officialFrame) - height / 2.0,
-                               width,
-                               height);
-        }
-    } else {
-        UIView *anchor = YTMULyricsPageFindChipAnchor(self.view, self.view, 0);
-        if (anchor) {
-            UIView *anchorTarget = YTMULyricsPageActionTargetForView(anchor);
-            CGRect anchorFrame = [anchorTarget convertRect:anchorTarget.bounds toView:self.view];
-            BOOL anchorIsLate = CGRectGetMidX(anchorFrame) > self.view.bounds.size.width * 0.55;
-            CGFloat x = anchorIsLate ? CGRectGetMinX(anchorFrame) - width - 8.0 : CGRectGetMaxX(anchorFrame) + 8.0;
-            if (x + width > self.view.bounds.size.width - safe.right - 12.0) {
-                x = self.view.bounds.size.width - safe.right - width - 12.0;
-            }
-            frame = CGRectMake(MAX(safe.left + 12.0, x),
-                               CGRectGetMidY(anchorFrame) - height / 2.0,
-                               width,
-                               height);
-        } else {
-            CGFloat y = self.view.bounds.size.height * 0.64;
-            CGFloat x = self.view.bounds.size.width * 0.52 - width / 2.0;
-            x = MIN(x, self.view.bounds.size.width - safe.right - width - 12.0);
-            frame = CGRectMake(MAX(safe.left + 12.0, x),
-                               y,
-                               width,
-                               height);
-        }
+    if (self.ytmuLyricsEntryButton.superview != actionBar) {
+        [self.ytmuLyricsEntryButton removeFromSuperview];
+        [actionBar addSubview:self.ytmuLyricsEntryButton];
     }
 
-    self.ytmuLyricsEntryButton.hidden = self.view.bounds.size.height < 360.0;
-    self.ytmuLyricsEntryButton.frame = frame;
-    self.ytmuLyricsEntryButton.layer.cornerRadius = MIN(18.0, frame.size.height / 2.0);
-    [self.view bringSubviewToFront:self.ytmuLyricsEntryButton];
+    // The action-bar cell is 48pt tall but YT's chip pill inside it is ~36pt
+    // (logs of native cells: cell.frame.size = {W, 48}, but the visible chip
+    // sits centered with ~6pt padding top/bottom). Pin our chip to that pill
+    // height instead of the cell height so we don't render too tall.
+    CGFloat actionBarHeight = actionBar.bounds.size.height;
+    CGFloat height = MIN(36.0, MAX(28.0, actionBarHeight - 12.0));
+
+    self.ytmuLyricsEntryButton.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.10];
+    self.ytmuLyricsEntryButton.layer.cornerRadius = height / 2.0;
+
+    // Native "Lyrics" chip measures 108-120pt across logs; sizeThatFits with
+    // our font + edge insets returns ~91pt which truncates the title into
+    // "L...cs". Floor the width at 112pt so the full label fits with the
+    // icon and matches the native chip's footprint.
+    CGSize fitSize = [self.ytmuLyricsEntryButton sizeThatFits:CGSizeMake(CGFLOAT_MAX, height)];
+    CGFloat width = MAX(112.0, ceil(fitSize.width));
+
+    CGFloat contentWidth = YTMULyricsPageActionBarContentWidth(actionBar, self.ytmuLyricsEntryButton);
+    if (actionBar.bounds.size.width < 1.0) {
+        self.ytmuLyricsEntryButton.hidden = YES;
+        return;
+    }
+
+    CGFloat gap = 6.0;
+    CGFloat x = contentWidth > 0.0 ? contentWidth + gap : 0.0;
+    CGFloat y = MAX(0.0, (actionBarHeight - height) / 2.0);
+    self.ytmuLyricsEntryButton.frame = CGRectMake(x, y, width, height);
+    self.ytmuLyricsEntryButton.hidden = NO;
+    YTMULyricsPageApplyActionBarInset(actionBar, width + gap + 16.0);
+    [actionBar bringSubviewToFront:self.ytmuLyricsEntryButton];
+
+    YTMULyricsLog(@"actionRow: show frame=%@ contentWidth=%.1f barH=%.1f videoId=%@",
+                  NSStringFromCGRect(self.ytmuLyricsEntryButton.frame),
+                  contentWidth, actionBarHeight,
+                  currentVideoId.length ? currentVideoId : @"<none>");
 }
 
 %new
 - (void)ytmu_scheduleLyricsEntryButtonRefresh {
     NSUInteger token = self.ytmuLyricsEntryRefreshToken.unsignedIntegerValue + 1;
     self.ytmuLyricsEntryRefreshToken = @(token);
-    NSArray<NSNumber *> *delays = @[@0.15, @0.45, @0.9, @1.5];
+    NSArray<NSNumber *> *delays = @[@0.15, @0.3, @0.6, @1.0, @1.5, @2.5, @4.0, @6.0, @9.0, @13.0];
     __weak typeof(self) weakSelf = self;
     for (NSNumber *delayNumber in delays) {
         NSTimeInterval delay = delayNumber.doubleValue;
@@ -1779,6 +2241,16 @@ static UIView *YTMULyricsPageFindChipAnchor(UIView *view, UIView *root, NSUInteg
             [self ytmu_handleLyricsEntryRefreshNotification:notification];
         });
         return;
+    }
+    // Manager state changed (typically song change). Retract the button now
+    // so we never overlap with the new song's native Lyrics chip during the
+    // window between manager refresh and the next layout pass.
+    if (self.ytmuLyricsEntryButton) {
+        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
+            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
+        }
+        self.ytmuLyricsEntryButton.hidden = YES;
+        [self.ytmuLyricsEntryButton removeFromSuperview];
     }
     [self ytmu_updateLyricsEntryButton];
     [self ytmu_scheduleLyricsEntryButtonRefresh];
