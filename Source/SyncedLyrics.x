@@ -188,6 +188,7 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     NSString *title = YTMUStringFromObject(YTMUSafeValueForKey(details, @"title"));
     NSString *artist = YTMUStringFromObject(YTMUSafeValueForKey(details, @"author"));
     NSString *album = YTMUStringFromObject(YTMUSafeValueForKey(details, @"album"));
+    NSString *shortDescription = YTMUStringFromObject(YTMUSafeValueForKey(details, @"shortDescription"));
     id microformat = YTMUMicroformatRendererFromPlayerResponse(playerResponse);
     NSString *alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
     NSArray<NSString *> *tags = YTMUTagsFromMicroformat(microformat);
@@ -252,6 +253,11 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     info.album = album;
     info.duration = duration;
     info.tags = tags ?: @[];
+    // Cap at 2KB so we don't ship multi-page YouTube descriptions to the
+    // LLM. Doujin/cover staff lists almost always live in the first ~500
+    // chars; anything past that is usually credits / links / CC notes.
+    if (shortDescription.length > 2048) shortDescription = [shortDescription substringToIndex:2048];
+    info.shortDescription = shortDescription ?: @"";
     [[YTMULyricsManager sharedManager] refreshWithInfo:info];
     return YES;
 }

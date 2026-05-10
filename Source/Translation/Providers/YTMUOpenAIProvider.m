@@ -150,4 +150,86 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
     }];
 }
 
+#pragma mark - YTMULLMCompletionProvider
+
+- (NSDictionary *)completionBodyForSystem:(NSString *)systemPrompt
+                                     user:(NSString *)userPrompt
+                                 jsonMode:(BOOL)jsonMode {
+    NSMutableDictionary *body = [@{
+        @"model": [self modelIdentifier],
+        @"instructions": systemPrompt ?: @"",
+        @"input": userPrompt ?: @"",
+    } mutableCopy];
+    if (jsonMode) body[@"text"] = @{@"format": @{@"type": @"json_object"}};
+    return body;
+}
+
+- (void)postCompletionWithSystem:(NSString *)systemPrompt
+                            user:(NSString *)userPrompt
+                        jsonMode:(BOOL)jsonMode
+                      completion:(void(^)(NSData *data, NSURLResponse *response, NSError *error))completion {
+    NSString *baseURL = YTMUOpenAIDefaultsString(@"translationBaseUrl", @"https://api.openai.com/v1");
+    NSString *apiKey = YTMUOpenAIDefaultsString(@"translationApiKey_openai-compatible", @"");
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUOpenAIResponsesURL(baseURL)]];
+    urlRequest.HTTPMethod = @"POST";
+    urlRequest.timeoutInterval = 45.0;
+    urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:[self completionBodyForSystem:systemPrompt user:userPrompt jsonMode:jsonMode]
+                                                          options:0
+                                                            error:nil];
+    [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    if (apiKey.length) [urlRequest setValue:[@"Bearer " stringByAppendingString:apiKey] forHTTPHeaderField:@"Authorization"];
+    [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:completion] resume];
+}
+
+- (void)completeWithSystemPrompt:(NSString *)systemPrompt
+                      userPrompt:(NSString *)userPrompt
+                  expectJSONMode:(BOOL)expectJSONMode
+                      completion:(void(^)(NSString *_Nullable text, NSError *_Nullable error))completion {
+    NSString *apiKey = YTMUOpenAIDefaultsString(@"translationApiKey_openai-compatible", @"");
+    if (!apiKey.length) {
+        completion(nil, YTMUOpenAIError(YTMUTranslationErrorMissingAPIKey, @"OpenAI-compatible API key is empty"));
+        return;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    void (^handle)(NSData *, NSURLResponse *, NSError *, BOOL) = ^(NSData *data, NSURLResponse *response, NSError *error, BOOL canRetry) {
+        if (error) { completion(nil, error); return; }
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        if (status < 200 || status >= 300) {
+            NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+            if (canRetry && [weakSelf shouldRetryWithoutJSONModeForStatus:status body:bodyText ?: @""]) {
+                YTMUTranslationLog(@"openai-compatible normalize retrying without JSON mode status=%ld", (long)status);
+                [weakSelf postCompletionWithSystem:systemPrompt user:userPrompt jsonMode:NO completion:^(NSData *retryData, NSURLResponse *retryResponse, NSError *retryError) {
+                    if (retryError) { completion(nil, retryError); return; }
+                    NSInteger retryStatus = [retryResponse isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)retryResponse statusCode] : 0;
+                    if (retryStatus < 200 || retryStatus >= 300) {
+                        NSString *retryBody = retryData ? [[NSString alloc] initWithData:retryData encoding:NSUTF8StringEncoding] : @"";
+                        completion(nil, YTMUOpenAIError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"OpenAI %ld: %@", (long)retryStatus, [retryBody substringToIndex:MIN((NSUInteger)200, retryBody.length)] ?: @""]));
+                        return;
+                    }
+                    NSDictionary *retryJson = retryData ? [NSJSONSerialization JSONObjectWithData:retryData options:0 error:nil] : nil;
+                    NSString *text = [retryJson isKindOfClass:[NSDictionary class]] ? [weakSelf responseTextFromJSON:retryJson] : @"";
+                    if (!text.length) { completion(nil, YTMUOpenAIError(YTMUTranslationErrorEmptyResponse, @"OpenAI returned empty completion")); return; }
+                    completion(text, nil);
+                }];
+                return;
+            }
+            completion(nil, YTMUOpenAIError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"OpenAI %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)200, bodyText.length)] ?: @""]));
+            return;
+        }
+        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) {
+            completion(nil, YTMUOpenAIError(YTMUTranslationErrorParse, @"OpenAI returned invalid JSON"));
+            return;
+        }
+        NSString *text = [weakSelf responseTextFromJSON:json];
+        if (!text.length) { completion(nil, YTMUOpenAIError(YTMUTranslationErrorEmptyResponse, @"OpenAI returned empty completion")); return; }
+        completion(text, nil);
+    };
+
+    [self postCompletionWithSystem:systemPrompt user:userPrompt jsonMode:expectJSONMode completion:^(NSData *data, NSURLResponse *response, NSError *error) {
+        handle(data, response, error, expectJSONMode);
+    }];
+}
+
 @end

@@ -32,6 +32,17 @@ typedef NS_ENUM(NSInteger, YTMUTranslationErrorCode) {
 @property (nonatomic, copy) NSArray<NSString *> *lines;
 @end
 
+@protocol YTMULLMCompletionProvider <NSObject>
+// Generic single-turn chat completion. Used by the title normalizer to ask
+// the LLM for canonical song metadata. Implementors should request JSON
+// output when expectJSONMode is YES (the caller will do best-effort parsing
+// either way). Returns the raw assistant text on success.
+- (void)completeWithSystemPrompt:(NSString *)systemPrompt
+                      userPrompt:(NSString *)userPrompt
+                  expectJSONMode:(BOOL)expectJSONMode
+                      completion:(void(^)(NSString *_Nullable text, NSError *_Nullable error))completion;
+@end
+
 @protocol YTMUTranslationProvider <NSObject>
 - (NSString *)providerName;       // matches the YTMUTranslationProvider* constants above
 - (NSString *)modelIdentifier;    // for cache keying

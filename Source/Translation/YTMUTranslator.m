@@ -62,6 +62,24 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
     return self;
 }
 
+- (NSString *)currentProviderName {
+    return YTMUSettingsString(@"translationProvider", YTMUTranslationProviderGoogle);
+}
+
+- (id<YTMULLMCompletionProvider>)currentLLMCompletionProvider {
+    NSString *name = [self currentProviderName];
+    if ([name isEqualToString:YTMUTranslationProviderGoogle]) return nil; // Google Translate has no chat completion
+    id<YTMUTranslationProvider> provider = self.providers[name];
+    if (![provider conformsToProtocol:@protocol(YTMULLMCompletionProvider)]) return nil;
+    // Make sure the provider has the credentials it needs. We can only
+    // know that by reading the same UserDefaults keys each provider
+    // checks; rather than duplicate that knowledge here, a missing key
+    // surfaces as YTMUTranslationErrorMissingAPIKey from the actual
+    // call, and the normalizer treats that as a network failure (silent
+    // fallback to raw, no blacklist).
+    return (id<YTMULLMCompletionProvider>)provider;
+}
+
 - (YTMUTranslationRequest *)requestWithLines:(NSArray<NSString *> *)lines
                                       title:(NSString *)title
                                      artist:(NSString *)artist

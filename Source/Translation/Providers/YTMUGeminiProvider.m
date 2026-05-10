@@ -108,4 +108,77 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
     }] resume];
 }
 
+#pragma mark - YTMULLMCompletionProvider
+
+- (void)completeWithSystemPrompt:(NSString *)systemPrompt
+                      userPrompt:(NSString *)userPrompt
+                  expectJSONMode:(BOOL)expectJSONMode
+                      completion:(void(^)(NSString *_Nullable text, NSError *_Nullable error))completion {
+    NSString *apiKey = YTMUGeminiDefaultsString(@"translationApiKey_gemini", @"");
+    NSString *model = [self modelIdentifier];
+    if (!apiKey.length) {
+        completion(nil, YTMUGeminiError(YTMUTranslationErrorMissingAPIKey, @"Gemini API key is empty"));
+        return;
+    }
+
+    NSString *urlString = [NSString stringWithFormat:@"https://generativelanguage.googleapis.com/v1beta/models/%@:generateContent?key=%@",
+                           [model stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]] ?: model,
+                           [apiKey stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: apiKey];
+
+    NSMutableDictionary *generationConfig = [@{@"temperature": @0.2} mutableCopy];
+    if (expectJSONMode) generationConfig[@"responseMimeType"] = @"application/json";
+
+    NSDictionary *body = @{
+        @"systemInstruction": @{
+            @"role": @"system",
+            @"parts": @[@{@"text": systemPrompt ?: @""}],
+        },
+        @"contents": @[
+            @{
+                @"role": @"user",
+                @"parts": @[@{@"text": userPrompt ?: @""}],
+            },
+        ],
+        @"generationConfig": generationConfig,
+    };
+
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
+    urlRequest.HTTPMethod = @"POST";
+    urlRequest.timeoutInterval = 45.0;
+    urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        if (status < 200 || status >= 300) {
+            NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+            completion(nil, YTMUGeminiError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"Gemini %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)200, bodyText.length)] ?: @""]));
+            return;
+        }
+        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) {
+            completion(nil, YTMUGeminiError(YTMUTranslationErrorParse, @"Gemini returned invalid JSON"));
+            return;
+        }
+        NSMutableString *text = [NSMutableString string];
+        NSArray *candidates = json[@"candidates"];
+        NSDictionary *candidate = [candidates isKindOfClass:[NSArray class]] && candidates.count ? candidates.firstObject : nil;
+        NSDictionary *content = [candidate isKindOfClass:[NSDictionary class]] ? candidate[@"content"] : nil;
+        NSArray *parts = [content isKindOfClass:[NSDictionary class]] ? content[@"parts"] : nil;
+        if ([parts isKindOfClass:[NSArray class]]) {
+            for (id part in parts) {
+                if (![part isKindOfClass:[NSDictionary class]]) continue;
+                NSString *partText = ((NSDictionary *)part)[@"text"];
+                if ([partText isKindOfClass:[NSString class]]) [text appendString:partText];
+            }
+        }
+        if (!text.length) {
+            completion(nil, YTMUGeminiError(YTMUTranslationErrorEmptyResponse, @"Gemini returned empty completion"));
+            return;
+        }
+        completion(text, nil);
+    }] resume];
+}
+
 @end

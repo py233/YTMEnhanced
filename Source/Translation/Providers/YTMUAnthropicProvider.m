@@ -103,4 +103,72 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     }] resume];
 }
 
+#pragma mark - YTMULLMCompletionProvider
+
+- (void)completeWithSystemPrompt:(NSString *)systemPrompt
+                      userPrompt:(NSString *)userPrompt
+                  expectJSONMode:(BOOL)expectJSONMode
+                      completion:(void(^)(NSString *_Nullable text, NSError *_Nullable error))completion {
+    NSString *apiKey = YTMUAnthropicDefaultsString(@"translationApiKey_anthropic", @"");
+    NSString *model = [self modelIdentifier];
+    if (!apiKey.length) {
+        completion(nil, YTMUAnthropicError(YTMUTranslationErrorMissingAPIKey, @"Anthropic API key is empty"));
+        return;
+    }
+
+    NSMutableArray *messages = [NSMutableArray array];
+    [messages addObject:@{@"role": @"user", @"content": userPrompt ?: @""}];
+    // Anthropic doesn't have a strict JSON mode; the convention used by
+    // the translation path is to seed an "{" assistant turn and then
+    // re-prepend it on parse. We mirror that here when the caller wants
+    // JSON output.
+    if (expectJSONMode) [messages addObject:@{@"role": @"assistant", @"content": @"{"}];
+
+    NSDictionary *body = @{
+        @"model": model,
+        @"max_tokens": @1024,
+        @"system": systemPrompt ?: @"",
+        @"messages": messages,
+        @"temperature": @0.2,
+    };
+
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.anthropic.com/v1/messages"]];
+    urlRequest.HTTPMethod = @"POST";
+    urlRequest.timeoutInterval = 45.0;
+    urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [urlRequest setValue:apiKey forHTTPHeaderField:@"x-api-key"];
+    [urlRequest setValue:@"2023-06-01" forHTTPHeaderField:@"anthropic-version"];
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        if (status < 200 || status >= 300) {
+            NSString *bodyText = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+            completion(nil, YTMUAnthropicError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"Anthropic %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)200, bodyText.length)] ?: @""]));
+            return;
+        }
+        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) {
+            completion(nil, YTMUAnthropicError(YTMUTranslationErrorParse, @"Anthropic returned invalid JSON"));
+            return;
+        }
+        NSMutableString *text = [NSMutableString string];
+        if (expectJSONMode) [text appendString:@"{"];
+        NSArray *content = json[@"content"];
+        if ([content isKindOfClass:[NSArray class]]) {
+            for (id item in content) {
+                if (![item isKindOfClass:[NSDictionary class]]) continue;
+                NSString *part = ((NSDictionary *)item)[@"text"];
+                if ([part isKindOfClass:[NSString class]]) [text appendString:part];
+            }
+        }
+        if (text.length <= (expectJSONMode ? 1 : 0)) {
+            completion(nil, YTMUAnthropicError(YTMUTranslationErrorEmptyResponse, @"Anthropic returned empty completion"));
+            return;
+        }
+        completion(text, nil);
+    }] resume];
+}
+
 @end

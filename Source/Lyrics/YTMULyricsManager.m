@@ -1,6 +1,7 @@
 #import "YTMULyricsManager.h"
 #import "YTMULyricsCache.h"
 #import "YTMULyricsTextProcessor.h"
+#import "YTMULyricsTitleNormalizer.h"
 #import "../Translation/YTMUTranslator.h"
 #import "../Translation/YTMUPromptBuilder.h"
 #import "../Translation/YTMUTranslationTypes.h"
@@ -585,34 +586,37 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     }];
 }
 
+// Result of a single tryProviders pass. provider/result are set together
+// — if result is nil the pass exhausted every provider with no match.
+typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable result,
+                                                 id<YTMULyricsProvider> _Nullable provider,
+                                                 NSArray<NSString *> *_Nonnull errors);
+
 - (void)tryProviders:(NSArray<id<YTMULyricsProvider>> *)providers
                index:(NSUInteger)index
                 info:(YTMULyricsSearchInfo *)info
           generation:(NSUInteger)generation
           lastErrors:(NSMutableArray<NSString *> *)lastErrors
       fallbackResult:(YTMULyricsResult *)fallbackResult
-     fallbackProvider:(id<YTMULyricsProvider>)fallbackProvider {
+    fallbackProvider:(id<YTMULyricsProvider>)fallbackProvider
+       updateAvailability:(BOOL)updateAvailability
+          completion:(YTMULyricsTryProvidersCompletion)completion {
     if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
     if (index >= providers.count) {
         if (fallbackResult.hasText) {
-            YTMULyricsLog(@"lyrics using plain fallback videoId=%@ source=%@", info.videoId, fallbackResult.sourceName);
-            [self finishWithResult:fallbackResult info:info provider:fallbackProvider generation:generation];
+            completion(fallbackResult, fallbackProvider, lastErrors);
             return;
         }
-        self.state = YTMULyricsFetchStateError;
-        self.lastErrorMessage = lastErrors.count ? [lastErrors componentsJoinedByString:@" | "] : YTMULyricsManagerLocalized(@"LYRICS_STATE_NO_LYRICS", @"No lyrics found");
-        YTMULyricsLog(@"lyrics lookup exhausted videoId=%@ errors=%@", info.videoId, self.lastErrorMessage);
-        [self notify];
-        [self probeRemainingProvidersForInfo:info generation:generation];
+        completion(nil, nil, lastErrors);
         return;
     }
 
     id<YTMULyricsProvider> provider = providers[index];
-    [self setAvailability:@"checking" forProvider:provider notify:YES];
+    if (updateAvailability) [self setAvailability:@"checking" forProvider:provider notify:YES];
     NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
     YTMULyricsResult *cached = [[YTMULyricsCache sharedCache] resultForKey:cacheKey];
     if (cached.hasText) {
-        [self setAvailability:@"hit" forProvider:provider notify:NO];
+        if (updateAvailability) [self setAvailability:@"hit" forProvider:provider notify:NO];
         YTMULyricsLog(@"lyrics cache hit videoId=%@ source=%@", info.videoId, [provider providerName]);
         NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
         BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
@@ -628,10 +632,12 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
                     generation:generation
                     lastErrors:lastErrors
                 fallbackResult:fallbackResult ?: cached
-               fallbackProvider:fallbackProvider ?: provider];
+               fallbackProvider:fallbackProvider ?: provider
+            updateAvailability:updateAvailability
+                    completion:completion];
             return;
         }
-        [self finishWithResult:cached info:info provider:provider generation:generation];
+        completion(cached, provider, lastErrors);
         return;
     }
 
@@ -645,7 +651,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
             if (result.hasText) {
-                [self setAvailability:@"hit" forProvider:provider notify:NO];
+                if (updateAvailability) [self setAvailability:@"hit" forProvider:provider notify:NO];
                 [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
                 NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
                 BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
@@ -662,14 +668,16 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
                             generation:generation
                             lastErrors:lastErrors
                         fallbackResult:fallbackResult ?: result
-                       fallbackProvider:fallbackProvider ?: provider];
+                       fallbackProvider:fallbackProvider ?: provider
+                    updateAvailability:updateAvailability
+                            completion:completion];
                     return;
                 }
-                [self finishWithResult:result info:info provider:provider generation:generation];
+                completion(result, provider, lastErrors);
                 return;
             }
             NSString *message = error.localizedDescription ?: YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_NO_MATCH", @"no match");
-            [self setAvailability:@"miss" forProvider:provider notify:YES];
+            if (updateAvailability) [self setAvailability:@"miss" forProvider:provider notify:YES];
             [lastErrors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
             YTMULyricsLog(@"lyrics source miss videoId=%@ source=%@ reason=%@", info.videoId, [provider providerName], message);
             [self tryProviders:providers
@@ -678,7 +686,9 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
                     generation:generation
                     lastErrors:lastErrors
                 fallbackResult:fallbackResult
-               fallbackProvider:fallbackProvider];
+               fallbackProvider:fallbackProvider
+            updateAvailability:updateAvailability
+                    completion:completion];
         });
     }];
 }
@@ -737,13 +747,233 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
                   info.artist,
                   YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto"),
                   (unsigned long)providers.count);
+    YTMULyricsSearchInfo *infoCopy = [info copy];
     [self tryProviders:providers
                  index:0
-                  info:[info copy]
+                  info:infoCopy
             generation:generation
             lastErrors:[NSMutableArray array]
         fallbackResult:nil
-       fallbackProvider:nil];
+      fallbackProvider:nil
+    updateAvailability:YES
+            completion:^(YTMULyricsResult *rawResult, id<YTMULyricsProvider> rawProvider, NSArray<NSString *> *errors) {
+        if (generation != self.requestGeneration || ![infoCopy.videoId isEqualToString:self.activeVideoId]) return;
+        if (rawResult.hasText) {
+            if (rawResult == [self currentResult]) {
+                // (defensive: shouldn't happen, but a no-op finish is safer than re-running side effects.)
+            } else {
+                [self finishWithResult:rawResult info:infoCopy provider:rawProvider generation:generation];
+            }
+        } else {
+            self.state = YTMULyricsFetchStateError;
+            self.lastErrorMessage = errors.count ? [errors componentsJoinedByString:@" | "] : YTMULyricsManagerLocalized(@"LYRICS_STATE_NO_LYRICS", @"No lyrics found");
+            YTMULyricsLog(@"lyrics lookup exhausted videoId=%@ errors=%@", infoCopy.videoId, self.lastErrorMessage);
+            [self notify];
+            [self probeRemainingProvidersForInfo:infoCopy generation:generation];
+        }
+
+        // Quality gate: if raw is already a confident synced+exact match,
+        // skip AI. Otherwise (inexact match, plain-only, or all-miss) hand
+        // off to the title normalizer for an AI re-pass — see
+        // -maybeAttemptAINormalize... for full criteria.
+        [self maybeAttemptAINormalizeForInfo:infoCopy
+                                  rawResult:rawResult
+                                rawProvider:rawProvider
+                                 generation:generation];
+    }];
+}
+
+#pragma mark - AI title normalize re-pass
+
+// Best-of similarity between a candidate string and an array of
+// alternates. Returns 0 if either side is empty.
+static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString *expected) {
+    if (!expected.length || !artists.count) return 0.0;
+    CGFloat best = 0.0;
+    for (NSString *artist in artists) {
+        if (![artist isKindOfClass:[NSString class]] || !artist.length) continue;
+        CGFloat sim = YTMULyricsSimilarity(artist, expected);
+        if (sim > best) best = sim;
+    }
+    return best;
+}
+
+- (BOOL)isHighQualityResult:(YTMULyricsResult *)result forInfo:(YTMULyricsSearchInfo *)info {
+    if (!result.hasText) return NO;
+    if (result.inexact) return NO;
+    BOOL syncedRequested = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
+                           YTMULyricsSettingsBool(@"bilingualLyrics", NO);
+    if (syncedRequested && !result.isSynced) return NO;
+
+    // Even when the provider reports inexact=NO, the matched track can be
+    // a different song that just shares a title (NetEase routinely returns
+    // "タイムカプセル" by THE MUSMUS for a YT video that's actually
+    // Qeiru's track of the same name; LRCLib has done the same with
+    // "Ex Luna Scientia"). Cross-check the matched metadata against the
+    // YT input — if either side diverges hard, skip the high-quality
+    // shortcut so the AI normalizer gets a chance to re-pass.
+    if (info.title.length && result.title.length) {
+        CGFloat titleSim = YTMULyricsSimilarity(result.title, info.title);
+        if (titleSim < 0.5) {
+            YTMULyricsLog(@"quality gate fail: title sim %.2f result=\"%@\" vs info=\"%@\"",
+                          (double)titleSim, result.title, info.title);
+            return NO;
+        }
+    }
+    if (info.artist.length && result.artists.count) {
+        CGFloat best = YTMULMBestArtistSimilarity(result.artists, info.artist);
+        if (best < 0.3) {
+            YTMULyricsLog(@"quality gate fail: artist sim %.2f result=[%@] vs info=\"%@\"",
+                          (double)best,
+                          [result.artists componentsJoinedByString:@", "],
+                          info.artist);
+            return NO;
+        }
+    }
+    return YES;
+}
+
+- (double)qualityScoreForResult:(YTMULyricsResult *)result forInfo:(YTMULyricsSearchInfo *)info {
+    if (!result.hasText) return 0.0;
+    double score = 0.5;                    // baseline for "has any text"
+    if (result.isSynced) score += 0.3;     // synced way better than plain
+    if (!result.inexact) score += 0.15;    // exact title/artist match
+    if (result.lines.count > 8) score += 0.05; // long enough to be a real song
+
+    // Penalty for matched-track metadata that doesn't look like what the
+    // caller searched for. Without this a wrong-song-same-title hit can
+    // score 1.0 and drown out the AI re-pass's correct match.
+    if (info.title.length && result.title.length) {
+        CGFloat titleSim = YTMULyricsSimilarity(result.title, info.title);
+        if (titleSim < 0.5) score -= 0.4;
+        else if (titleSim < 0.8) score -= 0.1;
+    }
+    if (info.artist.length && result.artists.count) {
+        CGFloat best = YTMULMBestArtistSimilarity(result.artists, info.artist);
+        if (best < 0.3) score -= 0.3;
+        else if (best < 0.6) score -= 0.1;
+    }
+    return MAX(0.0, MIN(1.0, score));
+}
+
+- (void)maybeAttemptAINormalizeForInfo:(YTMULyricsSearchInfo *)info
+                             rawResult:(YTMULyricsResult *)rawResult
+                           rawProvider:(id<YTMULyricsProvider>)rawProvider
+                            generation:(NSUInteger)generation {
+    if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+    if ([self isHighQualityResult:rawResult forInfo:info]) {
+        return; // raw is good, no need to ask AI
+    }
+
+    id<YTMULLMCompletionProvider> llm = [[YTMUTranslator sharedTranslator] currentLLMCompletionProvider];
+    if (!llm) {
+        YTMULyricsLog(@"normalize skipped videoId=%@ reason=no LLM provider configured", info.videoId);
+        return;
+    }
+    if (![info.videoId length]) return;
+
+    NSString *providerName = [[YTMUTranslator sharedTranslator] currentProviderName];
+    YTMULyricsTitleNormalizer *normalizer = [YTMULyricsTitleNormalizer sharedNormalizer];
+    if ([normalizer isBlacklistedForVideoId:info.videoId]) {
+        YTMULyricsLog(@"normalize blacklisted videoId=%@ — skipping", info.videoId);
+        return;
+    }
+
+    void (^fire)(void) = ^{
+        [normalizer normalizeForInfo:info
+                            provider:llm
+                        providerName:providerName
+                          completion:^(YTMULyricsTitleNormalization * _Nullable normalized, NSError * _Nullable error) {
+            if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+            if (error || !normalized) {
+                YTMULyricsLog(@"normalize unavailable videoId=%@ err=%@", info.videoId, error.localizedDescription ?: @"<no result>");
+                return;
+            }
+            [self runNormalizedRepassForOriginalInfo:info
+                                       normalization:normalized
+                                           rawResult:rawResult
+                                         rawProvider:rawProvider
+                                          generation:generation];
+        }];
+    };
+
+    // Cache hit path runs immediately — no need to wait, the result is on
+    // disk. Cache miss path debounces 500ms: YouTube Music's player
+    // metadata can flicker for 1–2s after a song change (we receive the
+    // previous song's title with the new videoId, then the real one).
+    // Without the wait we'd burn an AI request on the wrong title and
+    // race the correct request after it. If a fresher refresh comes in
+    // during the wait, the generation check inside fire() drops the
+    // stale call.
+    if ([normalizer cachedNormalizationForInfo:info]) {
+        fire();
+        return;
+    }
+
+    NSUInteger savedGeneration = generation;
+    NSString *savedVideoId = info.videoId ?: @"";
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (savedGeneration != self.requestGeneration ||
+            ![savedVideoId isEqualToString:self.activeVideoId]) {
+            YTMULyricsLog(@"normalize debounce dropped videoId=%@ — newer refresh in flight", savedVideoId);
+            return;
+        }
+        fire();
+    });
+}
+
+- (void)runNormalizedRepassForOriginalInfo:(YTMULyricsSearchInfo *)originalInfo
+                             normalization:(YTMULyricsTitleNormalization *)normalized
+                                 rawResult:(YTMULyricsResult *)rawResult
+                               rawProvider:(id<YTMULyricsProvider>)rawProvider
+                                generation:(NSUInteger)generation {
+    if (generation != self.requestGeneration || ![originalInfo.videoId isEqualToString:self.activeVideoId]) return;
+
+    YTMULyricsSearchInfo *candidate = [originalInfo copy];
+    candidate.title = normalized.titleCandidates.firstObject ?: originalInfo.title;
+    candidate.artist = normalized.artistCandidates.firstObject ?: originalInfo.artist;
+    candidate.alternativeTitle = normalized.titleCandidates.count > 1
+        ? normalized.titleCandidates[1]
+        : originalInfo.alternativeTitle;
+
+    YTMULyricsLog(@"normalize re-pass start videoId=%@ title=\"%@\" artist=\"%@\" rawScore=%.2f",
+                  originalInfo.videoId, candidate.title, candidate.artist,
+                  [self qualityScoreForResult:rawResult forInfo:originalInfo]);
+
+    NSArray *providers = [self orderedProviders];
+    [self tryProviders:providers
+                 index:0
+                  info:candidate
+            generation:generation
+            lastErrors:[NSMutableArray array]
+        fallbackResult:nil
+      fallbackProvider:nil
+    updateAvailability:NO
+            completion:^(YTMULyricsResult *normalizedResult, id<YTMULyricsProvider> normalizedProvider, NSArray<NSString *> *errors) {
+        if (generation != self.requestGeneration || ![originalInfo.videoId isEqualToString:self.activeVideoId]) return;
+        // Score raw against the original YT metadata, normalized against
+        // the AI-cleaned candidate metadata: that way a wrong-song raw
+        // hit takes the title/artist mismatch penalty while a correctly
+        // re-located normalized hit doesn't.
+        double rawScore = [self qualityScoreForResult:rawResult forInfo:originalInfo];
+        double newScore = [self qualityScoreForResult:normalizedResult forInfo:candidate];
+        if (!normalizedResult.hasText || newScore <= rawScore) {
+            YTMULyricsLog(@"normalize re-pass kept raw videoId=%@ rawScore=%.2f newScore=%.2f",
+                          originalInfo.videoId, rawScore, newScore);
+            return;
+        }
+        // Replace currentResult with the normalized hit. Mark it under the
+        // *original* info so cache keys for downstream translation/probe
+        // stay aligned with the player's actual videoId.
+        normalizedResult.title = normalizedResult.title.length ? normalizedResult.title : candidate.title;
+        YTMULyricsLog(@"normalize re-pass replaced raw videoId=%@ source=%@ newScore=%.2f title=\"%@\"",
+                      originalInfo.videoId,
+                      [normalizedProvider providerName],
+                      newScore,
+                      normalizedResult.title);
+        [self finishWithResult:normalizedResult info:originalInfo provider:normalizedProvider generation:generation];
+    }];
 }
 
 @end
