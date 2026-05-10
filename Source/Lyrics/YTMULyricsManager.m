@@ -702,13 +702,46 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
 // artist is completely different (THE MUSMUS / タイムカプセル returned
 // for a Qeiru search). We do our own check based on string similarity so
 // the same logic applies whether the provider claims exact or inexact.
+//
+// Special case: when the title matches near-exactly AND the duration is
+// within ~5s, we accept the match even if the artist tag doesn't line up.
+// NetEase has tons of user-uploaded entries where the artist field is
+// noisy — cover credit, doujin re-uploader, vocaloid producer alias,
+// translation team — but the song itself is correct. Duration is the
+// strongest "same song" signal we have, and a same-name-same-duration
+// pair from a different artist is overwhelmingly the same song with
+// mislabelled metadata, not a coincidentally-named different song.
 - (BOOL)result:(YTMULyricsResult *)result similarToInfo:(YTMULyricsSearchInfo *)info {
     if (!result.hasText) return NO;
+
+    CGFloat titleSim = 0.0;
     if (info.title.length && result.title.length) {
-        if (YTMULyricsSimilarity(result.title, info.title) < 0.5) return NO;
+        titleSim = YTMULyricsSimilarity(result.title, info.title);
+        if (titleSim < 0.5) return NO;
+    } else {
+        titleSim = 1.0; // can't compare → don't penalize
     }
+
     if (info.artist.length && result.artists.count) {
-        if (YTMULMBestArtistSimilarity(result.artists, info.artist) < 0.3) return NO;
+        CGFloat artistSim = YTMULMBestArtistSimilarity(result.artists, info.artist);
+        if (artistSim < 0.3) {
+            // Artist mismatch escape hatch: accept when title is a near-
+            // exact match AND we have a tight duration agreement. Without
+            // this gate NetEase covers / re-uploads / mistagged artists
+            // would all get rejected even when they're clearly the same
+            // song.
+            BOOL titleNearExact = titleSim >= 0.9;
+            BOOL durationsAgree = (info.duration > 0 && result.duration > 0 &&
+                                    fabs(result.duration - info.duration) <= 5.0);
+            if (titleNearExact && durationsAgree) {
+                YTMULyricsLog(@"quality gate accept artist-mismatch via title+duration: "
+                              @"title=\"%@\"/\"%@\" sim=%.2f duration=%.1f/%.1f artistSim=%.2f",
+                              info.title, result.title, (double)titleSim,
+                              info.duration, result.duration, (double)artistSim);
+                return YES;
+            }
+            return NO;
+        }
     }
     return YES;
 }
@@ -788,6 +821,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         if (similar) {
             [self pickBetterFallback:&bestFallback provider:&bestProvider
                             incoming:result incomingProvider:provider info:info];
+        } else {
+            // The cache-hit and live-response paths above optimistically
+            // set availability=hit before we knew if the result was for
+            // the right song. Now that we've decided to discard, flip it
+            // back to "miss" so the UI status indicator doesn't lie about
+            // a NetEase response that we threw away.
+            if (updateAvailability) [self setAvailability:@"miss" forProvider:provider notify:YES];
         }
 
         YTMULyricsLog(@"lyrics low-confidence candidate videoId=%@ source=%@ similar=%@ synced=%@ %@; %@",
