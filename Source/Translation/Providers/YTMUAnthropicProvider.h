@@ -3,7 +3,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface YTMUAnthropicProvider : NSObject <YTMUTranslationProvider>
+@interface YTMUAnthropicProvider : NSObject <YTMUTranslationProvider, YTMULLMCompletionProvider>
 @end
 
 NS_ASSUME_NONNULL_END

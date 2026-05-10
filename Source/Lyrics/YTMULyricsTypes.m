@@ -177,6 +177,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
         _artist = @"";
         _album = @"";
         _tags = @[];
+        _shortDescription = @"";
     }
     return self;
 }
@@ -190,6 +191,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     copy.album = self.album ?: @"";
     copy.duration = self.duration;
     copy.tags = [self.tags copy] ?: @[];
+    copy.shortDescription = self.shortDescription ?: @"";
     return copy;
 }
 

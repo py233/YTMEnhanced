@@ -57,6 +57,12 @@ typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
 @property (nonatomic, copy) NSString *album;
 @property (nonatomic) NSTimeInterval duration;
 @property (nonatomic, copy) NSArray<NSString *> *tags;
+// Truncated YouTube video shortDescription. Many doujin/cover/individual
+// uploads on YouTube Music carry the real staff list (曲: ... / 唄: ...
+// / 作詞: ...) here even when the title/author look misleading. We only
+// feed it to the AI title normalizer; the lyrics providers themselves
+// don't read this field.
+@property (nonatomic, copy) NSString *shortDescription;
 @end
 
 @protocol YTMULyricsProvider <NSObject>
