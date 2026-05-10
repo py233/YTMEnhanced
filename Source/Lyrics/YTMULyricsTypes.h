@@ -7,6 +7,10 @@ extern NSString *const YTMULyricsSourceLRCLib;
 extern NSString *const YTMULyricsSourceNetEase;
 extern NSString *const YTMULyricsSourceMusixMatch;
 extern NSString *const YTMULyricsSourceGenius;
+// Synthetic provider that uses the user's LLM to extract lyrics that the
+// uploader pasted into the YouTube video description. No timestamps —
+// surfaces as plain (non-karaoke) lyrics. Always last in the chain.
+extern NSString *const YTMULyricsSourceDescription;
 
 extern NSString *const YTMULyricsDidUpdateNotification;
 extern NSString *const YTMULyricsStateDidChangeNotification;

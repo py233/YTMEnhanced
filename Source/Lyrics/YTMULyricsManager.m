@@ -10,6 +10,7 @@
 #import "Providers/YTMUNetEaseProvider.h"
 #import "Providers/YTMUMusixMatchProvider.h"
 #import "Providers/YTMUGeniusProvider.h"
+#import "Providers/YTMUDescriptionProvider.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import <NaturalLanguage/NaturalLanguage.h>
 
@@ -68,17 +69,26 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 - (instancetype)init {
     self = [super init];
     if (self) {
-        // LRCLib is intentionally last: when its primary `search` API
-        // misses it falls back to up to six serial HTTP queries (one per
-        // title-fragment candidate), which on slow networks routinely
-        // pushes a single song's lookup past 30s. The faster providers
-        // ahead of it usually answer first; LRCLib remains the deepest
-        // lyric DB and still gets its turn if everyone above misses.
+        // Order matters here:
+        //   YTMusic / NetEase / MusixMatch / Genius — fast, cheap, run first.
+        //   Description — runs AFTER the cheap DBs but BEFORE LRCLib.
+        //     Description has two short-circuit guards: (a) if the
+        //     description string isn't in the search info yet, it
+        //     returns an instant miss; (b) if there's no LLM provider
+        //     configured, same. So in raw pass (description still
+        //     fetching from InnerTube) it costs ~0ms. In re-refresh
+        //     (after InnerTube completes), it usually hits and saves
+        //     us LRCLib's 6-8s timeout.
+        //   LRCLib — last because its fallback path can take up to its
+        //     8s deadline before giving up; placing it after Description
+        //     means a successful Description hit returns the result
+        //     without waiting on LRCLib.
         _providers = @[
             [[YTMUYTMusicProvider alloc] init],
             [[YTMUNetEaseProvider alloc] init],
             [[YTMUMusixMatchProvider alloc] init],
             [[YTMUGeniusProvider alloc] init],
+            [[YTMUDescriptionProvider alloc] init],
             [[YTMULRCLibProvider alloc] init],
         ];
         _state = YTMULyricsFetchStateIdle;
@@ -592,6 +602,45 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                                                  id<YTMULyricsProvider> _Nullable provider,
                                                  NSArray<NSString *> *_Nonnull errors);
 
+// True if the matched track's title and artist look reasonably close to
+// what the caller searched for. Provider-reported `inexact` is unreliable
+// — NetEase returns inexact=NO for any track sharing a title even if the
+// artist is completely different (THE MUSMUS / タイムカプセル returned
+// for a Qeiru search). We do our own check based on string similarity so
+// the same logic applies whether the provider claims exact or inexact.
+- (BOOL)result:(YTMULyricsResult *)result similarToInfo:(YTMULyricsSearchInfo *)info {
+    if (!result.hasText) return NO;
+    if (info.title.length && result.title.length) {
+        if (YTMULyricsSimilarity(result.title, info.title) < 0.5) return NO;
+    }
+    if (info.artist.length && result.artists.count) {
+        if (YTMULMBestArtistSimilarity(result.artists, info.artist) < 0.3) return NO;
+    }
+    return YES;
+}
+
+// Pick the better of two candidate fallbacks by quality score against
+// the search info. Prefers `incoming` on ties so we get the most-recent
+// provider's view (which has its own data freshness benefits).
+- (void)pickBetterFallback:(YTMULyricsResult **)bestResultPtr
+                  provider:(id<YTMULyricsProvider> *)bestProviderPtr
+                  incoming:(YTMULyricsResult *)incoming
+          incomingProvider:(id<YTMULyricsProvider>)incomingProvider
+                      info:(YTMULyricsSearchInfo *)info {
+    if (!incoming.hasText) return;
+    if (!*bestResultPtr) {
+        *bestResultPtr = incoming;
+        *bestProviderPtr = incomingProvider;
+        return;
+    }
+    double currentScore = [self qualityScoreForResult:*bestResultPtr forInfo:info];
+    double incomingScore = [self qualityScoreForResult:incoming forInfo:info];
+    if (incomingScore >= currentScore) {
+        *bestResultPtr = incoming;
+        *bestProviderPtr = incomingProvider;
+    }
+}
+
 - (void)tryProviders:(NSArray<id<YTMULyricsProvider>> *)providers
                index:(NSUInteger)index
                 info:(YTMULyricsSearchInfo *)info
@@ -613,31 +662,71 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
 
     id<YTMULyricsProvider> provider = providers[index];
     if (updateAvailability) [self setAvailability:@"checking" forProvider:provider notify:YES];
+    NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
+    BOOL preferAuto = [preferred isEqualToString:@"auto"];
+    BOOL syncedRequested = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
+                           YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
+                           YTMULyricsSettingsBool(@"lyricsTranslationEnabled", NO);
+
+    // Common acceptance check shared by cache-hit and live-response paths.
+    void (^acceptOrContinue)(YTMULyricsResult *, BOOL) = ^(YTMULyricsResult *result, BOOL fromCache) {
+        BOOL similar = [self result:result similarToInfo:info];
+        BOOL syncedOK = !syncedRequested || result.isSynced;
+        BOOL isPerfect = similar && syncedOK;
+        BOOL hasMore = (index + 1 < providers.count);
+
+        // User pinned a single provider, OR this hit is genuinely good — take it.
+        if (!preferAuto || isPerfect) {
+            completion(result, provider, lastErrors);
+            return;
+        }
+
+        // Imperfect — only consider as fallback when the title and artist
+        // actually match what the caller searched for. A wrong-artist
+        // result (NetEase returning THE MUSMUS for a Qeiru search) just
+        // misleads the user if we surface it; drop it so the rest of the
+        // chain (other providers, AI normalizer re-pass) can try. If no
+        // provider produces a similar match, we return nil from this pass
+        // and the UI shows "no lyrics found" rather than the wrong song.
+        YTMULyricsResult *bestFallback = fallbackResult;
+        id<YTMULyricsProvider> bestProvider = fallbackProvider;
+        if (similar) {
+            [self pickBetterFallback:&bestFallback provider:&bestProvider
+                            incoming:result incomingProvider:provider info:info];
+        }
+
+        YTMULyricsLog(@"lyrics low-confidence candidate videoId=%@ source=%@ similar=%@ synced=%@ %@; %@",
+                      info.videoId,
+                      [provider providerName],
+                      similar ? @"YES" : @"NO",
+                      result.isSynced ? @"YES" : @"NO",
+                      fromCache ? @"(cache)" : @"(net)",
+                      similar ? @"kept as fallback, continuing" : @"discarded (wrong song), continuing");
+
+        if (!hasMore) {
+            // Exhausted — return whatever fallback won (may be nil if every
+            // provider's match was a wrong-song hit, which is the desired
+            // behavior: better to say "not found" than show wrong lyrics).
+            completion(bestFallback, bestProvider, lastErrors);
+            return;
+        }
+        [self tryProviders:providers
+                     index:index + 1
+                      info:info
+                generation:generation
+                lastErrors:lastErrors
+            fallbackResult:bestFallback
+           fallbackProvider:bestProvider
+        updateAvailability:updateAvailability
+                completion:completion];
+    };
+
     NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
     YTMULyricsResult *cached = [[YTMULyricsCache sharedCache] resultForKey:cacheKey];
     if (cached.hasText) {
         if (updateAvailability) [self setAvailability:@"hit" forProvider:provider notify:NO];
         YTMULyricsLog(@"lyrics cache hit videoId=%@ source=%@", info.videoId, [provider providerName]);
-        NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
-        BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
-                                          (YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
-                                           YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
-                                           YTMULyricsSettingsBool(@"lyricsTranslationEnabled", NO)) &&
-                                          !cached.isSynced &&
-                                          index + 1 < providers.count;
-        if (shouldKeepLookingForSynced) {
-            [self tryProviders:providers
-                         index:index + 1
-                          info:info
-                    generation:generation
-                    lastErrors:lastErrors
-                fallbackResult:fallbackResult ?: cached
-               fallbackProvider:fallbackProvider ?: provider
-            updateAvailability:updateAvailability
-                    completion:completion];
-            return;
-        }
-        completion(cached, provider, lastErrors);
+        acceptOrContinue(cached, YES);
         return;
     }
 
@@ -653,27 +742,7 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
             if (result.hasText) {
                 if (updateAvailability) [self setAvailability:@"hit" forProvider:provider notify:NO];
                 [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
-                NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
-                BOOL shouldKeepLookingForSynced = [preferred isEqualToString:@"auto"] &&
-                                                  (YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
-                                                   YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
-                                                   YTMULyricsSettingsBool(@"lyricsTranslationEnabled", NO)) &&
-                                                  !result.isSynced &&
-                                                  index + 1 < providers.count;
-                if (shouldKeepLookingForSynced) {
-                    YTMULyricsLog(@"lyrics plain candidate source=%@; continuing for synced source", [provider providerName]);
-                    [self tryProviders:providers
-                                 index:index + 1
-                                  info:info
-                            generation:generation
-                            lastErrors:lastErrors
-                        fallbackResult:fallbackResult ?: result
-                       fallbackProvider:fallbackProvider ?: provider
-                    updateAvailability:updateAvailability
-                            completion:completion];
-                    return;
-                }
-                completion(result, provider, lastErrors);
+                acceptOrContinue(result, NO);
                 return;
             }
             NSString *message = error.localizedDescription ?: YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_NO_MATCH", @"no match");

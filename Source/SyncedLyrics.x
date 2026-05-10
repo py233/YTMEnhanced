@@ -8,6 +8,7 @@
 #import "Lyrics/YTMULyricsManager.h"
 #import "Lyrics/YTMULyricsPlaybackState.h"
 #import "Lyrics/YTMUSyncedLyricsView.h"
+#import "Lyrics/YTMUInnerTubeDescriptionFetcher.h"
 #import "Translation/YTMUTranslationContext.h"
 
 static BOOL YTMUSyncedLyricsEnabled(void) {
@@ -123,6 +124,83 @@ static NSString *YTMUAlternativeTitleFromMicroformat(id microformat, NSString *c
     return @"";
 }
 
+// NSObject's default `-description` returns something like
+// "<ClassName: 0xADDR>". KVC accessing the `description` key on any
+// Obj-C object falls through to this method, which is how we ended up
+// with a 31-char "description" that's actually just a debug pointer
+// string. Filter it out — anything matching this shape is NOT the YT
+// video description we want.
+static BOOL YTMUIsObjectDebugString(NSString *str) {
+    if (!str.length || str.length > 200) return NO;
+    if (![str hasPrefix:@"<"] || ![str hasSuffix:@">"]) return NO;
+    return [str rangeOfString:@"0x"].location != NSNotFound;
+}
+
+// Strict string-only KVC reader. Returns @"" when the value is missing,
+// not a string, or matches the NSObject -description debug format.
+static NSString *YTMUSafeStringForKey(id object, NSString *key) {
+    if (!object || !key.length) return @"";
+    id value = nil;
+    if ([object isKindOfClass:[NSDictionary class]]) {
+        value = ((NSDictionary *)object)[key];
+    } else {
+        value = YTMUSafeValueForKey(object, key);
+    }
+    if (![value isKindOfClass:[NSString class]]) return @"";
+    NSString *str = (NSString *)value;
+    return YTMUIsObjectDebugString(str) ? @"" : str;
+}
+
+// Pull the long-form video description out of the player response. YT
+// Music's client does NOT consistently populate `videoDetails.shortDescription`
+// — for music-video uploads it's frequently empty even though the same
+// video on www.youtube.com has a multi-KB description with full lyrics.
+// We probe every known path and pick the longest real string.
+//
+// `lengthsLog` (out, optional) is filled with a human-readable breakdown
+// of every path's length so the caller can log which one won.
+static NSString *YTMUDescriptionFromPlayerResponse(id playerResponse, id details, id microformat,
+                                                   NSString *_Nullable *lengthsLog) {
+    NSString *fromDetails = YTMUSafeStringForKey(details, @"shortDescription");
+
+    NSString *fromMicroformatSimple = @"";
+    NSString *fromMicroformatRuns = @"";
+    // We use YTMUObjectForKey to descend into `description` here only
+    // when the parent is an NSDictionary — that avoids hitting NSObject's
+    // -description method as a side effect.
+    id microformatDescription = nil;
+    if ([microformat isKindOfClass:[NSDictionary class]]) {
+        microformatDescription = ((NSDictionary *)microformat)[@"description"];
+    }
+    if ([microformatDescription isKindOfClass:[NSDictionary class]]) {
+        fromMicroformatSimple = YTMUSafeStringForKey(microformatDescription, @"simpleText");
+        NSArray *runs = YTMUArrayFromObject(((NSDictionary *)microformatDescription)[@"runs"]);
+        if (runs.count) {
+            NSMutableString *joined = [NSMutableString string];
+            for (id run in runs) {
+                NSString *text = YTMUSafeStringForKey(run, @"text");
+                if (text.length) [joined appendString:text];
+            }
+            fromMicroformatRuns = joined;
+        }
+    }
+
+    NSString *best = @"";
+    NSString *bestSource = @"<none>";
+    if (fromDetails.length > best.length)           { best = fromDetails;           bestSource = @"details.shortDescription"; }
+    if (fromMicroformatSimple.length > best.length) { best = fromMicroformatSimple; bestSource = @"microformat.description.simpleText"; }
+    if (fromMicroformatRuns.length > best.length)   { best = fromMicroformatRuns;   bestSource = @"microformat.description.runs"; }
+
+    if (lengthsLog) {
+        *lengthsLog = [NSString stringWithFormat:@"details=%lu microformat.simple=%lu microformat.runs=%lu chosen=%@",
+                       (unsigned long)fromDetails.length,
+                       (unsigned long)fromMicroformatSimple.length,
+                       (unsigned long)fromMicroformatRuns.length,
+                       bestSource];
+    }
+    return best;
+}
+
 static NSArray<NSString *> *YTMUTagsFromMicroformat(id microformat) {
     NSArray *rawTags = YTMUArrayFromObject(YTMUObjectForKey(microformat, @"tags"));
     NSMutableArray<NSString *> *tags = [NSMutableArray array];
@@ -182,14 +260,20 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
         duration = [YTMUSafeValueForKey(player, @"currentVideoTotalMediaTime") doubleValue];
     }
 
-    id playerResponse = YTMUSafeValueForKey(player, @"playerResponse");
+    // YTPlayerViewController exposes the player response under the
+    // selector `contentPlayerResponse`, NOT `playerResponse` (we missed
+    // this in earlier passes — the runtime-selector dump at startup
+    // shows it). Try both, falling back to whichever responds.
+    id playerResponse = YTMUSafeValueForKey(player, @"contentPlayerResponse");
+    if (!playerResponse) playerResponse = YTMUSafeValueForKey(player, @"playerResponse");
     id playerData = YTMUSafeValueForKey(playerResponse, @"playerData");
     id details = YTMUSafeValueForKey(playerData, @"videoDetails");
     NSString *title = YTMUStringFromObject(YTMUSafeValueForKey(details, @"title"));
     NSString *artist = YTMUStringFromObject(YTMUSafeValueForKey(details, @"author"));
     NSString *album = YTMUStringFromObject(YTMUSafeValueForKey(details, @"album"));
-    NSString *shortDescription = YTMUStringFromObject(YTMUSafeValueForKey(details, @"shortDescription"));
     id microformat = YTMUMicroformatRendererFromPlayerResponse(playerResponse);
+    NSString *descriptionLengths = nil;
+    NSString *shortDescription = YTMUDescriptionFromPlayerResponse(playerResponse, details, microformat, &descriptionLengths);
     NSString *alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
     NSArray<NSString *> *tags = YTMUTagsFromMicroformat(microformat);
     NSDictionary *nowPlaying = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo ?: @{};
@@ -243,6 +327,13 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
                       [flags[@"YTMUltimateIsEnabled"] boolValue] ? @"YES" : @"NO",
                       [flags[@"syncedLyricsEnabled"] boolValue] ? @"YES" : @"NO",
                       ([flags[@"lyricsTranslationEnabled"] boolValue] || [flags[@"bilingualLyrics"] boolValue]) ? @"YES" : @"NO");
+        // YT Music's client strips the description out of its player
+        // response — `videoDetails.shortDescription` is empty for almost
+        // every music video and the microformat block is never present
+        // (verified via reflection dumps). We log which (if any) of the
+        // local paths produced the description; the InnerTube fetcher
+        // wired in below picks up when none did.
+        YTMULyricsLog(@"player metadata description %@", descriptionLengths ?: @"<no probe>");
     }
 
     YTMULyricsSearchInfo *info = [[YTMULyricsSearchInfo alloc] init];
@@ -253,12 +344,71 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     info.album = album;
     info.duration = duration;
     info.tags = tags ?: @[];
-    // Cap at 2KB so we don't ship multi-page YouTube descriptions to the
-    // LLM. Doujin/cover staff lists almost always live in the first ~500
-    // chars; anything past that is usually credits / links / CC notes.
-    if (shortDescription.length > 2048) shortDescription = [shortDescription substringToIndex:2048];
+    // YouTube descriptions cap at 5000 characters server-side. We allow up
+    // to 32KB defensively (in case a client is bundling extra metadata)
+    // and pass the full block downstream. Trimming aggressively here
+    // would defeat the description-lyrics extractor — uploaders frequently
+    // open with credits/links/CC notice and only paste lyrics deep into
+    // the description.
+    if (shortDescription.length > 32 * 1024) shortDescription = [shortDescription substringToIndex:32 * 1024];
     info.shortDescription = shortDescription ?: @"";
+
+    // YT Music's player response strips out the description (verified via
+    // reflection — `videoDetails.shortDescription` is empty and the
+    // microformat block is absent). If we got nothing locally, look up
+    // an InnerTube cache entry (synchronous, no network) and inject it
+    // before the lyrics pipeline kicks off.
+    if (!info.shortDescription.length && videoId.length) {
+        NSString *cachedDescription = [[YTMUInnerTubeDescriptionFetcher sharedFetcher]
+                                          cachedDescriptionForVideoId:videoId];
+        if (cachedDescription.length) {
+            NSString *capped = cachedDescription.length > 32 * 1024
+                ? [cachedDescription substringToIndex:32 * 1024]
+                : cachedDescription;
+            info.shortDescription = capped;
+            YTMULyricsLog(@"innertube cache hit (sync) videoId=%@ len=%lu",
+                          videoId, (unsigned long)capped.length);
+        }
+    }
+
     [[YTMULyricsManager sharedManager] refreshWithInfo:info];
+
+    // Cache miss + we still have no description: kick off an async
+    // InnerTube fetch. On success we re-run refreshWithInfo with the
+    // populated description; from then on the synchronous cache-hit
+    // path above takes over for this videoId.
+    if (!info.shortDescription.length && videoId.length) {
+        NSString *capturedVideoId = [videoId copy];
+        YTMULyricsSearchInfo *infoSnapshot = [info copy];
+        [[YTMUInnerTubeDescriptionFetcher sharedFetcher]
+            fetchDescriptionForVideoId:capturedVideoId
+                            completion:^(NSString *_Nullable description, NSError *_Nullable error) {
+            if (!description.length) return; // empty = video has no description, or fetch failed
+
+            // Dedup re-refreshes: the same videoId can have multiple
+            // metadata-refresh calls all queue a callback during a
+            // single in-flight fetch. We only want one re-refresh per
+            // videoId per process lifetime. The fetcher's disk cache
+            // takes over for subsequent plays.
+            static NSMutableSet<NSString *> *injectedVideoIds;
+            static dispatch_once_t injectOnce;
+            dispatch_once(&injectOnce, ^{ injectedVideoIds = [NSMutableSet set]; });
+            @synchronized (injectedVideoIds) {
+                if ([injectedVideoIds containsObject:capturedVideoId]) return;
+                [injectedVideoIds addObject:capturedVideoId];
+            }
+
+            NSString *capped = description.length > 32 * 1024
+                ? [description substringToIndex:32 * 1024]
+                : description;
+            YTMULyricsSearchInfo *updated = [infoSnapshot copy];
+            updated.shortDescription = capped;
+            YTMULyricsLog(@"innertube description injected videoId=%@ len=%lu — re-running refresh",
+                          capturedVideoId, (unsigned long)capped.length);
+            [[YTMULyricsManager sharedManager] refreshWithInfo:updated];
+        }];
+    }
+
     return YES;
 }
 

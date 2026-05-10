@@ -15,6 +15,25 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
     return YTMULyricsSourceLRCLib;
 }
 
+// Per-request timeout. LRCLib's API can hang silently for the full
+// NSURLRequest default of 60s under load. 5s is enough for healthy
+// responses and keeps the worst-case chain bounded.
+static const NSTimeInterval YTMULRCLibPerRequestTimeout = 5.0;
+
+// Global deadline for the whole searchWithInfo. Once we cross this we
+// stop firing further fallback queries and return a miss so the rest
+// of the pipeline (Description provider, AI normalizer) can move on.
+// 8s is the sweet spot — long enough that genuine LRCLib hits land
+// (typically under 2s), short enough that a misbehaving query doesn't
+// keep the user staring at a blank screen.
+static const NSTimeInterval YTMULRCLibTotalDeadline = 8.0;
+
+// Cap on fallback-query count. Six was the historical limit; three
+// gives us most of the title-fragment coverage at a fraction of the
+// worst-case latency and is enough that LRCLib reliably finds songs
+// when they're actually in its database.
+static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
+
 - (NSURLRequest *)requestForQuery:(NSDictionary<NSString *, NSString *> *)query {
     NSMutableArray *parts = [NSMutableArray array];
     [query enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
@@ -24,6 +43,7 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
     NSString *url = [NSString stringWithFormat:@"https://lrclib.net/api/search?%@", [parts componentsJoinedByString:@"&"]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     [request setValue:@"YTMusicUltimate-Bilingual/1.0 (https://github.com/py233/YTMusicUltimate-Bilingual)" forHTTPHeaderField:@"User-Agent"];
+    request.timeoutInterval = YTMULRCLibPerRequestTimeout;
     return request;
 }
 
@@ -161,6 +181,7 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
 }
 
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
+    NSDate *startedAt = [NSDate date];
     NSDictionary *primary = @{
         @"artist_name": info.artist ?: @"",
         @"track_name": info.title ?: @"",
@@ -189,10 +210,15 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
             if (!key.length || [seen containsObject:key]) continue;
             [seen addObject:key];
             [queries addObject:candidate];
-            if (queries.count >= 6) break;
+            if (queries.count >= YTMULRCLibMaxFallbackQueries) break;
         }
         if (!queries.count && info.title.length) [queries addObject:info.title];
-        [self fetchFallbackQueries:queries index:0 originalError:error info:info completion:completion];
+        [self fetchFallbackQueries:queries
+                             index:0
+                     originalError:error
+                              info:info
+                         startedAt:startedAt
+                        completion:completion];
     }];
 }
 
@@ -200,9 +226,26 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
                        index:(NSUInteger)index
                originalError:(NSError *)originalError
                         info:(YTMULyricsSearchInfo *)info
+                   startedAt:(NSDate *)startedAt
                   completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     if (index >= queries.count) {
         completion(nil, originalError);
+        return;
+    }
+    // Bail out of the fallback chain if we've already burned the global
+    // deadline. The caller (manager.tryProviders) will treat us as a miss
+    // and let the rest of the pipeline (other providers, AI normalizer)
+    // do its thing instead of waiting on what's almost certainly going
+    // to be more misses.
+    NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:startedAt];
+    if (elapsed >= YTMULRCLibTotalDeadline) {
+        YTMULyricsLog(@"LRCLib deadline reached after %.1fs (%lu of %lu fallbacks attempted) — giving up",
+                      elapsed,
+                      (unsigned long)index,
+                      (unsigned long)queries.count);
+        completion(nil, originalError ?: [NSError errorWithDomain:@"YTMULRCLib"
+                                                              code:NSURLErrorTimedOut
+                                                          userInfo:@{NSLocalizedDescriptionKey: @"LRCLib deadline exceeded"}]);
         return;
     }
     NSString *query = queries[index];
@@ -213,7 +256,12 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
             completion(fallback, nil);
             return;
         }
-        [self fetchFallbackQueries:queries index:index + 1 originalError:(fallbackError ?: originalError) info:info completion:completion];
+        [self fetchFallbackQueries:queries
+                             index:index + 1
+                     originalError:(fallbackError ?: originalError)
+                              info:info
+                         startedAt:startedAt
+                        completion:completion];
     }];
 }
 

@@ -6,6 +6,8 @@
 #import "../Lyrics/YTMULyricsCache.h"
 #import "../Lyrics/YTMULyricsManager.h"
 #import "../Lyrics/YTMULyricsTitleNormalizer.h"
+#import "../Lyrics/YTMULyricsDescriptionExtractor.h"
+#import "../Lyrics/YTMUInnerTubeDescriptionFetcher.h"
 #import "../Lyrics/YTMULyricsTypes.h"
 
 @interface YTMUTranslationLanguageController : UITableViewController
@@ -451,6 +453,8 @@
         NSUInteger lyrics = [[YTMULyricsCache sharedCache] clearAll];
         [[YTMULyricsManager sharedManager] clearRomanizationCache];
         [[YTMULyricsTitleNormalizer sharedNormalizer] clearCache];
+        [[YTMULyricsDescriptionExtractor sharedExtractor] clearCache];
+        [[YTMUInnerTubeDescriptionFetcher sharedFetcher] clearCache];
         dispatch_async(dispatch_get_main_queue(), ^{
             cell.accessoryView = nil;
             NSString *format = [NSBundle.ytmu_defaultBundle localizedStringForKey:@"TRANSLATION_CACHE_CLEARED_FORMAT"

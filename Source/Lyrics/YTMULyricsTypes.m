@@ -5,6 +5,7 @@ NSString *const YTMULyricsSourceLRCLib = @"LRCLib";
 NSString *const YTMULyricsSourceNetEase = @"NetEase";
 NSString *const YTMULyricsSourceMusixMatch = @"MusixMatch";
 NSString *const YTMULyricsSourceGenius = @"Genius";
+NSString *const YTMULyricsSourceDescription = @"Description";
 
 NSString *const YTMULyricsDidUpdateNotification = @"YTMULyricsDidUpdateNotification";
 NSString *const YTMULyricsStateDidChangeNotification = @"YTMULyricsStateDidChangeNotification";
