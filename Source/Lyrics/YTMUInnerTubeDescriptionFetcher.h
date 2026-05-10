@@ -2,35 +2,53 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Fetches the long-form video description directly from YouTube's
-// InnerTube `/youtubei/v1/player` endpoint, bypassing YT Music's
-// stripped-down player response.
+// Fetches video description AND canonical video title directly from
+// YouTube's InnerTube `/youtubei/v1/player` endpoint.
 //
-// Why this exists: YT Music's client receives a player-response payload
-// from its server that does NOT carry the `microformat` block and
-// leaves `videoDetails.shortDescription` empty (verified via reflection
-// dump). The actual description still lives on YouTube's side; we just
-// need to ask the right client. The `IOS` InnerTube client returns the
-// full microformat + description for any public video without auth.
+// Why we need both:
+//
+// • Description: YT Music's local player response strips description
+//   out, so for vocaloid/doujin uploads where uploaders paste lyrics
+//   into the description, we have to re-fetch from the public endpoint.
+//
+// • Canonical title: YT Music distinguishes "song" entries (from album
+//   metadata, often with a simplified title like just "Terminal") from
+//   "video" entries (the actual upload title, often the full
+//   "ハテ - Terminal (feat. IA)"). The KVC path we have on the player
+//   gives us the song title; lyric DBs index by the video title. Using
+//   the simplified song title to search NetEase routinely hits an
+//   unrelated K-pop track that happens to be called "Terminal", whereas
+//   searching by the full video title finds the right entry.
 //
 // All callbacks are dispatched on the main queue.
-typedef void(^YTMUInnerTubeDescriptionCompletion)(NSString *_Nullable description, NSError *_Nullable error);
+
+@interface YTMUInnerTubeMetadata : NSObject
+// Empty string means "fetched and confirmed no description". nil
+// means we haven't fetched yet. Note: NOT named `description` —
+// that's NSObject's debugDescription getter and we can't override it.
+@property (nonatomic, copy, nullable) NSString *videoDescription;
+// Canonical video title from videoDetails.title (or microformat
+// fallback). nil means we couldn't get one — caller should keep
+// using whatever player.title gave them.
+@property (nonatomic, copy, nullable) NSString *canonicalTitle;
+@end
+
+typedef void(^YTMUInnerTubeMetadataCompletion)(YTMUInnerTubeMetadata *_Nullable metadata, NSError *_Nullable error);
 
 @interface YTMUInnerTubeDescriptionFetcher : NSObject
 
 + (instancetype)sharedFetcher;
 
-// Fetch (or look up cached) the description for a given videoId.
-// Returns the empty string + nil error when the description was
-// successfully fetched but the video genuinely has no description —
-// callers should treat that as a "no description available" signal,
-// not as an error.
-- (void)fetchDescriptionForVideoId:(NSString *)videoId
-                        completion:(YTMUInnerTubeDescriptionCompletion)completion;
+- (void)fetchMetadataForVideoId:(NSString *)videoId
+                      completion:(YTMUInnerTubeMetadataCompletion)completion;
 
 // Synchronous cache lookup — returns nil if we haven't fetched yet.
-// The empty string means "we fetched and it was confirmed empty".
+- (nullable YTMUInnerTubeMetadata *)cachedMetadataForVideoId:(NSString *)videoId;
+
+// Convenience accessors (kept for call-sites that only care about
+// description). Both are synchronous cache lookups.
 - (nullable NSString *)cachedDescriptionForVideoId:(NSString *)videoId;
+- (nullable NSString *)cachedCanonicalTitleForVideoId:(NSString *)videoId;
 
 - (void)clearCache;
 
