@@ -703,45 +703,21 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
 // for a Qeiru search). We do our own check based on string similarity so
 // the same logic applies whether the provider claims exact or inexact.
 //
-// Special case: when the title matches near-exactly AND the duration is
-// within ~5s, we accept the match even if the artist tag doesn't line up.
-// NetEase has tons of user-uploaded entries where the artist field is
-// noisy — cover credit, doujin re-uploader, vocaloid producer alias,
-// translation team — but the song itself is correct. Duration is the
-// strongest "same song" signal we have, and a same-name-same-duration
-// pair from a different artist is overwhelmingly the same song with
-// mislabelled metadata, not a coincidentally-named different song.
+// Note on the duration escape hatch: a previous iteration accepted
+// artist-mismatched results when title sim was high and duration was
+// within ~5s. That assumption was wrong — Japanese vocaloid cover
+// culture means a same-title-same-length cover by a different artist
+// is often genuinely a different track with completely different lyrics
+// (e.g. 冥河's cover of sato noco's 「以上、n番観測地から…」). Better
+// to reject and let the AI normalize re-pass try again than show
+// confidently-wrong lyrics.
 - (BOOL)result:(YTMULyricsResult *)result similarToInfo:(YTMULyricsSearchInfo *)info {
     if (!result.hasText) return NO;
-
-    CGFloat titleSim = 0.0;
     if (info.title.length && result.title.length) {
-        titleSim = YTMULyricsSimilarity(result.title, info.title);
-        if (titleSim < 0.5) return NO;
-    } else {
-        titleSim = 1.0; // can't compare → don't penalize
+        if (YTMULyricsSimilarity(result.title, info.title) < 0.5) return NO;
     }
-
     if (info.artist.length && result.artists.count) {
-        CGFloat artistSim = YTMULMBestArtistSimilarity(result.artists, info.artist);
-        if (artistSim < 0.3) {
-            // Artist mismatch escape hatch: accept when title is a near-
-            // exact match AND we have a tight duration agreement. Without
-            // this gate NetEase covers / re-uploads / mistagged artists
-            // would all get rejected even when they're clearly the same
-            // song.
-            BOOL titleNearExact = titleSim >= 0.9;
-            BOOL durationsAgree = (info.duration > 0 && result.duration > 0 &&
-                                    fabs(result.duration - info.duration) <= 5.0);
-            if (titleNearExact && durationsAgree) {
-                YTMULyricsLog(@"quality gate accept artist-mismatch via title+duration: "
-                              @"title=\"%@\"/\"%@\" sim=%.2f duration=%.1f/%.1f artistSim=%.2f",
-                              info.title, result.title, (double)titleSim,
-                              info.duration, result.duration, (double)artistSim);
-                return YES;
-            }
-            return NO;
-        }
+        if (YTMULMBestArtistSimilarity(result.artists, info.artist) < 0.3) return NO;
     }
     return YES;
 }

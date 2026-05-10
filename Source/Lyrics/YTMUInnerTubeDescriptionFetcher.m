@@ -83,6 +83,21 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         _session = [NSURLSession sessionWithConfiguration:config];
         _ioQueue = dispatch_queue_create("com.ytmultimate.innertube-fetch", DISPATCH_QUEUE_SERIAL);
         _inflight = [NSMutableDictionary dictionary];
+
+        // One-shot wipe of previously-recorded failures. Older builds
+        // counted "valid response with no description fields" as a
+        // transient failure, which silently blacklisted any YT Music
+        // music-video ID after 3 plays — its description fetch would
+        // then be skipped for 6 hours, breaking the description-lyrics
+        // fallback. Now that descriptionFromResponse: returns @"" for
+        // those responses (legitimate empty), wipe stale failure
+        // bookkeeping once so users with poisoned NSUserDefaults state
+        // recover immediately instead of having to wait the 6h out.
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        if ([defaults integerForKey:@"YTMUInnerTubeFailureSchema"] < 2) {
+            [defaults removeObjectForKey:YTMUInnerTubeFailuresKey];
+            [defaults setInteger:2 forKey:@"YTMUInnerTubeFailureSchema"];
+        }
     }
     return self;
 }
@@ -205,9 +220,22 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     return request;
 }
 
-// Pull the description out of a parsed InnerTube response. Tries every
-// known location in the response shape; returns @"" when the request
-// succeeded but the video genuinely has no description (private/empty).
+// Pull the description out of a parsed InnerTube response.
+//
+// Returns:
+//   - non-nil string: description was found (possibly empty if YT
+//     server returned an empty value)
+//   - nil: response is malformed or doesn't look like a player response
+//     at all (caller treats as transient failure)
+//
+// IMPORTANT: a valid player response that simply lacks description
+// fields (common for YT Music music-video content — server returns
+// playabilityStatus / responseContext / frameworkUpdates etc but no
+// videoDetails or microformat) returns @"" rather than nil. That's a
+// legitimate "video genuinely has no description" outcome and should be
+// cached as a confirmed-empty negative; it must NOT count toward the
+// failure-blacklist counter, otherwise YT Music music-video IDs get
+// permanently blacklisted from fetch attempts after 3 plays.
 - (NSString *)descriptionFromResponse:(NSDictionary *)json {
     if (![json isKindOfClass:[NSDictionary class]]) return nil;
 
@@ -240,6 +268,17 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
                 }
             }
         }
+    }
+
+    // Response is structurally a valid InnerTube player response (it
+    // carries the response-level metadata fields) but the specific
+    // description sub-fields are absent — that's YT's way of saying
+    // "this video has no description". Return empty string so the
+    // caller caches a confirmed-empty negative and doesn't mistake
+    // it for a transient failure.
+    if (json[@"playabilityStatus"] || json[@"responseContext"] ||
+        json[@"trackingParams"] || json[@"frameworkUpdates"]) {
+        return @"";
     }
 
     return nil;
