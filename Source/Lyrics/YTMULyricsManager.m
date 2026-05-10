@@ -123,10 +123,18 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 - (NSArray<id<YTMULyricsProvider>> *)orderedProviders {
     NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
     NSDictionary *byName = self.providersByName;
-    if (![preferred isEqualToString:@"auto"] && byName[preferred]) {
-        return @[byName[preferred]];
+    NSMutableArray<id<YTMULyricsProvider>> *ordered = [NSMutableArray array];
+    // When the user pins a preferred source we put it first so the
+    // pipeline asks it before everything else — but we still keep the
+    // other providers as fallback. A pinned source that returns a
+    // wrong-song match (e.g. NetEase confidently serving THE MUSMUS for
+    // a Qeiru video) is still wrong; the quality gate further down will
+    // discard it and the rest of the chain (incl. Description) gets a
+    // shot. "Preferred" means "preferred", not "exclusive".
+    if (![preferred isEqualToString:@"auto"]) {
+        id<YTMULyricsProvider> pinned = byName[preferred];
+        if (pinned) [ordered addObject:pinned];
     }
-    NSMutableArray *ordered = [NSMutableArray array];
     for (id<YTMULyricsProvider> provider in self.providers) {
         if (![ordered containsObject:provider]) [ordered addObject:provider];
     }
@@ -337,28 +345,50 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 }
 
 - (void)fetchGoogleRomanizationItems:(NSArray<NSDictionary *> *)items
-                             position:(NSUInteger)position
                                 limit:(NSUInteger)limit
                        sourceLanguage:(NSString *)sourceLanguage
                             romanized:(NSMutableArray<NSString *> *)romanized
                            completion:(void(^)(NSArray<NSString *> *romanized))completion {
-    if (position >= limit || position >= items.count) {
+    NSUInteger total = MIN(items.count, limit);
+    if (total == 0) {
         completion([romanized copy]);
         return;
     }
 
-    NSDictionary *item = items[position];
-    NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
-    NSString *text = item[@"text"] ?: @"";
-    [self fetchGoogleRomanizationForText:text sourceLanguage:sourceLanguage completion:^(NSString *value) {
-        if (lineIndex < romanized.count && value.length) romanized[lineIndex] = value;
-        [self fetchGoogleRomanizationItems:items
-                                  position:position + 1
-                                     limit:limit
-                            sourceLanguage:sourceLanguage
-                                 romanized:romanized
-                                completion:completion];
-    }];
+    // Old code fired these requests strictly serially via tail recursion
+    // — for a 28-line song that's 28 × ~1.5s = 30-60s of latency before
+    // we knew whether ANY romanization landed. Google's per-segment
+    // endpoint is happy to take parallel requests as long as we don't
+    // pummel it; 6 in flight cuts wall time ~5x without tripping rate
+    // limits. The semaphore enforces the cap; the dispatch_group lets
+    // us fan-in on the main queue once everyone's done.
+    static const NSInteger kMaxConcurrent = 6;
+    dispatch_queue_t scheduler = dispatch_queue_create("com.ytmultimate.romanization-batch", DISPATCH_QUEUE_SERIAL);
+    dispatch_semaphore_t sem = dispatch_semaphore_create(kMaxConcurrent);
+    dispatch_group_t group = dispatch_group_create();
+
+    for (NSUInteger i = 0; i < total; i++) {
+        dispatch_group_enter(group);
+        dispatch_async(scheduler, ^{
+            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+            NSDictionary *item = items[i];
+            NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
+            NSString *text = item[@"text"] ?: @"";
+            [self fetchGoogleRomanizationForText:text sourceLanguage:sourceLanguage completion:^(NSString *value) {
+                if (value.length) {
+                    @synchronized (romanized) {
+                        if (lineIndex < romanized.count) romanized[lineIndex] = value;
+                    }
+                }
+                dispatch_semaphore_signal(sem);
+                dispatch_group_leave(group);
+            }];
+        });
+    }
+
+    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+        completion([romanized copy]);
+    });
 }
 
 - (void)applyRomanizedLines:(NSArray<NSString *> *)romanized generation:(NSUInteger)generation info:(YTMULyricsSearchInfo *)info cacheKey:(NSString *)cacheKey {
@@ -366,21 +396,28 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
         YTMULyricsResult *current = [self.currentResult copy];
         NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
-        BOOL complete = YES;
         NSString *sourceLanguage = [self romanizationSourceLanguageForResult:current];
-        for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
-            NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
-            NSString *value = idx < romanized.count ? romanized[idx] : @"";
-            if (![value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
-                complete = NO;
-                break;
-            }
-        }
+
+        // Render whatever we got — DON'T gate on every line being filled.
+        // Google's per-segment transliteration endpoint occasionally
+        // returns empty for an individual line (rate-limit, weird kanji,
+        // empty/punctuation-only line, etc.) and the old behavior was to
+        // wipe ALL lines if even one came back blank, which is why users
+        // saw zero romanization on long lyrics. Now: hit lines render,
+        // miss lines stay empty, the user sees the partial result.
+        NSUInteger filled = 0;
+        NSUInteger needed = 0;
         NSMutableArray<NSString *> *lineTexts = [NSMutableArray arrayWithCapacity:sourceLines.count];
         for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
+            NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            BOOL needsRomanization = [YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage];
             NSString *value = idx < romanized.count ? romanized[idx] : @"";
-            [lineTexts addObject:complete && value.length ? value : @""];
+            value = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length ? value : @"";
+            if (needsRomanization) {
+                needed++;
+                if (value.length) filled++;
+            }
+            [lineTexts addObject:value];
         }
         current.romanizedLineTexts = lineTexts;
 
@@ -388,26 +425,34 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         for (NSUInteger idx = 0; idx < current.lines.count; idx++) {
             YTMULyricLine *line = [current.lines[idx] copy];
             NSString *value = idx < romanized.count ? romanized[idx] : @"";
-            line.romanizedText = complete && value.length ? value : @"";
+            value = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length ? value : @"";
+            line.romanizedText = value;
             [lines addObject:line];
         }
         current.lines = lines;
         self.currentResult = current;
+
+        // Cache the partial result too — re-running 28 HTTP roundtrips
+        // every replay just to recover the same partial set is what made
+        // the old "complete=NO ⇒ delete cache" behavior so painful.
+        // Empty arrays still don't get cached (nothing to remember).
+        BOOL anyFilled = filled > 0;
         if (cacheKey.length) {
-            if (complete) {
-                [self.romanizationMemoryCache setObject:lineTexts ?: @[] forKey:cacheKey];
+            if (anyFilled) {
+                [self.romanizationMemoryCache setObject:lineTexts forKey:cacheKey];
             } else {
                 [self.romanizationMemoryCache removeObjectForKey:cacheKey];
             }
         }
-        if (current.sourceName.length) {
+        if (current.sourceName.length && anyFilled) {
             NSString *lyricsCacheKey = [YTMULyricsCache cacheKeyForInfo:info source:current.sourceName];
             [[YTMULyricsCache sharedCache] storeResult:current forKey:lyricsCacheKey];
         }
-        YTMULyricsLog(@"google romanization applied videoId=%@ lines=%lu complete=%@",
+        YTMULyricsLog(@"google romanization applied videoId=%@ filled=%lu/%lu lines=%lu",
                       info.videoId,
-                      (unsigned long)romanized.count,
-                      complete ? @"YES" : @"NO");
+                      (unsigned long)filled,
+                      (unsigned long)needed,
+                      (unsigned long)romanized.count);
         [self notify];
     });
 }
@@ -436,7 +481,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     }
 
     NSUInteger limit = MIN(items.count, (NSUInteger)80);
-    [self fetchGoogleRomanizationItems:items position:0 limit:limit sourceLanguage:sourceLanguage romanized:romanized completion:^(NSArray<NSString *> *values) {
+    [self fetchGoogleRomanizationItems:items limit:limit sourceLanguage:sourceLanguage romanized:romanized completion:^(NSArray<NSString *> *values) {
         [self applyRomanizedLines:values generation:generation info:info cacheKey:cacheKey];
     }];
 }
@@ -662,21 +707,22 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
 
     id<YTMULyricsProvider> provider = providers[index];
     if (updateAvailability) [self setAvailability:@"checking" forProvider:provider notify:YES];
-    NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
-    BOOL preferAuto = [preferred isEqualToString:@"auto"];
     BOOL syncedRequested = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
                            YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
                            YTMULyricsSettingsBool(@"lyricsTranslationEnabled", NO);
 
     // Common acceptance check shared by cache-hit and live-response paths.
+    // The quality gate runs uniformly regardless of whether the user
+    // pinned a preferred source — a wrong-song match is wrong in any
+    // mode, and the user gets a strictly better experience if we let
+    // the rest of the chain (incl. Description) take a shot.
     void (^acceptOrContinue)(YTMULyricsResult *, BOOL) = ^(YTMULyricsResult *result, BOOL fromCache) {
         BOOL similar = [self result:result similarToInfo:info];
         BOOL syncedOK = !syncedRequested || result.isSynced;
         BOOL isPerfect = similar && syncedOK;
         BOOL hasMore = (index + 1 < providers.count);
 
-        // User pinned a single provider, OR this hit is genuinely good — take it.
-        if (!preferAuto || isPerfect) {
+        if (isPerfect) {
             completion(result, provider, lastErrors);
             return;
         }
