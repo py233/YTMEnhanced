@@ -15,26 +15,26 @@ static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
     return YTMULyricsSourceLRCLib;
 }
 
-// Per-request timeout. LRCLib's API can hang silently for the full
-// NSURLRequest default of 60s under load. 5s is enough for healthy
-// responses and keeps the worst-case chain bounded.
-static const NSTimeInterval YTMULRCLibPerRequestTimeout = 5.0;
+// Per-request timeout cap. The actual timeout used per request is the
+// MIN of this and whatever the global deadline still allows — the prior
+// hard 5s value let the request occupy 5s even when the chain only had
+// 1s of budget left, blowing past the deadline by 4s.
+static const NSTimeInterval YTMULRCLibPerRequestTimeoutCap = 5.0;
 
-// Global deadline for the whole searchWithInfo. Once we cross this we
-// stop firing further fallback queries and return a miss so the rest
-// of the pipeline (Description provider, AI normalizer) can move on.
-// 8s is the sweet spot — long enough that genuine LRCLib hits land
-// (typically under 2s), short enough that a misbehaving query doesn't
-// keep the user staring at a blank screen.
-static const NSTimeInterval YTMULRCLibTotalDeadline = 8.0;
+// Global deadline for the whole searchWithInfo. With dynamic per-request
+// timeouts (see fetchQuery:withTimeout:) the overall searchWithInfo now
+// finishes within ~deadline + 0.5s for connect-setup overhead, instead
+// of the old behavior where the last fallback could happily run for a
+// full 5s past deadline.
+static const NSTimeInterval YTMULRCLibTotalDeadline = 6.0;
 
-// Cap on fallback-query count. Six was the historical limit; three
-// gives us most of the title-fragment coverage at a fraction of the
-// worst-case latency and is enough that LRCLib reliably finds songs
-// when they're actually in its database.
-static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
+// Cap on fallback-query count. Three is enough to cover the common
+// title-fragment splits; more just burns budget without raising hit rate.
+// LRCLib's primary structured query (artist/track/album) is what really
+// matters — fallbacks only catch corner cases where the title has noise.
+static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
 
-- (NSURLRequest *)requestForQuery:(NSDictionary<NSString *, NSString *> *)query {
+- (NSURLRequest *)requestForQuery:(NSDictionary<NSString *, NSString *> *)query withTimeout:(NSTimeInterval)timeout {
     NSMutableArray *parts = [NSMutableArray array];
     [query enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
         if (!obj.length) return;
@@ -43,12 +43,14 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
     NSString *url = [NSString stringWithFormat:@"https://lrclib.net/api/search?%@", [parts componentsJoinedByString:@"&"]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     [request setValue:@"YTMusicUltimate-Bilingual/1.0 (https://github.com/py233/YTMusicUltimate-Bilingual)" forHTTPHeaderField:@"User-Agent"];
-    request.timeoutInterval = YTMULRCLibPerRequestTimeout;
+    request.timeoutInterval = timeout;
     return request;
 }
 
-- (void)fetchQuery:(NSDictionary<NSString *, NSString *> *)query completion:(void(^)(NSArray<NSDictionary *> *items, NSError *error))completion {
-    NSURLRequest *request = [self requestForQuery:query];
+- (void)fetchQuery:(NSDictionary<NSString *, NSString *> *)query
+        withTimeout:(NSTimeInterval)timeout
+         completion:(void(^)(NSArray<NSDictionary *> *items, NSError *error))completion {
+    NSURLRequest *request = [self requestForQuery:query withTimeout:timeout];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
             completion(nil, error);
@@ -180,6 +182,11 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
     return result.hasText ? result : nil;
 }
 
+- (NSTimeInterval)remainingBudgetFromStart:(NSDate *)startedAt {
+    NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:startedAt];
+    return YTMULRCLibTotalDeadline - elapsed;
+}
+
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     NSDate *startedAt = [NSDate date];
     NSDictionary *primary = @{
@@ -187,7 +194,8 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
         @"track_name": info.title ?: @"",
         @"album_name": info.album ?: @"",
     };
-    [self fetchQuery:primary completion:^(NSArray<NSDictionary *> *items, NSError *error) {
+    NSTimeInterval primaryTimeout = MIN(YTMULRCLibPerRequestTimeoutCap, [self remainingBudgetFromStart:startedAt]);
+    [self fetchQuery:primary withTimeout:primaryTimeout completion:^(NSArray<NSDictionary *> *items, NSError *error) {
         YTMULyricsResult *best = error ? nil : [self bestResultFromItems:items info:info];
         if (best) {
             YTMULyricsLog(@"LRCLib match title=%@ lines=%lu plain=%d",
@@ -233,12 +241,13 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
         return;
     }
     // Bail out of the fallback chain if we've already burned the global
-    // deadline. The caller (manager.tryProviders) will treat us as a miss
-    // and let the rest of the pipeline (other providers, AI normalizer)
-    // do its thing instead of waiting on what's almost certainly going
-    // to be more misses.
-    NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:startedAt];
-    if (elapsed >= YTMULRCLibTotalDeadline) {
+    // deadline OR if there's so little time left that the next request
+    // wouldn't have a meaningful shot anyway. The caller will treat us
+    // as a miss and let the rest of the pipeline (other providers, AI
+    // normalizer) do its thing.
+    NSTimeInterval remaining = [self remainingBudgetFromStart:startedAt];
+    if (remaining < 0.8) {
+        NSTimeInterval elapsed = YTMULRCLibTotalDeadline - remaining;
         YTMULyricsLog(@"LRCLib deadline reached after %.1fs (%lu of %lu fallbacks attempted) — giving up",
                       elapsed,
                       (unsigned long)index,
@@ -249,7 +258,8 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 3;
         return;
     }
     NSString *query = queries[index];
-    [self fetchQuery:@{@"q": query ?: @""} completion:^(NSArray<NSDictionary *> *fallbackItems, NSError *fallbackError) {
+    NSTimeInterval queryTimeout = MIN(YTMULRCLibPerRequestTimeoutCap, remaining);
+    [self fetchQuery:@{@"q": query ?: @""} withTimeout:queryTimeout completion:^(NSArray<NSDictionary *> *fallbackItems, NSError *fallbackError) {
         YTMULyricsResult *fallback = fallbackError ? nil : [self bestResultFromItems:fallbackItems info:info];
         if (fallback) {
             fallback.inexact = YES;

@@ -163,7 +163,12 @@
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     NSString *query = YTMULyricsEncodeQuery([NSString stringWithFormat:@"%@ %@", info.artist ?: @"", info.title ?: @""]);
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://genius.com/api/search/song?q=%@&page=1&per_page=10", query]];
-    [[[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    // Genius's web API + page fetches are normally fast (<2s) but
+    // genius.com can intermittently take 30s+ when their CDN slows
+    // down. 8s timeout on each leg keeps the chain bounded.
+    NSMutableURLRequest *searchRequest = [NSMutableURLRequest requestWithURL:url];
+    searchRequest.timeoutInterval = 8.0;
+    [[[NSURLSession sharedSession] dataTaskWithRequest:searchRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
             completion(nil, error);
             return;
@@ -192,7 +197,9 @@
             return;
         }
         NSURL *pageURL = [NSURL URLWithString:[@"https://genius.com" stringByAppendingString:path]];
-        [[[NSURLSession sharedSession] dataTaskWithURL:pageURL completionHandler:^(NSData *htmlData, NSURLResponse *htmlResponse, NSError *htmlError) {
+        NSMutableURLRequest *pageRequest = [NSMutableURLRequest requestWithURL:pageURL];
+        pageRequest.timeoutInterval = 8.0;
+        [[[NSURLSession sharedSession] dataTaskWithRequest:pageRequest completionHandler:^(NSData *htmlData, NSURLResponse *htmlResponse, NSError *htmlError) {
             NSString *html = htmlData ? [[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding] : @"";
             NSString *lyrics = [self extractLyricsFromHTML:html];
             if (![self lyricsTextLooksUsable:lyrics info:info]) {

@@ -23,6 +23,10 @@
 - (void)postURL:(NSURL *)url body:(NSDictionary *)body context:(NSDictionary *)context completion:(void(^)(NSDictionary *json, NSError *error))completion {
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     request.HTTPMethod = @"POST";
+    // Default NSURLRequest timeout is 60s — under network blips this
+    // would block the whole provider chain. 8s is plenty for healthy
+    // YT Music API calls and bounds the worst-case latency.
+    request.timeoutInterval = 8.0;
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
     [request setValue:@"https://music.youtube.com/" forHTTPHeaderField:@"Referer"];

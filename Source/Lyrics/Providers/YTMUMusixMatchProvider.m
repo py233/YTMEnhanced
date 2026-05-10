@@ -35,6 +35,7 @@
 
     NSURL *url = [NSURL URLWithString:@"https://apic-desktop.musixmatch.com/ws/1.1/token.get?app_id=web-desktop-app-v1.0"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.timeoutInterval = 8.0; // bound a stuck token-fetch call
     [request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
     [request setValue:@"apic-desktop.musixmatch.com" forHTTPHeaderField:@"Authority"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -74,6 +75,7 @@
     }];
     NSString *url = [NSString stringWithFormat:@"https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?%@", [parts componentsJoinedByString:@"&"]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    request.timeoutInterval = 8.0; // bound a stuck subtitles call
     [request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
     [request setValue:@"apic-desktop.musixmatch.com" forHTTPHeaderField:@"Authority"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {

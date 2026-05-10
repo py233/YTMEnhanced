@@ -144,6 +144,11 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     NSString *url = [NSString stringWithFormat:@"https://interface.music.163.com/eapi%@%@", path, queryParts.count ? [@"?" stringByAppendingString:[queryParts componentsJoinedByString:@"&"]] : @""];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     request.HTTPMethod = @"POST";
+    // Default NSURLRequest timeout is 60s. Without an explicit cap a
+    // misbehaving NetEase API call would block the entire raw-pass
+    // pipeline for a full minute. 8s is comfortable for healthy
+    // responses (typically <2s) and keeps the worst-case bounded.
+    request.timeoutInterval = 8.0;
     [request setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) NeteaseMusicDesktop/3.0.14.2534" forHTTPHeaderField:@"User-Agent"];
     [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
     NSString *cookie = [self cookieHeader];
