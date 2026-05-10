@@ -2,39 +2,38 @@
 #import "YTMULyricsTypes.h"
 #import <CommonCrypto/CommonDigest.h>
 
-// Persistent cache layout:
+// Persistent cache layout (v3 schema):
 //   $CACHES/YTMUltimate/InnerTubeDescription/<sha1(videoId)>.plist
 // Plist keys:
-//   v          : schema version (currently 1)
-//   text       : the full description string ("" means no description)
+//   v          : schema version (currently 3)
+//   text       : description string ("" = confirmed no description)
+//   title      : canonical video title ("" = none extracted)
 //   ts         : epoch seconds when this cache entry was written
 //
-// Cached entries live for YTMUInnerTubeCacheTTL after which we re-fetch.
-//
-// Failure tracking lives in NSUserDefaults under
-//   YTMUInnerTubeFetchFailures = { videoId: { count: int, ts: epoch } }
-// videoIds with count >= 3 are skipped for 6h after the last failure.
+// Schema bumps:
+//   v=1: only `text` (description string)
+//   v=2: same; failure-blacklist semantics fixed
+//   v=3: added `title` so we can override YT Music's simplified
+//        song-title with the full video title
 
-static const NSInteger YTMUInnerTubeSchemaVersion = 1;
+static const NSInteger YTMUInnerTubeSchemaVersion = 3;
 static const NSTimeInterval YTMUInnerTubeCacheTTL = 30 * 24 * 60 * 60; // 30 days
 static const NSInteger YTMUInnerTubeFailureThreshold = 3;
 static const NSTimeInterval YTMUInnerTubeBlacklistDuration = 6 * 60 * 60;
 static const NSTimeInterval YTMUInnerTubeRequestTimeout = 8.0;
 static NSString *const YTMUInnerTubeFailuresKey = @"YTMUInnerTubeFetchFailures";
 
-// IOS InnerTube client identifiers. These come straight from yt-dlp's
-// upstream extractor (the "ios" client) and are the most reliable way to
-// pull a full microformat + description without auth or signature
-// solving. They will need updating periodically as YouTube bumps client
-// versions; if requests start returning errors we should refresh these
-// from yt-dlp's `_INNERTUBE_CLIENTS` table.
-static NSString *const YTMUInnerTubeIOSAPIKey = @"AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc";
-static NSString *const YTMUInnerTubeIOSClientName = @"IOS";
-static NSString *const YTMUInnerTubeIOSClientVersion = @"20.10.38";
-static NSString *const YTMUInnerTubeIOSDeviceModel = @"iPhone16,2";
-static NSString *const YTMUInnerTubeIOSOSVersion = @"18.1.0.22B83";
-static NSString *const YTMUInnerTubeIOSUserAgent =
-    @"com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 18_1_1 like Mac OS X)";
+// We use the WEB InnerTube client. WEB has a stable public API key
+// and consistently returns full videoDetails + microformat blocks
+// for music videos. The previous IOS client occasionally returned
+// stripped responses for music content (only response-level fields,
+// no videoDetails) which left us unable to extract anything. WEB
+// behaves the same as fetching the watch page in a browser.
+static NSString *const YTMUInnerTubeAPIKey = @"AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+static NSString *const YTMUInnerTubeClientName = @"WEB";
+static NSString *const YTMUInnerTubeClientVersion = @"2.20241010.05.00";
+static NSString *const YTMUInnerTubeUserAgent =
+    @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15";
 
 static NSString *YTMUInnerTubeSHA1(NSString *string) {
     NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
@@ -51,12 +50,13 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
                            userInfo:@{NSLocalizedDescriptionKey: message ?: @"fetch failed"}];
 }
 
+@implementation YTMUInnerTubeMetadata
+@end
+
 @interface YTMUInnerTubeDescriptionFetcher ()
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) dispatch_queue_t ioQueue;
-// In-flight: videoId → array of pending completions. While a request
-// is in flight, follow-on calls join the queue. Guarded by @synchronized.
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<YTMUInnerTubeDescriptionCompletion> *> *inflight;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<YTMUInnerTubeMetadataCompletion> *> *inflight;
 @end
 
 @implementation YTMUInnerTubeDescriptionFetcher
@@ -75,28 +75,28 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         config.timeoutIntervalForRequest = YTMUInnerTubeRequestTimeout;
         config.timeoutIntervalForResource = YTMUInnerTubeRequestTimeout;
         config.HTTPAdditionalHeaders = @{
-            @"User-Agent": YTMUInnerTubeIOSUserAgent,
-            @"X-YouTube-Client-Name": @"5",
-            @"X-YouTube-Client-Version": YTMUInnerTubeIOSClientVersion,
+            @"User-Agent": YTMUInnerTubeUserAgent,
+            @"X-YouTube-Client-Name": @"1",
+            @"X-YouTube-Client-Version": YTMUInnerTubeClientVersion,
+            @"Origin": @"https://www.youtube.com",
+            @"Referer": @"https://www.youtube.com/",
             @"Accept-Language": @"en-US,en;q=0.9",
         };
         _session = [NSURLSession sessionWithConfiguration:config];
         _ioQueue = dispatch_queue_create("com.ytmultimate.innertube-fetch", DISPATCH_QUEUE_SERIAL);
         _inflight = [NSMutableDictionary dictionary];
 
-        // One-shot wipe of previously-recorded failures. Older builds
-        // counted "valid response with no description fields" as a
-        // transient failure, which silently blacklisted any YT Music
-        // music-video ID after 3 plays — its description fetch would
-        // then be skipped for 6 hours, breaking the description-lyrics
-        // fallback. Now that descriptionFromResponse: returns @"" for
-        // those responses (legitimate empty), wipe stale failure
-        // bookkeeping once so users with poisoned NSUserDefaults state
-        // recover immediately instead of having to wait the 6h out.
+        // One-shot wipe of stale failure bookkeeping. Older builds:
+        // (a) recorded "valid response with no description fields" as
+        // failure → permanent music-video blacklist after 3 plays;
+        // (b) was on IOS client which sometimes returned stripped
+        // responses for music content. Both are fixed now, so wipe
+        // the poisoned NSUserDefaults state on first launch of the
+        // new logic.
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        if ([defaults integerForKey:@"YTMUInnerTubeFailureSchema"] < 2) {
+        if ([defaults integerForKey:@"YTMUInnerTubeFailureSchema"] < 3) {
             [defaults removeObjectForKey:YTMUInnerTubeFailuresKey];
-            [defaults setInteger:2 forKey:@"YTMUInnerTubeFailureSchema"];
+            [defaults setInteger:3 forKey:@"YTMUInnerTubeFailureSchema"];
         }
     }
     return self;
@@ -113,23 +113,35 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     return [[self cacheDirectory] stringByAppendingPathComponent:[YTMUInnerTubeSHA1(videoId) stringByAppendingString:@".plist"]];
 }
 
-- (nullable NSString *)cachedDescriptionForVideoId:(NSString *)videoId {
+- (nullable YTMUInnerTubeMetadata *)cachedMetadataForVideoId:(NSString *)videoId {
     if (!videoId.length) return nil;
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:[self filePathForVideoId:videoId]];
     if (![dict isKindOfClass:[NSDictionary class]]) return nil;
     if ([dict[@"v"] integerValue] != YTMUInnerTubeSchemaVersion) return nil;
     NSTimeInterval ts = [dict[@"ts"] doubleValue];
     if (ts > 0 && ([[NSDate date] timeIntervalSince1970] - ts) > YTMUInnerTubeCacheTTL) return nil;
-    NSString *text = [dict[@"text"] isKindOfClass:[NSString class]] ? dict[@"text"] : nil;
-    return text; // empty string is a valid "confirmed no description" cache entry
+    YTMUInnerTubeMetadata *meta = [[YTMUInnerTubeMetadata alloc] init];
+    meta.videoDescription = [dict[@"text"] isKindOfClass:[NSString class]] ? dict[@"text"] : @"";
+    meta.canonicalTitle = [dict[@"title"] isKindOfClass:[NSString class]] ? dict[@"title"] : @"";
+    return meta;
 }
 
-- (void)writeCacheText:(NSString *)text forVideoId:(NSString *)videoId {
-    if (!videoId.length || !text) return;
+- (nullable NSString *)cachedDescriptionForVideoId:(NSString *)videoId {
+    return [self cachedMetadataForVideoId:videoId].videoDescription;
+}
+
+- (nullable NSString *)cachedCanonicalTitleForVideoId:(NSString *)videoId {
+    NSString *title = [self cachedMetadataForVideoId:videoId].canonicalTitle;
+    return title.length ? title : nil;
+}
+
+- (void)writeCacheMetadata:(YTMUInnerTubeMetadata *)meta forVideoId:(NSString *)videoId {
+    if (!videoId.length || !meta) return;
     NSDictionary *plist = @{
-        @"v":    @(YTMUInnerTubeSchemaVersion),
-        @"text": text,
-        @"ts":   @([[NSDate date] timeIntervalSince1970]),
+        @"v":     @(YTMUInnerTubeSchemaVersion),
+        @"text":  meta.videoDescription ?: @"",
+        @"title": meta.canonicalTitle ?: @"",
+        @"ts":    @([[NSDate date] timeIntervalSince1970]),
     };
     dispatch_async(self.ioQueue, ^{
         NSString *dir = [self cacheDirectory];
@@ -187,9 +199,8 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
 - (NSURLRequest *)requestForVideoId:(NSString *)videoId {
     NSString *urlString = [NSString stringWithFormat:
         @"https://www.youtube.com/youtubei/v1/player?key=%@&prettyPrint=false",
-        YTMUInnerTubeIOSAPIKey];
-    NSURL *url = [NSURL URLWithString:urlString];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        YTMUInnerTubeAPIKey];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
     request.HTTPMethod = @"POST";
     request.timeoutInterval = YTMUInnerTubeRequestTimeout;
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
@@ -197,16 +208,10 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     NSDictionary *body = @{
         @"context": @{
             @"client": @{
-                @"clientName":     YTMUInnerTubeIOSClientName,
-                @"clientVersion":  YTMUInnerTubeIOSClientVersion,
-                @"deviceMake":     @"Apple",
-                @"deviceModel":    YTMUInnerTubeIOSDeviceModel,
-                @"platform":       @"MOBILE",
-                @"osName":         @"iPhone",
-                @"osVersion":      YTMUInnerTubeIOSOSVersion,
+                @"clientName":     YTMUInnerTubeClientName,
+                @"clientVersion":  YTMUInnerTubeClientVersion,
                 @"hl":             @"en",
                 @"gl":             @"US",
-                @"userAgent":      YTMUInnerTubeIOSUserAgent,
             },
         },
         @"videoId":        videoId ?: @"",
@@ -220,73 +225,87 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     return request;
 }
 
-// Pull the description out of a parsed InnerTube response.
-//
-// Returns:
-//   - non-nil string: description was found (possibly empty if YT
-//     server returned an empty value)
-//   - nil: response is malformed or doesn't look like a player response
-//     at all (caller treats as transient failure)
-//
-// IMPORTANT: a valid player response that simply lacks description
-// fields (common for YT Music music-video content — server returns
-// playabilityStatus / responseContext / frameworkUpdates etc but no
-// videoDetails or microformat) returns @"" rather than nil. That's a
-// legitimate "video genuinely has no description" outcome and should be
-// cached as a confirmed-empty negative; it must NOT count toward the
-// failure-blacklist counter, otherwise YT Music music-video IDs get
-// permanently blacklisted from fetch attempts after 3 plays.
-- (NSString *)descriptionFromResponse:(NSDictionary *)json {
+// Pull description + canonical title out of a parsed InnerTube response.
+// Returns nil only when the response is structurally NOT a valid player
+// response. A valid response with no description/title fields returns
+// a metadata object with empty strings (cached as confirmed-empty).
+- (YTMUInnerTubeMetadata *)metadataFromResponse:(NSDictionary *)json {
     if (![json isKindOfClass:[NSDictionary class]]) return nil;
 
-    // Path 1: videoDetails.shortDescription. The IOS client populates
-    // this for almost every video — this is the primary path.
+    NSString *description = nil;
+    NSString *canonicalTitle = nil;
+
+    // videoDetails has both shortDescription and title (the proper
+    // video title — what we'd see if we opened the watch page in a
+    // browser). This is the primary, authoritative source.
     NSDictionary *videoDetails = json[@"videoDetails"];
     if ([videoDetails isKindOfClass:[NSDictionary class]]) {
-        NSString *desc = videoDetails[@"shortDescription"];
-        if ([desc isKindOfClass:[NSString class]]) return desc;
+        if ([videoDetails[@"shortDescription"] isKindOfClass:[NSString class]]) {
+            description = videoDetails[@"shortDescription"];
+        }
+        if ([videoDetails[@"title"] isKindOfClass:[NSString class]]) {
+            canonicalTitle = videoDetails[@"title"];
+        }
     }
 
-    // Path 2: microformat.playerMicroformatRenderer.description.simpleText
+    // microformat as fallback for both fields.
     NSDictionary *microformat = json[@"microformat"];
     if ([microformat isKindOfClass:[NSDictionary class]]) {
         NSDictionary *renderer = microformat[@"playerMicroformatRenderer"];
         if ([renderer isKindOfClass:[NSDictionary class]]) {
-            NSDictionary *descObj = renderer[@"description"];
-            if ([descObj isKindOfClass:[NSDictionary class]]) {
-                NSString *simple = descObj[@"simpleText"];
-                if ([simple isKindOfClass:[NSString class]] && simple.length) return simple;
-                NSArray *runs = descObj[@"runs"];
-                if ([runs isKindOfClass:[NSArray class]] && runs.count) {
-                    NSMutableString *joined = [NSMutableString string];
-                    for (id run in runs) {
-                        if (![run isKindOfClass:[NSDictionary class]]) continue;
-                        NSString *t = ((NSDictionary *)run)[@"text"];
-                        if ([t isKindOfClass:[NSString class]]) [joined appendString:t];
+            if (!description.length) {
+                NSDictionary *descObj = renderer[@"description"];
+                if ([descObj isKindOfClass:[NSDictionary class]]) {
+                    NSString *simple = descObj[@"simpleText"];
+                    if ([simple isKindOfClass:[NSString class]] && simple.length) {
+                        description = simple;
+                    } else {
+                        NSArray *runs = descObj[@"runs"];
+                        if ([runs isKindOfClass:[NSArray class]] && runs.count) {
+                            NSMutableString *joined = [NSMutableString string];
+                            for (id run in runs) {
+                                if (![run isKindOfClass:[NSDictionary class]]) continue;
+                                NSString *t = ((NSDictionary *)run)[@"text"];
+                                if ([t isKindOfClass:[NSString class]]) [joined appendString:t];
+                            }
+                            description = joined;
+                        }
                     }
-                    return joined;
+                }
+            }
+            if (!canonicalTitle.length) {
+                NSDictionary *titleObj = renderer[@"title"];
+                if ([titleObj isKindOfClass:[NSDictionary class]]) {
+                    NSString *simple = titleObj[@"simpleText"];
+                    if ([simple isKindOfClass:[NSString class]]) canonicalTitle = simple;
+                }
+                if (!canonicalTitle.length) {
+                    NSString *raw = renderer[@"title"];
+                    if ([raw isKindOfClass:[NSString class]]) canonicalTitle = raw;
                 }
             }
         }
     }
 
-    // Response is structurally a valid InnerTube player response (it
-    // carries the response-level metadata fields) but the specific
-    // description sub-fields are absent — that's YT's way of saying
-    // "this video has no description". Return empty string so the
-    // caller caches a confirmed-empty negative and doesn't mistake
-    // it for a transient failure.
-    if (json[@"playabilityStatus"] || json[@"responseContext"] ||
-        json[@"trackingParams"] || json[@"frameworkUpdates"]) {
-        return @"";
+    // Determine if the response is structurally valid even when both
+    // fields are empty. Valid responses always carry response-level
+    // metadata; a stripped/error response wouldn't have any of these.
+    BOOL responseLooksValid = json[@"playabilityStatus"] || json[@"responseContext"] ||
+                              json[@"trackingParams"] || json[@"frameworkUpdates"];
+
+    if (!description && !canonicalTitle && !responseLooksValid) {
+        return nil; // truly malformed
     }
 
-    return nil;
+    YTMUInnerTubeMetadata *meta = [[YTMUInnerTubeMetadata alloc] init];
+    meta.videoDescription = description ?: @"";
+    meta.canonicalTitle = canonicalTitle ?: @"";
+    return meta;
 }
 
 #pragma mark - Public
 
-- (void)fetchDescriptionForVideoId:(NSString *)videoId completion:(YTMUInnerTubeDescriptionCompletion)completion {
+- (void)fetchMetadataForVideoId:(NSString *)videoId completion:(YTMUInnerTubeMetadataCompletion)completion {
     if (!completion) return;
     if (!videoId.length) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -295,9 +314,12 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         return;
     }
 
-    NSString *cached = [self cachedDescriptionForVideoId:videoId];
+    YTMUInnerTubeMetadata *cached = [self cachedMetadataForVideoId:videoId];
     if (cached) {
-        YTMULyricsLog(@"innertube cache hit videoId=%@ len=%lu", videoId, (unsigned long)cached.length);
+        YTMULyricsLog(@"innertube cache hit videoId=%@ descLen=%lu titleLen=%lu",
+                      videoId,
+                      (unsigned long)cached.videoDescription.length,
+                      (unsigned long)cached.canonicalTitle.length);
         dispatch_async(dispatch_get_main_queue(), ^{ completion(cached, nil); });
         return;
     }
@@ -310,7 +332,7 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         return;
     }
 
-    YTMUInnerTubeDescriptionCompletion completionCopy = [completion copy];
+    YTMUInnerTubeMetadataCompletion completionCopy = [completion copy];
     BOOL alreadyInFlight = NO;
     @synchronized (self.inflight) {
         NSMutableArray *queue = self.inflight[videoId];
@@ -347,7 +369,13 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         }
         NSInteger status = [(NSHTTPURLResponse *)response statusCode];
         if (status < 200 || status >= 300) {
-            YTMULyricsLog(@"innertube HTTP %ld videoId=%@ (%.2fs)", (long)status, videoId, elapsed);
+            NSString *preview = @"";
+            if (data.length) {
+                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
+                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
+                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
+            }
+            YTMULyricsLog(@"innertube HTTP %ld videoId=%@ preview=%@", (long)status, videoId, preview);
             [weakSelf recordFailureForVideoId:videoId];
             [weakSelf fanoutForVideoId:videoId
                                 result:nil
@@ -357,43 +385,44 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         NSError *jsonError = nil;
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
         if (!json || jsonError) {
-            YTMULyricsLog(@"innertube parse failed videoId=%@ err=%@ (%.2fs)",
-                          videoId, jsonError.localizedDescription, elapsed);
+            YTMULyricsLog(@"innertube parse failed videoId=%@ err=%@",
+                          videoId, jsonError.localizedDescription ?: @"<empty>");
             [weakSelf recordFailureForVideoId:videoId];
             [weakSelf fanoutForVideoId:videoId result:nil error:jsonError ?: YTMUInnerTubeError(4, @"invalid JSON")];
             return;
         }
 
-        NSString *description = [weakSelf descriptionFromResponse:json];
-        if (description == nil) {
-            // No description shape we recognize. Treat as transient
-            // failure — record and back off.
-            YTMULyricsLog(@"innertube no description path matched videoId=%@ keys=%@",
-                          videoId, [[json isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)json allKeys] : @[] componentsJoinedByString:@","]);
+        YTMUInnerTubeMetadata *meta = [weakSelf metadataFromResponse:json];
+        if (!meta) {
+            YTMULyricsLog(@"innertube response not recognized as player response videoId=%@ keys=%@",
+                          videoId,
+                          [[json isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)json allKeys] : @[]
+                              componentsJoinedByString:@","]);
             [weakSelf recordFailureForVideoId:videoId];
-            [weakSelf fanoutForVideoId:videoId result:nil error:YTMUInnerTubeError(5, @"no description in response")];
+            [weakSelf fanoutForVideoId:videoId result:nil error:YTMUInnerTubeError(5, @"malformed response")];
             return;
         }
 
-        // Empty string is a valid "video genuinely has no description"
-        // result — cache it so we don't retry every play.
-        YTMULyricsLog(@"innertube fetch ok videoId=%@ len=%lu (%.2fs)",
-                      videoId, (unsigned long)description.length, elapsed);
-        [weakSelf writeCacheText:description forVideoId:videoId];
+        YTMULyricsLog(@"innertube fetch ok videoId=%@ descLen=%lu titleLen=%lu (%.2fs)",
+                      videoId,
+                      (unsigned long)meta.videoDescription.length,
+                      (unsigned long)meta.canonicalTitle.length,
+                      elapsed);
+        [weakSelf writeCacheMetadata:meta forVideoId:videoId];
         [weakSelf clearFailureForVideoId:videoId];
-        [weakSelf fanoutForVideoId:videoId result:description error:nil];
+        [weakSelf fanoutForVideoId:videoId result:meta error:nil];
     }];
     [task resume];
 }
 
-- (void)fanoutForVideoId:(NSString *)videoId result:(NSString *)description error:(NSError *)error {
-    NSArray<YTMUInnerTubeDescriptionCompletion> *callbacks;
+- (void)fanoutForVideoId:(NSString *)videoId result:(YTMUInnerTubeMetadata *)meta error:(NSError *)error {
+    NSArray<YTMUInnerTubeMetadataCompletion> *callbacks;
     @synchronized (self.inflight) {
         callbacks = [self.inflight[videoId] copy];
         [self.inflight removeObjectForKey:videoId];
     }
     dispatch_async(dispatch_get_main_queue(), ^{
-        for (YTMUInnerTubeDescriptionCompletion cb in callbacks) cb(description, error);
+        for (YTMUInnerTubeMetadataCompletion cb in callbacks) cb(meta, error);
     });
 }
 

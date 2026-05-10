@@ -201,6 +201,54 @@ static NSString *YTMUDescriptionFromPlayerResponse(id playerResponse, id details
     return best;
 }
 
+// Decide whether the canonical (InnerTube videoDetails) title beats
+// the player-side title. We override only when the canonical version
+// strictly contains the player title and is meaningfully longer, OR
+// when the canonical version carries non-ASCII characters (CJK, etc.)
+// that the player title is missing — both cases the player title is
+// the simplified album-track name and the canonical title is the
+// full video title used by lyric DBs.
+//
+// We deliberately avoid replacing in the other direction: if the
+// player title is already more specific (rare but possible when
+// canonical is something generic like "Music Video"), keep the
+// player title.
+static BOOL YTMUStringHasNonASCII(NSString *str) {
+    for (NSUInteger i = 0; i < str.length; i++) {
+        if ([str characterAtIndex:i] >= 0x80) return YES;
+    }
+    return NO;
+}
+
+static BOOL YTMUCanonicalTitleIsBetter(NSString *canonical, NSString *player) {
+    if (!canonical.length) return NO;
+    if (!player.length) return YES;
+
+    // Trivial: identical case-insensitive — nothing to gain.
+    if ([[canonical lowercaseString] isEqualToString:[player lowercaseString]]) return NO;
+
+    // Player title is contained in canonical: canonical is the same
+    // song with extra context (subtitle, "feat. X", original-language
+    // form). Override.
+    NSString *lowerCanonical = [canonical lowercaseString];
+    NSString *lowerPlayer = [player lowercaseString];
+    if (player.length >= 2 && [lowerCanonical containsString:lowerPlayer] &&
+        canonical.length >= player.length + 3) {
+        return YES;
+    }
+
+    // Canonical has CJK / non-ASCII while player is plain ASCII.
+    // That's the classic YT Music "song" title pattern: the song-
+    // metadata title gets romanized down to ASCII while the video
+    // title preserves the original kanji/kana. Lyric DBs index by
+    // the original-language title, so prefer the canonical.
+    if (YTMUStringHasNonASCII(canonical) && !YTMUStringHasNonASCII(player)) {
+        return YES;
+    }
+
+    return NO;
+}
+
 static NSArray<NSString *> *YTMUTagsFromMicroformat(id microformat) {
     NSArray *rawTags = YTMUArrayFromObject(YTMUObjectForKey(microformat, @"tags"));
     NSMutableArray<NSString *> *tags = [NSMutableArray array];
@@ -353,60 +401,103 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     if (shortDescription.length > 32 * 1024) shortDescription = [shortDescription substringToIndex:32 * 1024];
     info.shortDescription = shortDescription ?: @"";
 
-    // YT Music's player response strips out the description (verified via
-    // reflection — `videoDetails.shortDescription` is empty and the
-    // microformat block is absent). If we got nothing locally, look up
-    // an InnerTube cache entry (synchronous, no network) and inject it
-    // before the lyrics pipeline kicks off.
-    if (!info.shortDescription.length && videoId.length) {
-        NSString *cachedDescription = [[YTMUInnerTubeDescriptionFetcher sharedFetcher]
-                                          cachedDescriptionForVideoId:videoId];
-        if (cachedDescription.length) {
-            NSString *capped = cachedDescription.length > 32 * 1024
-                ? [cachedDescription substringToIndex:32 * 1024]
-                : cachedDescription;
-            info.shortDescription = capped;
-            YTMULyricsLog(@"innertube cache hit (sync) videoId=%@ len=%lu",
-                          videoId, (unsigned long)capped.length);
+    // YT Music's player response gives us a "song"-shaped view of
+    // metadata: description is stripped and the title is often the
+    // simplified album-track name (e.g. just "Terminal") rather than
+    // the full video title (e.g. "ハテ - Terminal (feat. IA)"). The
+    // InnerTube fetcher pulls the canonical video-side metadata; if
+    // it's already cached, inject it synchronously here so the lyrics
+    // pipeline searches with the right title from the start.
+    if (videoId.length) {
+        YTMUInnerTubeMetadata *cached = [[YTMUInnerTubeDescriptionFetcher sharedFetcher]
+                                            cachedMetadataForVideoId:videoId];
+        if (cached) {
+            if (!info.shortDescription.length && cached.videoDescription.length) {
+                NSString *capped = cached.videoDescription.length > 32 * 1024
+                    ? [cached.videoDescription substringToIndex:32 * 1024]
+                    : cached.videoDescription;
+                info.shortDescription = capped;
+                YTMULyricsLog(@"innertube cache hit (sync) videoId=%@ descLen=%lu",
+                              videoId, (unsigned long)capped.length);
+            }
+            // Override title only when the canonical version is genuinely
+            // more informative — i.e. it strictly contains the player
+            // title or carries non-ASCII characters the player title
+            // didn't have. NetEase indexes by the video title for
+            // doujin / vocaloid uploads, so using the simplified song
+            // title routinely hits an unrelated track that just happens
+            // to share the simplified name (K-pop "Terminal" matched
+            // for Qeiru's "ハテ - Terminal (feat. IA)").
+            if (cached.canonicalTitle.length &&
+                ![cached.canonicalTitle isEqualToString:info.title] &&
+                YTMUCanonicalTitleIsBetter(cached.canonicalTitle, info.title)) {
+                YTMULyricsLog(@"innertube canonical title override videoId=%@ player=\"%@\" → canonical=\"%@\"",
+                              videoId, info.title, cached.canonicalTitle);
+                if (info.title.length && !info.alternativeTitle.length) {
+                    info.alternativeTitle = info.title;
+                }
+                info.title = cached.canonicalTitle;
+            }
         }
     }
 
     [[YTMULyricsManager sharedManager] refreshWithInfo:info];
 
-    // Cache miss + we still have no description: kick off an async
-    // InnerTube fetch. On success we re-run refreshWithInfo with the
-    // populated description; from then on the synchronous cache-hit
-    // path above takes over for this videoId.
-    if (!info.shortDescription.length && videoId.length) {
-        NSString *capturedVideoId = [videoId copy];
-        YTMULyricsSearchInfo *infoSnapshot = [info copy];
-        [[YTMUInnerTubeDescriptionFetcher sharedFetcher]
-            fetchDescriptionForVideoId:capturedVideoId
-                            completion:^(NSString *_Nullable description, NSError *_Nullable error) {
-            if (!description.length) return; // empty = video has no description, or fetch failed
+    // Cache miss: kick off an async InnerTube fetch. On success the
+    // fetcher writes to disk cache; we then re-run refreshWithInfo
+    // with the full metadata. Subsequent plays take the synchronous
+    // cache-hit path above.
+    if (videoId.length) {
+        BOOL needsDescription = !info.shortDescription.length;
+        BOOL alreadyCached = ([[YTMUInnerTubeDescriptionFetcher sharedFetcher]
+                                  cachedMetadataForVideoId:videoId] != nil);
+        if (!alreadyCached) {
+            NSString *capturedVideoId = [videoId copy];
+            YTMULyricsSearchInfo *infoSnapshot = [info copy];
+            BOOL captureNeedsDescription = needsDescription;
+            [[YTMUInnerTubeDescriptionFetcher sharedFetcher]
+                fetchMetadataForVideoId:capturedVideoId
+                              completion:^(YTMUInnerTubeMetadata *_Nullable meta, NSError *_Nullable error) {
+                if (!meta) return;
 
-            // Dedup re-refreshes: the same videoId can have multiple
-            // metadata-refresh calls all queue a callback during a
-            // single in-flight fetch. We only want one re-refresh per
-            // videoId per process lifetime. The fetcher's disk cache
-            // takes over for subsequent plays.
-            static NSMutableSet<NSString *> *injectedVideoIds;
-            static dispatch_once_t injectOnce;
-            dispatch_once(&injectOnce, ^{ injectedVideoIds = [NSMutableSet set]; });
-            @synchronized (injectedVideoIds) {
-                if ([injectedVideoIds containsObject:capturedVideoId]) return;
-                [injectedVideoIds addObject:capturedVideoId];
-            }
+                BOOL haveBetterTitle = meta.canonicalTitle.length &&
+                                        ![meta.canonicalTitle isEqualToString:infoSnapshot.title] &&
+                                        YTMUCanonicalTitleIsBetter(meta.canonicalTitle, infoSnapshot.title);
+                BOOL haveDescription = captureNeedsDescription && meta.videoDescription.length;
+                if (!haveBetterTitle && !haveDescription) return;
 
-            NSString *capped = description.length > 32 * 1024
-                ? [description substringToIndex:32 * 1024]
-                : description;
-            YTMULyricsSearchInfo *updated = [infoSnapshot copy];
-            updated.shortDescription = capped;
-            YTMULyricsLog(@"innertube description injected videoId=%@ len=%lu — re-running refresh",
-                          capturedVideoId, (unsigned long)capped.length);
-            [[YTMULyricsManager sharedManager] refreshWithInfo:updated];
-        }];
+                // Dedup re-refreshes: same videoId, multiple callbacks
+                // racing during a single in-flight fetch. One refresh
+                // per videoId per process lifetime is enough; the
+                // disk cache takes over after that.
+                static NSMutableSet<NSString *> *injectedVideoIds;
+                static dispatch_once_t injectOnce;
+                dispatch_once(&injectOnce, ^{ injectedVideoIds = [NSMutableSet set]; });
+                @synchronized (injectedVideoIds) {
+                    if ([injectedVideoIds containsObject:capturedVideoId]) return;
+                    [injectedVideoIds addObject:capturedVideoId];
+                }
+
+                YTMULyricsSearchInfo *updated = [infoSnapshot copy];
+                if (haveDescription) {
+                    NSString *capped = meta.videoDescription.length > 32 * 1024
+                        ? [meta.videoDescription substringToIndex:32 * 1024]
+                        : meta.videoDescription;
+                    updated.shortDescription = capped;
+                }
+                if (haveBetterTitle) {
+                    if (updated.title.length && !updated.alternativeTitle.length) {
+                        updated.alternativeTitle = updated.title;
+                    }
+                    updated.title = meta.canonicalTitle;
+                }
+                YTMULyricsLog(@"innertube metadata injected videoId=%@ desc=%@ title=%@ — re-running refresh",
+                              capturedVideoId,
+                              haveDescription ? @"YES" : @"no",
+                              haveBetterTitle ? @"YES" : @"no");
+                [[YTMULyricsManager sharedManager] refreshWithInfo:updated];
+            }];
+        }
     }
 
     return YES;
