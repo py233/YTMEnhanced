@@ -323,23 +323,72 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         completion(@"");
         return;
     }
-    NSURL *url = [NSURL URLWithString:@"https://translate.google.com/translate_a/single?client=at&dt=rm&dj=1"];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    request.HTTPMethod = @"POST";
-    request.timeoutInterval = 15.0;
-    [request setValue:@"application/x-www-form-urlencoded;charset=utf-8" forHTTPHeaderField:@"Content-Type"];
+    // The previous implementation hit translate.google.com with
+    // client=at (the internal Android Translator client). That endpoint
+    // expects a device certificate and a com.google.android.apps.translate
+    // user-agent; from a plain iOS NSURLSession it silently returns
+    // either an empty body or a CAPTCHA HTML page, which is why every
+    // line came back as filled=0.
+    //
+    // translate.googleapis.com with client=gtx is the long-stable public
+    // endpoint used by web translate widgets, yt-dlp, and most OSS
+    // translation tools. GET-only, no auth, no cookies. Returns a
+    // proper JSON envelope when dj=1 is set.
     NSString *source = sourceLanguage.length ? sourceLanguage : @"auto";
-    NSString *body = [NSString stringWithFormat:@"sl=%@&tl=en&q=%@", [self googleFormEncode:source], [self googleFormEncode:text]];
-    request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+    NSString *encodedText = [self googleFormEncode:text];
+    NSString *encodedSource = [self googleFormEncode:source];
+    NSString *urlString = [NSString stringWithFormat:
+        @"https://translate.googleapis.com/translate_a/single?client=gtx&sl=%@&tl=en&dt=rm&dj=1&q=%@",
+        encodedSource, encodedText];
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+        completion(@"");
+        return;
+    }
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"GET";
+    request.timeoutInterval = 10.0;
+    // Browser UA — googleapis is permissive but a plain CFNetwork ua
+    // occasionally trips its bot heuristics on aggressive workloads.
+    [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
+       forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"application/json, text/plain, */*" forHTTPHeaderField:@"Accept"];
 
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
+            YTMULyricsLog(@"google romanization network error: %@", error.localizedDescription);
+            completion(@"");
+            return;
+        }
+        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        if (status < 200 || status >= 300) {
+            NSString *preview = @"";
+            if (data.length) {
+                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
+                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
+                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
+            }
+            YTMULyricsLog(@"google romanization HTTP %ld bodyLen=%lu preview=%@",
+                          (long)status, (unsigned long)data.length, preview);
             completion(@"");
             return;
         }
         NSError *jsonError = nil;
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
-        NSString *romanized = json ? [YTMULyricsTextProcessor googleTransliterationFromJSON:json] : @"";
+        if (!json || jsonError) {
+            NSString *preview = @"";
+            if (data.length) {
+                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
+                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
+                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
+            }
+            YTMULyricsLog(@"google romanization JSON parse failed err=%@ bodyLen=%lu preview=%@",
+                          jsonError.localizedDescription ?: @"<empty>",
+                          (unsigned long)data.length, preview);
+            completion(@"");
+            return;
+        }
+        NSString *romanized = [YTMULyricsTextProcessor googleTransliterationFromJSON:json];
         completion(romanized ?: @"");
     }] resume];
 }
