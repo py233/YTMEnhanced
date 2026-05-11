@@ -108,6 +108,7 @@
 "BILINGUAL_LYRICS" = "Dvikalbiai dainų žodžiai";
 "BILINGUAL_LYRICS_DESC" = "Po originaliomis eilutėmis rodo išverstas eilutes";
 "TRANSLATION_PROVIDER" = "Tiekėjas";
+"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
 "TRANSLATION_TARGET_LANG" = "Vertimo kalba";
 "TRANSLATION_API_KEY" = "API raktas";
 "TRANSLATION_MODEL" = "Modelis";

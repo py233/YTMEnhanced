@@ -108,6 +108,7 @@
 "BILINGUAL_LYRICS" = "Zweisprachige Liedtexte";
 "BILINGUAL_LYRICS_DESC" = "Zeigt übersetzte Liedtextzeilen unter den Originalzeilen an";
 "TRANSLATION_PROVIDER" = "Anbieter";
+"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
 "TRANSLATION_TARGET_LANG" = "Zielsprache";
 "TRANSLATION_API_KEY" = "API-Schlüssel";
 "TRANSLATION_MODEL" = "Modell";
