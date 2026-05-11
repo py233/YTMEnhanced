@@ -1,6 +1,4 @@
-"SETTINGS" = "Ajustes";
 "ENABLED" = "Activar YTMusicUltimate";
-"ENABLED_DESC" = "Funciones premium, sin anuncios, reproducción en segundo plano, etc.";
 "RESTART_FOOTER" = "Reinicia la aplicación para aplicar los cambios";
 
 "PREMIUM_SETTINGS" = "Opciones premium";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Elimina los anuncios de la aplicación";
 "BACKGROUND_PLAYBACK" = "Reproducción en segundo plano";
 "BACKGROUND_PLAYBACK_DESC" = "Activa la reproducción en segundo plano";
-"FORCE_PREMIUM" = "Forzar la activación premium";
-"FORCE_PREMIUM_DESC" = "Activa forzosamente las funciones Premium.\nEsta opción también desactiva la pestaña Muestras";
 
 "PLAYER_SETTINGS" = "Opciones del reproductor";
 "DOWNLOAD_AUDIO" = "Descargar audio";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Añade la opción de descargar la imagen de portada pulsando el botón YTMUltimate en el reproductor";
 "PLAYBACK_RATE_BUTTON" = "Mostrar botón de velocidad de reproducción";
 "PLAYBACK_RATE_BUTTON_DESC" = "Ajustar la velocidad de reproducción";
-"SELECTABLE_LYRICS" = "Selección de texto en letras";
-"SELECTABLE_LYRICS_DESC" = "Permite seleccionar texto en las letras";
 "VOLBAR" = "Barra de volumen";
 "VOLBAR_DESC" = "Añade una barra de volumen al reproductor";
 "NO_AUTORADIO" = "Desactivar la radio";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Omitir aviso de contenido";
 "SKIP_CONTENT_WARNING_DESC" = "Omite las advertencias sobre contenidos potencialmente nocivos";
 "AV_DEFAULT_MODE" = "Modo de reproducción predeterminado";
-"AUDIO" = "Audio";
-"VIDEO" = "Vídeo";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Salta secciones no musicales en videos musicales";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Opciones de la barra de pestañas";
 "STARTUP_TAB" = "Pestaña de inicio";
-"HOME" = "Inicio";
-"SAMPLES" = "Muestras";
-"EXPLORE" = "Explorar";
-"LIBRARY" = "Biblioteca";
 "DOWNLOADS" = "Descargas";
 
 "TAB_SETTINGS" = "Configuración de pestañas";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Ocultar pestaña Descargas";
 
 "CLEAR_CACHE" = "Borrar caché";
-
-"APPLY" = "Aplicar";
-"APPLY_DESC" = "Cierra la aplicación para aplicar los cambios";
 
 "LINKS" = "Enlaces";
 "TWITTER" = "Sígueme en Twitter: %@";
@@ -114,7 +99,6 @@
 "EMPTY" = "El contenido que descargue se mostrará aquí";
 "REMOVE_ALL" = "Eliminar todo";
 "SHARE_ALL" = "Compartir todo";
-"PREPARING" = "Preparando...";
 "DELETE_MESSAGE" = "¿Estás seguro de que quieres eliminar %@?";
 "ALL_DOWNLOADS" = "todas las descargas"; //keep it lowercase
 "DELETE" = "Eliminar";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "Compatible con OpenAI";
 "SYNCED_LYRICS" = "Superposición de letras sincronizadas";
-"SYNCED_LYRICS_DESC" = "Obtiene letras de varias fuentes y muestra un panel de letras sincronizadas sobre el reproductor";
 "LYRICS_SOURCE" = "Fuente de letras";
 "LYRICS_SOURCE_AUTO" = "Automático";
-"LYRICS_LINE_EFFECT" = "Efecto de línea";
 "LYRICS_EFFECT_FANCY" = "Completo";
 "LYRICS_EFFECT_SCALE" = "Escala";
 "LYRICS_EFFECT_OFFSET" = "Desplazamiento";
 "LYRICS_EFFECT_FOCUS" = "Enfoque";
-"LYRICS_FONT_SIZE" = "Tamaño de fuente";
-"LYRICS_FONT_SMALL" = "Pequeño";
-"LYRICS_FONT_MEDIUM" = "Medio";
-"LYRICS_FONT_LARGE" = "Grande";
 "LYRICS_DEFAULT_TEXT" = "Texto para líneas vacías";
 "LYRICS_CHINESE_CONVERSION" = "Conversión de chino";
 "LYRICS_CHINESE_DISABLED" = "Desactivado";
 "LYRICS_CHINESE_S2T" = "Simplificado a tradicional";
 "LYRICS_CHINESE_T2S" = "Tradicional a simplificado";
 "LYRICS_ROMANIZATION" = "Romanización";
-"LYRICS_SHOW_TIMECODES" = "Mostrar códigos de tiempo";
 "LYRICS_SHOW_INEXACT" = "Mostrar coincidencias inexactas";
 "TRANSLATION_DEBUG_LOGS" = "Registros de depuración";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Imprime diagnósticos de YTMULyrics y YTMUTranslation en los registros del dispositivo";

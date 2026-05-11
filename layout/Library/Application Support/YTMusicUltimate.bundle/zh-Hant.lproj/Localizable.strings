@@ -1,6 +1,4 @@
-"SETTINGS" = "設定";
 "ENABLED" = "啟用";
-"ENABLED_DESC" = "會員功能：無廣告和背景播放等";
 "RESTART_FOOTER" = "重新啟動應用程式以套用變更";
 
 "PREMIUM_SETTINGS" = "Premium功能";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "移除應用程式內的廣告";
 "BACKGROUND_PLAYBACK" = "背景播放";
 "BACKGROUND_PLAYBACK_DESC" = "啟用背景播放功能";
-"FORCE_PREMIUM" = "強制啟用Premium功能";
-"FORCE_PREMIUM_DESC" = "強制啟用Premium功能\n此選項也會停用'發現'功能標籤";
 
 "PLAYER_SETTINGS" = "播放器介面";
 "DOWNLOAD_AUDIO" = "下載音訊";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "按下播放器中的下載按鈕，即可下載封面圖片";
 "PLAYBACK_RATE_BUTTON" = "顯示播放速度按鈕";
 "PLAYBACK_RATE_BUTTON_DESC" = "調整播放速度";
-"SELECTABLE_LYRICS" = "複製歌詞";
-"SELECTABLE_LYRICS_DESC" = "允許複製歌詞";
 "VOLBAR" = "音量條";
 "VOLBAR_DESC" = "在播放器增加音量控制條";
 "NO_AUTORADIO" = "關閉電台功能";
@@ -27,8 +21,6 @@
 "AV_DEFAULT_MODE" = "預設播放模式";
 "SKIP_CONTENT_WARNING" = "跳過內容警告";
 "SKIP_CONTENT_WARNING_DESC" = "跳過可能有害的內容警告";
-"AUDIO" = "歌曲";
-"VIDEO" = "影片";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "跳過MV中非音樂部分";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "下方功能標籤";
 "STARTUP_TAB" = "預設開啟畫面";
-"SAMPLES" = "發現";
-"HOME" = "首頁";
-"EXPLORE" = "探索";
-"LIBRARY" = "媒體庫";
 "DOWNLOADS" = "下載管理器";
 
 "TAB_SETTINGS" = "標籤設定";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "隱藏下載管理器";
 
 "CLEAR_CACHE" = "清除快取";
-
-"APPLY" = "套用";
-"APPLY_DESC" = "按下套用會關閉應用程式讓變更生效";
 
 "LINKS" = "相關連結";
 "TWITTER" = "在推特上跟隨%@";
@@ -114,7 +99,6 @@
 "EMPTY" = "您下載的內容會顯示在這裡";
 "REMOVE_ALL" = "刪除所有音訊";
 "SHARE_ALL" = "分享所有音訊";
-"PREPARING" = "準備中...";
 "DELETE_MESSAGE" = "您確定要刪除%@?";
 "ALL_DOWNLOADS" = "所有下載的音訊"; //keep it lowercase
 "DELETE" = "刪除";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI 相容";
 "SYNCED_LYRICS" = "同步歌詞浮層";
-"SYNCED_LYRICS_DESC" = "從多個來源查找歌詞，並在播放器上渲染我們自己的同步歌詞面板";
 "LYRICS_SOURCE" = "歌詞來源";
 "LYRICS_SOURCE_AUTO" = "自動";
-"LYRICS_LINE_EFFECT" = "行效果";
 "LYRICS_EFFECT_FANCY" = "完整效果";
 "LYRICS_EFFECT_SCALE" = "縮放";
 "LYRICS_EFFECT_OFFSET" = "偏移";
 "LYRICS_EFFECT_FOCUS" = "聚焦";
-"LYRICS_FONT_SIZE" = "字號";
-"LYRICS_FONT_SMALL" = "小";
-"LYRICS_FONT_MEDIUM" = "中";
-"LYRICS_FONT_LARGE" = "大";
 "LYRICS_DEFAULT_TEXT" = "空歌詞顯示";
 "LYRICS_CHINESE_CONVERSION" = "簡繁轉換";
 "LYRICS_CHINESE_DISABLED" = "關閉";
 "LYRICS_CHINESE_S2T" = "簡體轉繁體";
 "LYRICS_CHINESE_T2S" = "繁體轉簡體";
 "LYRICS_ROMANIZATION" = "羅馬音";
-"LYRICS_SHOW_TIMECODES" = "顯示時間戳";
 "LYRICS_SHOW_INEXACT" = "允許非精確匹配";
 "TRANSLATION_DEBUG_LOGS" = "除錯日誌";
 "TRANSLATION_DEBUG_LOGS_DESC" = "向裝置日誌輸出 YTMULyrics 和 YTMUTranslation 診斷資訊";

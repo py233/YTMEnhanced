@@ -1,6 +1,4 @@
-"SETTINGS" = "Ayarlar";
 "ENABLED" = "YTMusicUltimate'i etkinleştir";
-"ENABLED_DESC" = "Premium özellikler, reklam engelleme, arka planda oynatma vb.";
 "RESTART_FOOTER" = "Değişiklikleri uygulamak için uygulamayı yeniden başlatın";
 
 "PREMIUM_SETTINGS" = "Premium ayarları";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Uygulama içi reklamları kaldırır";
 "BACKGROUND_PLAYBACK" = "Arka planda oynatma";
 "BACKGROUND_PLAYBACK_DESC" = "Arka planda oynatma özelliğini etkinleştirir";
-"FORCE_PREMIUM" = "Premium'u zorla etkinleştir";
-"FORCE_PREMIUM_DESC" = "Premium özellikleri zorla etkinleştirir.\nBu seçenek aynı zamanda Sana Özel sekmesini devre dışı bırakır";
 
 "PLAYER_SETTINGS" = "Oynatıcı ayarları";
 "DOWNLOAD_AUDIO" = "Ses indir";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Oynatıcıdaki YTMUltimate butonuna basarak albüm resmi indirme özelliğini ekler";
 "PLAYBACK_RATE_BUTTON" = "Oynatma hızı düğmesini göster";
 "PLAYBACK_RATE_BUTTON_DESC" = "Oynatma hızını ayarla";
-"SELECTABLE_LYRICS" = "Şarkı sözleri metin seçimi";
-"SELECTABLE_LYRICS_DESC" = "Şarkı sözleri için metin seçimini etkinleştirir";
 "VOLBAR" = "Ses çubuğu";
 "VOLBAR_DESC" = "Oynatıcıya bir ses çubuğu ekler";
 "NO_AUTORADIO" = "Radyoyu devre dışı bırak";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "İçerik uyarısını atla";
 "SKIP_CONTENT_WARNING_DESC" = "Potansiyel zararlı içerik uyarılarını atlar";
 "AV_DEFAULT_MODE" = "Varsayılan oynatma modu";
-"AUDIO" = "Şarkı";
-"VIDEO" = "Video";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Müzik videolarında müzik olmayan bölümleri atlar";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Sekme çubuğu ayarları";
 "STARTUP_TAB" = "Başlangıç sekmesi";
-"HOME" = "Ana Sayfa";
-"SAMPLES" = "Sana Özel";
-"EXPLORE" = "Keşfet";
-"LIBRARY" = "Kitaplık";
 "DOWNLOADS" = "İndirilenler";
 
 "TAB_SETTINGS" = "Sekme çubuğu";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "İndirilenler Sekmesini Gizle";
 
 "CLEAR_CACHE" = "Önbelleği temizle";
-
-"APPLY" = "Uygula";
-"APPLY_DESC" = "Değişiklikleri uygulamak için uygulamayı kapatır.";
 
 "LINKS" = "Bağlantılar";
 "TWITTER" = "Twitter'da %@'i takip edin";
@@ -114,7 +99,6 @@
 "EMPTY" = "İndirdiğiniz içerikler burada gözükecek";
 "REMOVE_ALL" = "Tüm sesleri kaldır";
 "SHARE_ALL" = "Tüm sesleri paylaş";
-"PREPARING" = "Hazırlanıyor...";
 "DELETE_MESSAGE" = "Bunu silmek istediğine emin misin: %@?";
 "ALL_DOWNLOADS" = "tüm indirilmiş sesler"; //keep it lowercase
 "DELETE" = "Sil";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI uyumlu";
 "SYNCED_LYRICS" = "Senkronize şarkı sözleri katmanı";
-"SYNCED_LYRICS_DESC" = "Şarkı sözlerini birden fazla kaynaktan alır ve oynatıcının üzerinde senkronize sözler paneli gösterir";
 "LYRICS_SOURCE" = "Sözlerin kaynağı";
 "LYRICS_SOURCE_AUTO" = "Otomatik";
-"LYRICS_LINE_EFFECT" = "Satır efekti";
 "LYRICS_EFFECT_FANCY" = "Tam";
 "LYRICS_EFFECT_SCALE" = "Ölçek";
 "LYRICS_EFFECT_OFFSET" = "Kayma";
 "LYRICS_EFFECT_FOCUS" = "Odak";
-"LYRICS_FONT_SIZE" = "Yazı tipi boyutu";
-"LYRICS_FONT_SMALL" = "Küçük";
-"LYRICS_FONT_MEDIUM" = "Orta";
-"LYRICS_FONT_LARGE" = "Büyük";
 "LYRICS_DEFAULT_TEXT" = "Boş satır metni";
 "LYRICS_CHINESE_CONVERSION" = "Çince dönüştürme";
 "LYRICS_CHINESE_DISABLED" = "Devre dışı";
 "LYRICS_CHINESE_S2T" = "Basitleştirilmişten Geleneksele";
 "LYRICS_CHINESE_T2S" = "Gelenekselden Basitleştirilmişe";
 "LYRICS_ROMANIZATION" = "Latinleştirme";
-"LYRICS_SHOW_TIMECODES" = "Zaman kodlarını göster";
 "LYRICS_SHOW_INEXACT" = "Tam olmayan eşleşmeleri göster";
 "TRANSLATION_DEBUG_LOGS" = "Hata ayıklama günlükleri";
 "TRANSLATION_DEBUG_LOGS_DESC" = "YTMULyrics ve YTMUTranslation tanılama bilgilerini cihaz günlüklerine yazar";

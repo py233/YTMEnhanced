@@ -1,6 +1,4 @@
-"SETTINGS" = "Cài đặt";
 "ENABLED" = "Bật YTMusicUltimate";
-"ENABLED_DESC" = "Mở khóa các tính năng Premium, chặn quảng cáo, phát trong nền, v.v.";
 "RESTART_FOOTER" = "Khởi động lại ứng dụng để áp dụng các thay đổi";
 
 "PREMIUM_SETTINGS" = "Tùy chọn Premium";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Loại bỏ quảng cáo trong ứng dụng";
 "BACKGROUND_PLAYBACK" = "Phát trong nền";
 "BACKGROUND_PLAYBACK_DESC" = "Bật tính năng phát trong nền";
-"FORCE_PREMIUM" = "Buộc kích hoạt Premium";
-"FORCE_PREMIUM_DESC" = "Buộc kích hoạt các tính năng Premium.\nTùy chọn này cũng sẽ ẩn tab Đoạn nhạc";
 
 "PLAYER_SETTINGS" = "Tùy chọn trình phát";
 "DOWNLOAD_AUDIO" = "Tải âm thanh xuống";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Thêm tùy chọn tải xuống ảnh bìa bằng cách nhấn nút YTMUltimate trong trình phát";
 "PLAYBACK_RATE_BUTTON" = "Nút điều khiển tốc độ";
 "PLAYBACK_RATE_BUTTON_DESC" = "Hiển thị nút điều khiển tốc độ phát";
-"SELECTABLE_LYRICS" = "Chọn lời bài hát";
-"SELECTABLE_LYRICS_DESC" = "Bật tính năng chọn văn bản lời bài hát";
 "VOLBAR" = "Thanh âm lượng";
 "VOLBAR_DESC" = "Thêm thanh âm lượng vào trình phát";
 "NO_AUTORADIO" = "Tắt tính năng đài phát";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Bỏ qua cảnh báo nội dung";
 "SKIP_CONTENT_WARNING_DESC" = "Không hiển thị cảnh báo nội dung độc hại";
 "AV_DEFAULT_MODE" = "Chế độ phát mặc định";
-"AUDIO" = "Ưu tiên phần âm";
-"VIDEO" = "Ưu tiên phần hình";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Bỏ qua phần không phải nhạc trong video ca nhạc";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Tùy chọn thanh tab";
 "STARTUP_TAB" = "Tab khởi động";
-"SAMPLES" = "Đoạn nhạc";
-"HOME" = "Trang chủ";
-"EXPLORE" = "Khám phá";
-"LIBRARY" = "Thư viện";
 "DOWNLOADS" = "Tải xuống";
 
 "TAB_SETTINGS" = "Cài đặt thanh tab";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Ẩn tab Tải xuống";
 
 "CLEAR_CACHE" = "Xóa bộ nhớ đệm";
-
-"APPLY" = "Áp dụng";
-"APPLY_DESC" = "Đóng ứng dụng để áp dụng các thay đổi";
 
 "LINKS" = "Liên kết";
 "TWITTER" = "Theo dõi %@ trên Twitter";
@@ -114,7 +99,6 @@
 "EMPTY" = "Nội dung bạn tải xuống sẽ hiển thị tại đây";
 "REMOVE_ALL" = "Xóa tất cả âm thanh";
 "SHARE_ALL" = "Chia sẻ tất cả âm thanh";
-"PREPARING" = "Đang chuẩn bị...";
 "DELETE_MESSAGE" = "Bạn có chắc chắn muốn xóa %@ không?";
 "ALL_DOWNLOADS" = "tất cả âm thanh đã tải"; //keep it lowercase
 "DELETE" = "Xóa";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "Tương thích OpenAI";
 "SYNCED_LYRICS" = "Lớp phủ lời bài hát đồng bộ";
-"SYNCED_LYRICS_DESC" = "Lấy lời bài hát từ nhiều nguồn và hiển thị bảng lời đồng bộ trên trình phát";
 "LYRICS_SOURCE" = "Nguồn lời bài hát";
 "LYRICS_SOURCE_AUTO" = "Tự động";
-"LYRICS_LINE_EFFECT" = "Hiệu ứng dòng";
 "LYRICS_EFFECT_FANCY" = "Đầy đủ";
 "LYRICS_EFFECT_SCALE" = "Co giãn";
 "LYRICS_EFFECT_OFFSET" = "Dịch chuyển";
 "LYRICS_EFFECT_FOCUS" = "Tập trung";
-"LYRICS_FONT_SIZE" = "Cỡ chữ";
-"LYRICS_FONT_SMALL" = "Nhỏ";
-"LYRICS_FONT_MEDIUM" = "Vừa";
-"LYRICS_FONT_LARGE" = "Lớn";
 "LYRICS_DEFAULT_TEXT" = "Nội dung dòng trống";
 "LYRICS_CHINESE_CONVERSION" = "Chuyển đổi tiếng Trung";
 "LYRICS_CHINESE_DISABLED" = "Tắt";
 "LYRICS_CHINESE_S2T" = "Giản thể sang Phồn thể";
 "LYRICS_CHINESE_T2S" = "Phồn thể sang Giản thể";
 "LYRICS_ROMANIZATION" = "Phiên âm Latin";
-"LYRICS_SHOW_TIMECODES" = "Hiển thị mã thời gian";
 "LYRICS_SHOW_INEXACT" = "Hiển thị kết quả khớp gần đúng";
 "TRANSLATION_DEBUG_LOGS" = "Nhật ký gỡ lỗi";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Ghi thông tin chẩn đoán YTMULyrics và YTMUTranslation vào nhật ký thiết bị";

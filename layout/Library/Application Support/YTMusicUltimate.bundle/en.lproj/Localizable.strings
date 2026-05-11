@@ -1,6 +1,4 @@
-"SETTINGS" = "Settings";
 "ENABLED" = "Enable YTMusicUltimate";
-"ENABLED_DESC" = "Premium features, no ads, background playback, etc.";
 "RESTART_FOOTER" = "Restart the app to apply changes";
 
 "PREMIUM_SETTINGS" = "Premium options";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Removes ads in the app";
 "BACKGROUND_PLAYBACK" = "Background playback";
 "BACKGROUND_PLAYBACK_DESC" = "Enables background playback";
-"FORCE_PREMIUM" = "Force enable Premium";
-"FORCE_PREMIUM_DESC" = "Forcibly enables Premium features.\nAlso disables the Samples tab.";
 
 "PLAYER_SETTINGS" = "Player options";
 "DOWNLOAD_AUDIO" = "Download audio";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Adds a cover-image download option to the player's YTMUltimate button";
 "PLAYBACK_RATE_BUTTON" = "Show playback rate button";
 "PLAYBACK_RATE_BUTTON_DESC" = "Adjust playback speed";
-"SELECTABLE_LYRICS" = "Lyrics text selection";
-"SELECTABLE_LYRICS_DESC" = "Allow text selection on lyrics";
 "VOLBAR" = "Volume bar";
 "VOLBAR_DESC" = "Adds a volume bar to the player";
 "NO_AUTORADIO" = "Disable radio";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Skip content warning";
 "SKIP_CONTENT_WARNING_DESC" = "Skips warnings about potentially harmful content";
 "AV_DEFAULT_MODE" = "Default playback mode";
-"AUDIO" = "Audio";
-"VIDEO" = "Video";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Skips non-music sections in music videos";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Tab bar options";
 "STARTUP_TAB" = "Startup tab";
-"HOME" = "Home";
-"SAMPLES" = "Samples";
-"EXPLORE" = "Explore";
-"LIBRARY" = "Library";
 "DOWNLOADS" = "Downloads";
 
 "TAB_SETTINGS" = "Tab settings";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Hide Downloads tab";
 
 "CLEAR_CACHE" = "Clear cache";
-
-"APPLY" = "Apply";
-"APPLY_DESC" = "Closes the app to apply changes";
 
 "LINKS" = "Links";
 "TWITTER" = "Follow %@ on Twitter";
@@ -114,7 +99,6 @@
 "EMPTY" = "Content you download will show up here";
 "REMOVE_ALL" = "Remove all audios";
 "SHARE_ALL" = "Share all audios";
-"PREPARING" = "Preparing…";
 "DELETE_MESSAGE" = "Are you sure you want to delete %@?";
 "ALL_DOWNLOADS" = "all downloaded audio"; //keep it lowercase
 "DELETE" = "Delete";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI-compatible";
 "SYNCED_LYRICS" = "Synced lyrics overlay";
-"SYNCED_LYRICS_DESC" = "Fetches lyrics from multiple sources and shows a synced lyrics panel over the player";
 "LYRICS_SOURCE" = "Lyrics source";
 "LYRICS_SOURCE_AUTO" = "Auto";
-"LYRICS_LINE_EFFECT" = "Line effect";
 "LYRICS_EFFECT_FANCY" = "Fancy";
 "LYRICS_EFFECT_SCALE" = "Scale";
 "LYRICS_EFFECT_OFFSET" = "Offset";
 "LYRICS_EFFECT_FOCUS" = "Focus";
-"LYRICS_FONT_SIZE" = "Font size";
-"LYRICS_FONT_SMALL" = "Small";
-"LYRICS_FONT_MEDIUM" = "Medium";
-"LYRICS_FONT_LARGE" = "Large";
 "LYRICS_DEFAULT_TEXT" = "Empty line symbol";
 "LYRICS_CHINESE_CONVERSION" = "Chinese conversion";
 "LYRICS_CHINESE_DISABLED" = "Off";
 "LYRICS_CHINESE_S2T" = "Simplified to Traditional";
 "LYRICS_CHINESE_T2S" = "Traditional to Simplified";
 "LYRICS_ROMANIZATION" = "Romanization";
-"LYRICS_SHOW_TIMECODES" = "Show timecodes";
 "LYRICS_SHOW_INEXACT" = "Allow inexact matches";
 "TRANSLATION_DEBUG_LOGS" = "Debug logs";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Prints YTMULyrics and YTMUTranslation diagnostics to device logs";

@@ -1,6 +1,4 @@
-"SETTINGS" = "Настройки";
 "ENABLED" = "Включить YTMusicUltimate";
-"ENABLED_DESC" = "Премиум, нет рекламы, работает в фоне и т.д.";
 "RESTART_FOOTER" = "Для применения настроек потребуется перезапуск";
 
 "PREMIUM_SETTINGS" = "Премиум настройки";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Убирает рекламу в приложении";
 "BACKGROUND_PLAYBACK" = "Фоновое воспроизведение";
 "BACKGROUND_PLAYBACK_DESC" = "Позволяет воспроизводить медиаконтент в фоне";
-"FORCE_PREMIUM" = "Принудительный премиум";
-"FORCE_PREMIUM_DESC" = "Принудительно активирует функции премиум.\nВкладка «Семплы» недоступна в данном режиме";
 
 "PLAYER_SETTINGS" = "Настройки плеера";
 "DOWNLOAD_AUDIO" = "Скачать аудио";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Добавляет опцию загрузки обложки песни нажатием на кнопку «YTMUltimate» в плеере";
 "PLAYBACK_RATE_BUTTON" = "Скорость воспроизведения";
 "PLAYBACK_RATE_BUTTON_DESC" = "Добавляет иконку, позволяющую регулировать скорость воспроизведения";
-"SELECTABLE_LYRICS" = "Выделение текста";
-"SELECTABLE_LYRICS_DESC" = "Позволяет выделять текста песен";
 "VOLBAR" = "Регулировка громкости";
 "VOLBAR_DESC" = "Добавляет полосу регулировки громкости в окне плеера";
 "NO_AUTORADIO" = "Отключить радио";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Пропускать предупреждения";
 "SKIP_CONTENT_WARNING_DESC" = "Пропускает предупреждения о потенциально опасном контенте";
 "AV_DEFAULT_MODE" = "Режим воспроизведения";
-"AUDIO" = "Аудио";
-"VIDEO" = "Видео";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Перематывает немузыкальные сегменты";
@@ -61,15 +53,10 @@
 
 "TABBAR_SETTINGS" = "Панель вкладок";
 "STARTUP_TAB" = "Начальная страница";
-"HOME" = "Главная";
-"SAMPLES" = "Семплы";
-"EXPLORE" = "Навигатор";
-"LIBRARY" = "Библиотека";
 "DOWNLOADS" = "Загрузки";
 
 "TAB_SETTINGS" = "Настройки вкладок";
 "REMOVE_TABBAR_LABELS" = "Скрыть названия вкладок";
-"HIDE_TAB" = "Скрыть вкладки";
 "HIDE_HOME" = "Скрыть вкладку «Главная»";
 "HIDE_SAMPLES" = "Скрыть вкладку «Семплы»";
 "HIDE_EXPLORE" = "Скрыть вкладку «Навигатор»";
@@ -77,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Скрыть вкладку «Загрузки»";
 
 "CLEAR_CACHE" = "Очистить кеш";
-
-"APPLY" = "Применить";
-"APPLY_DESC" = "Закроет приложение для применения настроек";
 
 "LINKS" = "Ссылки";
 "TWITTER" = "Twitter аккаунт %@";
@@ -115,7 +99,6 @@
 "EMPTY" = "Здесь появится скачанный вами контент";
 "REMOVE_ALL" = "Удалить все аудиофайлы";
 "SHARE_ALL" = "Поделиться всеми аудиофайлами";
-"PREPARING" = "Подготовка...";
 "DELETE_MESSAGE" = "Уверены, что хотите удалить %@?";
 "ALL_DOWNLOADS" = "все загруженные аудиофайлы";
 "DELETE" = "Удалить";
@@ -136,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI-совместимый";
 "SYNCED_LYRICS" = "Слой синхронизированного текста";
-"SYNCED_LYRICS_DESC" = "Получает текст песен из нескольких источников и отображает панель синхронизированного текста поверх плеера";
 "LYRICS_SOURCE" = "Источник текста";
 "LYRICS_SOURCE_AUTO" = "Автоматически";
-"LYRICS_LINE_EFFECT" = "Эффект строки";
 "LYRICS_EFFECT_FANCY" = "Полный";
 "LYRICS_EFFECT_SCALE" = "Масштабирование";
 "LYRICS_EFFECT_OFFSET" = "Смещение";
 "LYRICS_EFFECT_FOCUS" = "Фокус";
-"LYRICS_FONT_SIZE" = "Размер шрифта";
-"LYRICS_FONT_SMALL" = "Маленький";
-"LYRICS_FONT_MEDIUM" = "Средний";
-"LYRICS_FONT_LARGE" = "Большой";
 "LYRICS_DEFAULT_TEXT" = "Текст пустой строки";
 "LYRICS_CHINESE_CONVERSION" = "Конвертация китайского";
 "LYRICS_CHINESE_DISABLED" = "Отключено";
 "LYRICS_CHINESE_S2T" = "Упрощённое в традиционное";
 "LYRICS_CHINESE_T2S" = "Традиционное в упрощённое";
 "LYRICS_ROMANIZATION" = "Романизация";
-"LYRICS_SHOW_TIMECODES" = "Показывать тайм-коды";
 "LYRICS_SHOW_INEXACT" = "Показывать неточные совпадения";
 "TRANSLATION_DEBUG_LOGS" = "Журналы отладки";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Выводит диагностику YTMULyrics и YTMUTranslation в системные журналы устройства";

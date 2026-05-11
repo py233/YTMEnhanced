@@ -1,6 +1,4 @@
-"SETTINGS" = "การตั้งค่า";
 "ENABLED" = "เปิดใช้งาน YTMusicUltimate";
-"ENABLED_DESC" = "ฟีเจอร์พรีเมียม ไม่มีโฆษณา เล่นเบื้องหลัง และอื่นๆ";
 "RESTART_FOOTER" = "ต้องรีสตาร์ทแอปเพื่อปรับใช้งาน";
 
 "PREMIUM_SETTINGS" = "พรีเมียม";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "ลบโฆษณาภายในแอป";
 "BACKGROUND_PLAYBACK" = "เล่นเบื้องหลัง";
 "BACKGROUND_PLAYBACK_DESC" = "เปิดใช้งานการเล่นเบื้องหลัง";
-"FORCE_PREMIUM" = "บังคับเปิดพรีเมียม";
-"FORCE_PREMIUM_DESC" = "บังคับเปิดฟีเจอร์พรีเมียม\nตัวเลือกนี้จะเป็นการปิดใช้งานแท็บลองฟังไปด้วย";
 
 "PLAYER_SETTINGS" = "เครื่องเล่น";
 "DOWNLOAD_AUDIO" = "ดาวน์โหลดเสียง";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "เพิ่มตัวเลือกดาวน์โหลดภาพปกโดยกดปุ่ม YTMUltimate ในเครื่องเล่น";
 "PLAYBACK_RATE_BUTTON" = "แสดงปุ่มปรับความเร็ว";
 "PLAYBACK_RATE_BUTTON_DESC" = "ใช้ในการปรับความเร็วการเล่น";
-"SELECTABLE_LYRICS" = "เลือกข้อความในเนื้อเพลงได้";
-"SELECTABLE_LYRICS_DESC" = "เปิดใช้งานการเลือกข้อความในเนื้อเพลง";
 "VOLBAR" = "แถบปรับระดับเสียง";
 "VOLBAR_DESC" = "เพิ่มแถบปรับระดับเสียงในเครื่องเล่น";
 "NO_AUTORADIO" = "ปิดวิทยุอัตโนมัติ";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "ข้ามคำเตือนเนื้อหา";
 "SKIP_CONTENT_WARNING_DESC" = "ข้ามคำเตือนเกี่ยวกับเนื้อหาที่อาจไม่เหมาะสม";
 "AV_DEFAULT_MODE" = "โหมดการเล่นเริ่มต้น";
-"AUDIO" = "เสียง";
-"VIDEO" = "วิดีโอ";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "ข้ามช่วงที่ไม่ใช่ดนตรีในมิวสิกวิดีโอ";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "แท็บนำทาง";
 "STARTUP_TAB" = "แท็บเริ่มต้น";
-"HOME" = "หน้าแรก";
-"SAMPLES" = "ลองฟัง";
-"EXPLORE" = "สำรวจ";
-"LIBRARY" = "คลังเพลง";
 "DOWNLOADS" = "ดาวน์โหลด";
 
 "TAB_SETTINGS" = "การตั้งค่าแท็บ";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "ซ่อนแท็บดาวน์โหลด";
 
 "CLEAR_CACHE" = "ล้างแคช";
-
-"APPLY" = "ปรับใช้";
-"APPLY_DESC" = "ปิดแอปเพื่อปรับใช้การตั้งค่า";
 
 "LINKS" = "ลิงก์";
 "TWITTER" = "ติดตาม %@ บน Twitter";
@@ -114,7 +99,6 @@
 "EMPTY" = "เนื้อหาที่คุณดาวน์โหลดจะแสดงที่นี่";
 "REMOVE_ALL" = "ลบไฟล์เสียงทั้งหมด";
 "SHARE_ALL" = "แชร์ไฟล์เสียงทั้งหมด";
-"PREPARING" = "กำลังเตรียม...";
 "DELETE_MESSAGE" = "คุณแน่ใจว่าต้องการลบ %@ หรือไม่?";
 "ALL_DOWNLOADS" = "ไฟล์เสียงที่ดาวน์โหลดทั้งหมด";
 "DELETE" = "ลบ";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "เข้ากันได้กับ OpenAI";
 "SYNCED_LYRICS" = "เลเยอร์เนื้อเพลงซิงค์";
-"SYNCED_LYRICS_DESC" = "ดึงเนื้อเพลงจากหลายแหล่งและแสดงแผงเนื้อเพลงซิงค์ทับเครื่องเล่น";
 "LYRICS_SOURCE" = "แหล่งเนื้อเพลง";
 "LYRICS_SOURCE_AUTO" = "อัตโนมัติ";
-"LYRICS_LINE_EFFECT" = "เอฟเฟกต์บรรทัด";
 "LYRICS_EFFECT_FANCY" = "เต็มรูปแบบ";
 "LYRICS_EFFECT_SCALE" = "ขยายขนาด";
 "LYRICS_EFFECT_OFFSET" = "เลื่อน";
 "LYRICS_EFFECT_FOCUS" = "โฟกัส";
-"LYRICS_FONT_SIZE" = "ขนาดตัวอักษร";
-"LYRICS_FONT_SMALL" = "เล็ก";
-"LYRICS_FONT_MEDIUM" = "กลาง";
-"LYRICS_FONT_LARGE" = "ใหญ่";
 "LYRICS_DEFAULT_TEXT" = "ข้อความบรรทัดว่าง";
 "LYRICS_CHINESE_CONVERSION" = "การแปลงอักษรจีน";
 "LYRICS_CHINESE_DISABLED" = "ปิด";
 "LYRICS_CHINESE_S2T" = "จีนตัวย่อเป็นตัวเต็ม";
 "LYRICS_CHINESE_T2S" = "จีนตัวเต็มเป็นตัวย่อ";
 "LYRICS_ROMANIZATION" = "อักษรโรมัน";
-"LYRICS_SHOW_TIMECODES" = "แสดงรหัสเวลา";
 "LYRICS_SHOW_INEXACT" = "แสดงผลลัพธ์ที่ตรงไม่ตรงเป๊ะ";
 "TRANSLATION_DEBUG_LOGS" = "บันทึกการดีบัก";
 "TRANSLATION_DEBUG_LOGS_DESC" = "บันทึกข้อมูลการวินิจฉัย YTMULyrics และ YTMUTranslation ลงในบันทึกของอุปกรณ์";

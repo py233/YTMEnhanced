@@ -1,6 +1,4 @@
-"SETTINGS" = "設定";
 "ENABLED" = "有効";
-"ENABLED_DESC" = "プレミアム機能、広告非表示、バックグラウンド再生など";
 "RESTART_FOOTER" = "変更を適用するためにアプリを再起動";
 
 "PREMIUM_SETTINGS" = "プレミアムオプション";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "アプリ内広告を削除";
 "BACKGROUND_PLAYBACK" = "バックグラウンド再生";
 "BACKGROUND_PLAYBACK_DESC" = "バックグラウンド再生を有効化";
-"FORCE_PREMIUM" = "Force enable premium";
-"FORCE_PREMIUM_DESC" = "Forcibly enables premium features.\nThis option also disables Samples tab";
 
 "PLAYER_SETTINGS" = "プレーヤーオプション";
 "DOWNLOAD_AUDIO" = "Download audio";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Adds the option to download cover image by pressing the YTMUltimate button in the player";
 "PLAYBACK_RATE_BUTTON" = "再生速度ボタンを表示";
 "PLAYBACK_RATE_BUTTON_DESC" = "再生速度を変更できます";
-"SELECTABLE_LYRICS" = "歌詞のテキスト選択";
-"SELECTABLE_LYRICS_DESC" = "歌詞のテキスト選択を有効にします";
 "VOLBAR" = "ボリュームバー";
 "VOLBAR_DESC" = "プレーヤーにボリュームバーを追加する";
 "NO_AUTORADIO" = "ラジオを無効化する";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Skip content warning";
 "SKIP_CONTENT_WARNING_DESC" = "Skips warnings about potentially harmful content";
 "AV_DEFAULT_MODE" = "デフォルトの再生モード";
-"AUDIO" = "音楽";
-"VIDEO" = "映像";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "ミュージックビデオでの音楽以外のセクションをスキップします";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Tab bar options";
 "STARTUP_TAB" = "Startup tab";
-"SAMPLES" = "Samples";
-"HOME" = "Home";
-"EXPLORE" = "Explore";
-"LIBRARY" = "Library";
 "DOWNLOADS" = "Downloads";
 
 "TAB_SETTINGS" = "Tab settings";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Hide Downloads tab";
 
 "CLEAR_CACHE" = "Clear cache";
-
-"APPLY" = "適用";
-"APPLY_DESC" = "アプリを終了して変更を適用します";
 
 "LINKS" = "リンク";
 "TWITTER" = "ツイッターで %@ をフォロー";
@@ -114,7 +99,6 @@
 "EMPTY" = "Content you download will show here";
 "REMOVE_ALL" = "Remove all audios";
 "SHARE_ALL" = "Share all audios";
-"PREPARING" = "Preparing...";
 "DELETE_MESSAGE" = "Are you sure you want to delete %@?";
 "ALL_DOWNLOADS" = "all download audios"; //keep it lowercase
 "DELETE" = "Delete";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI互換";
 "SYNCED_LYRICS" = "同期歌詞オーバーレイ";
-"SYNCED_LYRICS_DESC" = "複数の歌詞ソースから取得し、プレイヤー上に独自の同期歌詞パネルを表示します";
 "LYRICS_SOURCE" = "歌詞ソース";
 "LYRICS_SOURCE_AUTO" = "自動";
-"LYRICS_LINE_EFFECT" = "行エフェクト";
 "LYRICS_EFFECT_FANCY" = "フル";
 "LYRICS_EFFECT_SCALE" = "拡大";
 "LYRICS_EFFECT_OFFSET" = "オフセット";
 "LYRICS_EFFECT_FOCUS" = "フォーカス";
-"LYRICS_FONT_SIZE" = "文字サイズ";
-"LYRICS_FONT_SMALL" = "小";
-"LYRICS_FONT_MEDIUM" = "中";
-"LYRICS_FONT_LARGE" = "大";
 "LYRICS_DEFAULT_TEXT" = "空行の表示";
 "LYRICS_CHINESE_CONVERSION" = "中国語の簡繁変換";
 "LYRICS_CHINESE_DISABLED" = "無効";
 "LYRICS_CHINESE_S2T" = "簡体字から繁体字";
 "LYRICS_CHINESE_T2S" = "繁体字から簡体字";
 "LYRICS_ROMANIZATION" = "ローマ字化";
-"LYRICS_SHOW_TIMECODES" = "タイムコードを表示";
 "LYRICS_SHOW_INEXACT" = "あいまい一致を許可";
 "TRANSLATION_DEBUG_LOGS" = "デバッグログ";
 "TRANSLATION_DEBUG_LOGS_DESC" = "YTMULyrics と YTMUTranslation の診断情報をデバイスログに出力します";

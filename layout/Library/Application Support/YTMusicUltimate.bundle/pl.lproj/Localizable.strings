@@ -1,6 +1,4 @@
-"SETTINGS" = "Ustawienia";
 "ENABLED" = "Włącz rozszerzenie YTMusicUltimate";
-"ENABLED_DESC" = "Funkcje premium; brak reklam, odtwarzanie na zablokowanym ekranie, itp.";
 "RESTART_FOOTER" = "Zrestartuj aplikację, aby zastosować zmiany";
 
 "PREMIUM_SETTINGS" = "Opcje Premium";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Wyłącza reklamy w aplikacji";
 "BACKGROUND_PLAYBACK" = "Odtwarzanie w tle";
 "BACKGROUND_PLAYBACK_DESC" = "Aktywuje odtwarzanie w tle";
-"FORCE_PREMIUM" = "Wymuś premium";
-"FORCE_PREMIUM_DESC" = "Wymusza użycie funkcji premium.\nTa opcja wyłącza również zakładkę Sample";
 
 "PLAYER_SETTINGS" = "Ustawienia odtwarzania";
 "DOWNLOAD_AUDIO" = "Pobierz Audio";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Dodaje opcję pobrania okładki poprzez kliknięcie przycisku YTMusicUltimate w odtwarzaczu";
 "PLAYBACK_RATE_BUTTON" = "Pokaż przycisk kontroli prędkości";
 "PLAYBACK_RATE_BUTTON_DESC" = "Dostosuj prędkość odtwarzania";
-"SELECTABLE_LYRICS" = "Zaznaczanie tekstu utworu";
-"SELECTABLE_LYRICS_DESC" = "Włącza zaznaczanie tekstu piosenki, jeśli ta go posiada";
 "VOLBAR" = "Pasek głośności";
 "VOLBAR_DESC" = "Dodaje pasek głośności do odtwarzacza";
 "NO_AUTORADIO" = "Wyłącz radio";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Pomiń ostrzeżenia";
 "SKIP_CONTENT_WARNING_DESC" = "Pomija ostrzeżenia o potencjalnie szkodliwym kontencie";
 "AV_DEFAULT_MODE" = "Domyślny styl odtwarzania";
-"AUDIO" = "Audio";
-"VIDEO" = "Wideo";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Pomija nie-muzyczne kwestie w teledyskach";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Ustawienia paska zakładek";
 "STARTUP_TAB" = "Zakładka startowa";
-"HOME" = "Główna";
-"SAMPLES" = "Sample";
-"EXPLORE" = "Odkrywaj";
-"LIBRARY" = "Biblioteka";
 "DOWNLOADS" = "Pobrane";
 
 "TAB_SETTINGS" = "Ustawienia zakładek";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Ukryj zakładkę \"Pobrane\"";
 
 "CLEAR_CACHE" = "Wyczyść pamięć podręczną";
-
-"APPLY" = "Zastosuj";
-"APPLY_DESC" = "Zamyka aplikację, by zastosować zmiany";
 
 "LINKS" = "Linki";
 "TWITTER" = "Obserwuj %@ na Twitterze";
@@ -114,7 +99,6 @@
 "EMPTY" = "Pobrana zawartość wyświetli się tutaj";
 "REMOVE_ALL" = "Usuń wszystkie pliki audio";
 "SHARE_ALL" = "Udostępnij wszystkie pliki audio";
-"PREPARING" = "Przygotowywanie...";
 "DELETE_MESSAGE" = "Jesteś pewien, że chcesz usunąć %@?";
 "ALL_DOWNLOADS" = "wszystkie pliki do pobrania"; //keep it lowercase
 "DELETE" = "Usuń";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "Kompatybilny z OpenAI";
 "SYNCED_LYRICS" = "Nakładka synchronizowanego tekstu";
-"SYNCED_LYRICS_DESC" = "Pobiera tekst utworów z wielu źródeł i wyświetla panel synchronizowanego tekstu nad odtwarzaczem";
 "LYRICS_SOURCE" = "Źródło tekstu";
 "LYRICS_SOURCE_AUTO" = "Automatycznie";
-"LYRICS_LINE_EFFECT" = "Efekt wiersza";
 "LYRICS_EFFECT_FANCY" = "Pełny";
 "LYRICS_EFFECT_SCALE" = "Skala";
 "LYRICS_EFFECT_OFFSET" = "Przesunięcie";
 "LYRICS_EFFECT_FOCUS" = "Skupienie";
-"LYRICS_FONT_SIZE" = "Rozmiar czcionki";
-"LYRICS_FONT_SMALL" = "Mała";
-"LYRICS_FONT_MEDIUM" = "Średnia";
-"LYRICS_FONT_LARGE" = "Duża";
 "LYRICS_DEFAULT_TEXT" = "Tekst pustego wiersza";
 "LYRICS_CHINESE_CONVERSION" = "Konwersja chińskiego";
 "LYRICS_CHINESE_DISABLED" = "Wyłączone";
 "LYRICS_CHINESE_S2T" = "Uproszczony do tradycyjnego";
 "LYRICS_CHINESE_T2S" = "Tradycyjny do uproszczonego";
 "LYRICS_ROMANIZATION" = "Romanizacja";
-"LYRICS_SHOW_TIMECODES" = "Pokaż kody czasowe";
 "LYRICS_SHOW_INEXACT" = "Pokaż niedokładne dopasowania";
 "TRANSLATION_DEBUG_LOGS" = "Logi debugowania";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Wypisuje diagnostykę YTMULyrics i YTMUTranslation do logów urządzenia";
