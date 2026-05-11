@@ -561,44 +561,89 @@ static NSString *YTMULyricsPageRecursiveAccessibilityText(UIView *view, NSUInteg
     return [parts componentsJoinedByString:@" "];
 }
 
-static BOOL YTMULyricsPageTextHasLyricsToken(NSString *text) {
-    NSString *value = [[text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
-    return [value containsString:@"lyrics"] ||
-           [value containsString:@"歌词"] ||
-           [value containsString:@"歌詞"];
+// Returns YES if `value` (lowercase) contains any known native word for
+// "lyrics". Two things to know about how this is used:
+//
+//   1. The text we match against is collected from accessibilityLabel /
+//      accessibilityValue / accessibilityHint AND from YT Music's
+//      internal `_asyncdisplaykit_node` / `_element` graph. The element
+//      graph carries the English internal identifier "Lyrics"
+//      regardless of UI language — so for ~all locales the English
+//      `lyrics` token below is the one that fires, not the localized
+//      tokens.
+//   2. The localized tokens are kept only as a defensive fallback for
+//      views where the element graph isn't exposed (e.g. some player
+//      tab bar items). We list the top ~25 YT Music UI languages here
+//      explicitly; anything else is handled by the English token
+//      hitting the internal element identifier.
+//
+// `containsString:` substring matching is intentional — we mostly see
+// these tokens inside longer accessibility strings ("Lyrics tab" /
+// "showing Lyrics" / "Letra de la canción"). The tabSized geometry
+// filter at the call site is what prevents false positives.
+static BOOL YTMULyricsPageHasLyricsTokenInLowercased(NSString *lowered) {
+    if (!lowered.length) return NO;
+    static NSArray<NSString *> *tokens = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        tokens = @[
+            @"lyrics",          // en + internal element identifier
+            @"letra",           // es, pt
+            @"paroles",         // fr
+            @"songtext",        // de
+            @"testo",           // it
+            @"songtekst",       // nl
+            @"tekst piosenki",  // pl
+            @"текст",           // ru, uk, bg, sr (cyrillic)
+            @"sözler",          // tr
+            @"كلمات",           // ar
+            @"מילים",            // he
+            @"متن",             // fa
+            @"बोल",             // hi
+            @"lirik",           // id, ms
+            @"lời",             // vi
+            @"เนื้อเพลง",         // th
+            @"歌词",            // zh-Hans
+            @"歌詞",            // zh-Hant, ja
+            @"가사",            // ko
+            @"sångtext",        // sv
+            @"sangtekst",       // no, da
+            @"sanat",           // fi
+            @"versuri",         // ro
+            @"szöveg",          // hu
+            @"στίχοι",          // el
+        ];
+    });
+    for (NSString *t in tokens) {
+        if ([lowered containsString:t]) return YES;
+    }
+    return NO;
 }
 
-static BOOL YTMULyricsPageTextHasOtherPlayerTabToken(NSString *text) {
-    NSString *value = [text ?: @"" lowercaseString];
-    return [value containsString:@"queue"] ||
-           [value containsString:@"up next"] ||
-           [value containsString:@"related"] ||
-           [value containsString:@"next up"] ||
-           [value containsString:@"播放队列"] ||
-           [value containsString:@"播放佇列"] ||
-           [value containsString:@"関連"];
+static BOOL YTMULyricsPageTextHasLyricsToken(NSString *text) {
+    NSString *value = [[text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+    return YTMULyricsPageHasLyricsTokenInLowercased(value);
 }
 
 static BOOL YTMULyricsPageViewIsSelected(UIView *view) {
-    if ((view.accessibilityTraits & UIAccessibilityTraitSelected) == UIAccessibilityTraitSelected) return YES;
-    NSString *text = YTMULyricsPageAccessibilityText(view);
-    return [text containsString:@"selected"] ||
-           [text containsString:@"已选择"] ||
-           [text containsString:@"已選取"] ||
-           [text containsString:@"選択中"];
+    // YT Music marks the active tab via the standard
+    // UIAccessibilityTraitSelected — locale-independent and stable
+    // across iOS versions. Previous code also fuzzy-matched visible
+    // "selected" / "已选择" / "已選取" / "選択中" strings as a defensive
+    // backup, but those only covered four languages out of YT Music's
+    // 40+ UI locales; dropped in favor of the standard trait alone.
+    return (view.accessibilityTraits & UIAccessibilityTraitSelected) == UIAccessibilityTraitSelected;
 }
 
 static void YTMULyricsPageCollectTabSelection(UIView *view,
                                               UIView *root,
                                               BOOL *lyricsSelected,
-                                              BOOL *otherSelected,
                                               CGFloat *tabBarTop,
                                               NSUInteger depth) {
     if (!view || view.hidden || view.alpha <= 0.03 || depth > 18) return;
 
     NSString *text = YTMULyricsPageRecursiveAccessibilityText(view, 0);
     BOOL hasLyrics = YTMULyricsPageTextHasLyricsToken(text);
-    BOOL hasOther = YTMULyricsPageTextHasOtherPlayerTabToken(text);
     BOOL selected = YTMULyricsPageViewIsSelected(view);
     CGRect frame = [view convertRect:view.bounds toView:root];
     BOOL tabSized = frame.size.width >= 40.0 &&
@@ -607,23 +652,29 @@ static void YTMULyricsPageCollectTabSelection(UIView *view,
                     frame.size.height <= 72.0 &&
                     CGRectGetMidY(frame) >= root.bounds.size.height * 0.45;
 
-    if (tabSized && (hasLyrics || hasOther)) {
+    // Only the Lyrics tab is identified explicitly. The previous code
+    // also fuzzy-matched "queue / up next / related / 播放队列 / 関連"
+    // to track "an other tab is selected" and gated the overlay on
+    // `lyricsSelected && !otherSelected`. That defensive double-check
+    // bought nothing — UIAccessibilityTraitSelected only fires on the
+    // active tab — and the localized non-lyrics token list was the
+    // most brittle piece of the chip detection (covered four
+    // languages, broke for the other forty). Dropped.
+    if (tabSized && hasLyrics) {
         *tabBarTop = MIN(*tabBarTop, CGRectGetMinY(frame));
-        if (selected && hasLyrics) *lyricsSelected = YES;
-        if (selected && hasOther) *otherSelected = YES;
+        if (selected) *lyricsSelected = YES;
     }
 
     for (UIView *subview in view.subviews) {
-        YTMULyricsPageCollectTabSelection(subview, root, lyricsSelected, otherSelected, tabBarTop, depth + 1);
+        YTMULyricsPageCollectTabSelection(subview, root, lyricsSelected, tabBarTop, depth + 1);
     }
 }
 
 static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom) {
     BOOL lyricsSelected = NO;
-    BOOL otherSelected = NO;
     CGFloat tabTop = CGFLOAT_MAX;
-    YTMULyricsPageCollectTabSelection(root, root, &lyricsSelected, &otherSelected, &tabTop, 0);
-    if (selected) *selected = lyricsSelected && !otherSelected;
+    YTMULyricsPageCollectTabSelection(root, root, &lyricsSelected, &tabTop, 0);
+    if (selected) *selected = lyricsSelected;
     if (bottom) {
         *bottom = tabTop == CGFLOAT_MAX ? MAX(0.0, root.bounds.size.height - 72.0) : MAX(0.0, tabTop - 6.0);
     }
@@ -1734,11 +1785,7 @@ static NSString *YTMULyricsPageCellNodeText(UIView *cell) {
 
 static BOOL YTMULyricsPageStringHasLyricsToken(NSString *value) {
     if (!value.length) return NO;
-    NSString *lowered = [value lowercaseString];
-    return [lowered containsString:@"lyrics"] ||
-           [lowered containsString:@"歌词"] ||
-           [lowered containsString:@"歌詞"] ||
-           [lowered containsString:@"가사"];
+    return YTMULyricsPageHasLyricsTokenInLowercased([value lowercaseString]);
 }
 
 static NSString *YTMULyricsPageNodeControllerKey(id node);
