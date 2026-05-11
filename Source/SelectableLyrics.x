@@ -2010,7 +2010,16 @@ static void YTMULyricsPageApplyActionBarInset(UIScrollView *scrollView, CGFloat 
 
     UIEdgeInsets originalInset = originalValue.UIEdgeInsetsValue;
     UIEdgeInsets inset = scrollView.contentInset;
-    inset.right = MAX(originalInset.right, requiredRightInset);
+    CGFloat desiredRight = MAX(originalInset.right, requiredRightInset);
+    // Short-circuit when the inset already matches. Writing -setContentInset:
+    // unconditionally is what made rapid swipes feel jerky: UIKit invalidates
+    // layout and re-clamps contentOffset on every assignment, even when the
+    // value is identical, which competes with the user's in-flight pan
+    // gesture. ytmu_updateLyricsEntryButton runs once per viewDidLayoutSubviews
+    // tick (~150–200 ms during interaction) and the desired inset stays
+    // stable as long as the chip width / origin doesn't shift.
+    if (fabs(inset.right - desiredRight) < 0.5) return;
+    inset.right = desiredRight;
     scrollView.contentInset = inset;
     scrollView.scrollIndicatorInsets = inset;
 }
@@ -2024,6 +2033,16 @@ static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
     scrollView.scrollIndicatorInsets = originalInset;
     objc_setAssociatedObject(scrollView, YTMULyricsActionBarOriginalInsetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
+
+// Associated-object key on YTMNowPlayingViewController for the action-bar
+// scroll offset captured at lyrics-panel open. The panel modal dismiss
+// resets the bar's contentOffset to zero, so for music videos that lack
+// a native "Lyrics" cell — where our chip sits at the far right and the
+// user must scroll to reach it — re-opening the player snaps the bar
+// back to the left and the chip disappears off-screen again. Saving the
+// scroll position at open-time and restoring it on viewDidAppear after
+// dismiss is a pure UX restore: no layout or hierarchy changes.
+static char YTMULyricsActionBarSavedOffsetKey;
 
 %hook YTMNowPlayingViewController
 
@@ -2059,6 +2078,50 @@ static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
     %orig;
     [self ytmu_updateLyricsEntryButton];
     [self ytmu_scheduleLyricsEntryButtonRefresh];
+
+    // After modal dismiss, restore the action-bar scroll offset the user
+    // had scrolled to before opening the lyrics panel. Without this,
+    // music videos that don't carry a native "Lyrics" cell — where the
+    // chip lives at the far right of the bar — reset to leftmost on
+    // dismiss and the user has to scroll right again every time.
+    NSDictionary *snapshot = objc_getAssociatedObject(self, &YTMULyricsActionBarSavedOffsetKey);
+    if (!snapshot) return;
+    objc_setAssociatedObject(self, &YTMULyricsActionBarSavedOffsetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSString *savedVideoId = snapshot[@"videoId"];
+    NSString *currentVideoId = [YTMULyricsManager sharedManager].activeVideoId ?: @"";
+    if (savedVideoId.length && currentVideoId.length && ![savedVideoId isEqualToString:currentVideoId]) {
+        // Auto-advance happened while the panel was open. The saved
+        // offset belongs to a different bar layout — restoring it onto
+        // the new song's bar would scroll us to an arbitrary position.
+        // Drop the snapshot and let the user scroll fresh.
+        YTMULyricsLog(@"actionRow: dropping stale offset (saved videoId=%@ now=%@)",
+                      savedVideoId, currentVideoId);
+        return;
+    }
+    CGPoint target = [snapshot[@"offset"] CGPointValue];
+    YTMULyricsLog(@"actionRow: restoring offset target=%@ after panel dismiss", NSStringFromCGPoint(target));
+    // Single delayed restore is enough now that the notification handler
+    // no longer pre-emptively retracts the chip and clamps offset on
+    // every same-song lyrics update. 0.3s gives the dismiss animation
+    // and YT Music's own layout work time to settle; restoring earlier
+    // races those layouts and gets clamped.
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        YTMNowPlayingViewController *strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.isViewLoaded) return;
+        UIScrollView *actionBar = YTMULyricsPageFindActionBarScrollView(strongSelf.view, 0);
+        if (!actionBar) return;
+        CGPoint current = actionBar.contentOffset;
+        if (fabs(current.x - target.x) < 0.5 && fabs(current.y - target.y) < 0.5) return;
+        CGSize contentSize = actionBar.contentSize;
+        UIEdgeInsets inset = actionBar.contentInset;
+        CGFloat maxX = MAX(0.0, contentSize.width + inset.right - actionBar.bounds.size.width);
+        CGPoint clamped = CGPointMake(MIN(target.x, maxX), target.y);
+        [actionBar setContentOffset:clamped animated:NO];
+        YTMULyricsLog(@"actionRow: restored offset current=%@ → set %@ (maxX=%.1f inset.r=%.1f)",
+                      NSStringFromCGPoint(current), NSStringFromCGPoint(clamped), maxX, inset.right);
+    });
 }
 
 - (void)viewDidLayoutSubviews {
@@ -2253,15 +2316,27 @@ static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
     CGFloat gap = 6.0;
     CGFloat x = contentWidth > 0.0 ? contentWidth + gap : 0.0;
     CGFloat y = MAX(0.0, (actionBarHeight - height) / 2.0);
-    self.ytmuLyricsEntryButton.frame = CGRectMake(x, y, width, height);
-    self.ytmuLyricsEntryButton.hidden = NO;
+    CGRect desiredFrame = CGRectMake(x, y, width, height);
+    CGRect currentFrame = self.ytmuLyricsEntryButton.frame;
+    BOOL frameUnchanged = !self.ytmuLyricsEntryButton.hidden &&
+        fabs(currentFrame.origin.x - desiredFrame.origin.x) < 0.5 &&
+        fabs(currentFrame.origin.y - desiredFrame.origin.y) < 0.5 &&
+        fabs(currentFrame.size.width - desiredFrame.size.width) < 0.5 &&
+        fabs(currentFrame.size.height - desiredFrame.size.height) < 0.5;
+    if (!frameUnchanged) {
+        self.ytmuLyricsEntryButton.frame = desiredFrame;
+        self.ytmuLyricsEntryButton.hidden = NO;
+    }
+    // ApplyActionBarInset short-circuits when the inset already matches, so
+    // calling it every tick is cheap when the chip width hasn't moved.
     YTMULyricsPageApplyActionBarInset(actionBar, width + gap + 16.0);
-    [actionBar bringSubviewToFront:self.ytmuLyricsEntryButton];
-
-    YTMULyricsLog(@"actionRow: show frame=%@ contentWidth=%.1f barH=%.1f videoId=%@",
-                  NSStringFromCGRect(self.ytmuLyricsEntryButton.frame),
-                  contentWidth, actionBarHeight,
-                  currentVideoId.length ? currentVideoId : @"<none>");
+    if (!frameUnchanged) {
+        [actionBar bringSubviewToFront:self.ytmuLyricsEntryButton];
+        YTMULyricsLog(@"actionRow: show frame=%@ contentWidth=%.1f barH=%.1f videoId=%@",
+                      NSStringFromCGRect(self.ytmuLyricsEntryButton.frame),
+                      contentWidth, actionBarHeight,
+                      currentVideoId.length ? currentVideoId : @"<none>");
+    }
 }
 
 %new
@@ -2289,16 +2364,18 @@ static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
         });
         return;
     }
-    // Manager state changed (typically song change). Retract the button now
-    // so we never overlap with the new song's native Lyrics chip during the
-    // window between manager refresh and the next layout pass.
-    if (self.ytmuLyricsEntryButton) {
-        if ([self.ytmuLyricsEntryButton.superview isKindOfClass:[UIScrollView class]]) {
-            YTMULyricsPageRestoreActionBarInset((UIScrollView *)self.ytmuLyricsEntryButton.superview);
-        }
-        self.ytmuLyricsEntryButton.hidden = YES;
-        [self.ytmuLyricsEntryButton removeFromSuperview];
-    }
+    // Manager state changed — could be song change OR a same-song lyrics
+    // update (translation applied, lyrics ready, etc.). Just hand off to
+    // updateLyricsEntryButton which has its own song-change retraction
+    // path (gLastEntryButtonVideoId).
+    //
+    // We used to proactively retract the chip + restore inset here on
+    // *every* notification. For same-song notifications (which fire
+    // multiple times per song as lyrics/translation arrive) that was
+    // wasted work and, worse, races our viewDidAppear scroll-position
+    // restore — the inset reset triggers UIKit to clamp contentOffset
+    // back to the smaller (chipless) maxX, undoing whatever the user
+    // had scrolled to before opening the panel.
     [self ytmu_updateLyricsEntryButton];
     [self ytmu_scheduleLyricsEntryButtonRefresh];
 }
@@ -2308,6 +2385,28 @@ static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
     if (!YTMULyricsPageCustomSourceEnabled()) return;
     UIViewController *presenter = YTMULyricsPageTopPresenter(self);
     if ([presenter isKindOfClass:[YTMULyricsPanelViewController class]]) return;
+
+    // Snapshot the action-bar scroll position before presenting so we
+    // can restore it on dismiss. Tag the snapshot with the active
+    // videoId so a save from song A doesn't get applied to song B's
+    // bar after an auto-advance during the panel session.
+    UIScrollView *actionBar = YTMULyricsPageFindActionBarScrollView(self.view, 0);
+    if (actionBar) {
+        CGPoint offset = actionBar.contentOffset;
+        NSString *videoId = [YTMULyricsManager sharedManager].activeVideoId ?: @"";
+        NSDictionary *snapshot = @{
+            @"videoId": videoId,
+            @"offset": [NSValue valueWithCGPoint:offset],
+        };
+        objc_setAssociatedObject(self, &YTMULyricsActionBarSavedOffsetKey,
+                                 snapshot,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        YTMULyricsLog(@"actionRow: saved offset=%@ videoId=%@ before panel present (contentSize=%@ inset.r=%.1f bar=%.1f)",
+                      NSStringFromCGPoint(offset), videoId,
+                      NSStringFromCGSize(actionBar.contentSize),
+                      actionBar.contentInset.right,
+                      actionBar.bounds.size.width);
+    }
 
     YTMULyricsPanelViewController *controller = [[YTMULyricsPanelViewController alloc] init];
     controller.playerViewController = YTMULyricsPagePlayerFromCandidate(self) ?: [YTMULyricsPlaybackState sharedState].playerViewController;
