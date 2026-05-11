@@ -488,7 +488,31 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
                     [injectedVideoIds addObject:capturedVideoId];
                 }
 
-                YTMULyricsSearchInfo *updated = [infoSnapshot copy];
+                // Build the re-run base from the freshest info the manager
+                // has for this videoId (if still the active song). YouTube
+                // Music's per-track state updates in two waves: a
+                // viewDidLayoutSubviews fires with the new videoId while
+                // duration / artist / etc. still hold the *previous* song's
+                // values, then didActivateVideo lands a few tens of
+                // milliseconds later with the real numbers. Our fetch was
+                // started during the first wave, so `infoSnapshot.duration`
+                // is whatever stale value the player happened to be holding
+                // — and NetEase's ranking is duration-weighted, so feeding
+                // it a 348s duration for what is really a 164s track makes
+                // every actual match look like a wrong-song hit
+                // (durationDelta ≈ 184s drops the score below acceptance).
+                // Pulling from `lastSearchInfo` here picks up the
+                // didActivateVideo correction. If the user has navigated
+                // away to a different song in the meantime, fall through
+                // and skip — applying meta to a different song would be
+                // worse than not applying it.
+                YTMULyricsSearchInfo *currentInfo = [YTMULyricsManager sharedManager].lastSearchInfo;
+                YTMULyricsSearchInfo *updated;
+                if (currentInfo && [currentInfo.videoId isEqualToString:capturedVideoId]) {
+                    updated = [currentInfo copy];
+                } else {
+                    updated = [infoSnapshot copy];
+                }
                 if (haveDescription) {
                     NSString *capped = meta.videoDescription.length > 32 * 1024
                         ? [meta.videoDescription substringToIndex:32 * 1024]
@@ -501,10 +525,11 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
                     }
                     updated.title = meta.canonicalTitle;
                 }
-                YTMULyricsLog(@"innertube metadata injected videoId=%@ desc=%@ title=%@ — re-running refresh",
+                YTMULyricsLog(@"innertube metadata injected videoId=%@ desc=%@ title=%@ duration=%.1f — re-running refresh",
                               capturedVideoId,
                               haveDescription ? @"YES" : @"no",
-                              haveBetterTitle ? @"YES" : @"no");
+                              haveBetterTitle ? @"YES" : @"no",
+                              updated.duration);
                 [[YTMULyricsManager sharedManager] refreshWithInfo:updated];
             }];
         }

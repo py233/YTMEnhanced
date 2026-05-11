@@ -603,6 +603,18 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 
     NSString *title = self.currentResult.title.length ? self.currentResult.title : info.title;
     NSString *artist = self.currentResult.artists.count ? [self.currentResult.artists componentsJoinedByString:@", "] : info.artist;
+    // Snapshot what the translation request was issued FOR. The
+    // generation counter only ticks on song-change refreshWithInfo:
+    // calls, but within a single song the source can still flip out
+    // from under us — e.g. Description fallback (lines=46) → AI
+    // normalize re-pass discovers NetEase (lines=42). If the slow AI
+    // translation we kicked off for the Description rows lands AFTER
+    // the NetEase source took over, the old completion would overwrite
+    // NetEase's official tlyric and we'd render 42 lyric rows against
+    // 46 translation rows misaligned. The completion bails when either
+    // sourceName or line count has drifted.
+    NSString *requestedForSource = self.currentResult.sourceName ?: @"";
+    NSUInteger requestedLineCount = sourceLines.count;
     YTMULyricsLog(@"translation requested for lyrics source=%@ videoId=%@ lines=%lu",
                   self.currentResult.sourceName,
                   info.videoId,
@@ -613,6 +625,17 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
                                                artist:artist
                                            completion:^(NSArray<NSString *> *translatedLines, NSError *error) {
         if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+        NSString *currentSource = self.currentResult.sourceName ?: @"";
+        NSUInteger currentLineCount = self.currentResult.lineTexts.count;
+        if (![currentSource isEqualToString:requestedForSource] || currentLineCount != requestedLineCount) {
+            YTMULyricsLog(@"translation discarded: source changed during request videoId=%@ requested=%@/%lu current=%@/%lu",
+                          info.videoId,
+                          requestedForSource,
+                          (unsigned long)requestedLineCount,
+                          currentSource,
+                          (unsigned long)currentLineCount);
+            return;
+        }
         if (error || translatedLines.count != sourceLines.count) {
             YTMULyricsLog(@"translation failed for lyrics source=%@ videoId=%@ error=%@ returned=%lu expected=%lu",
                           self.currentResult.sourceName,
@@ -713,13 +736,41 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
 // confidently-wrong lyrics.
 - (BOOL)result:(YTMULyricsResult *)result similarToInfo:(YTMULyricsSearchInfo *)info {
     if (!result.hasText) return NO;
-    if (info.title.length && result.title.length) {
-        if (YTMULyricsSimilarity(result.title, info.title) < 0.5) return NO;
+    // Build the candidate (title, artist) pairs to test against. Start
+    // with the raw info, then fold in any normalize-cache candidates
+    // for this videoId. On second-or-later replays of a song where the
+    // player's channel-name artist (e.g. "Nao") doesn't match the
+    // actual track artist (e.g. "夏央"), a NetEase cache hit looks
+    // like a wrong-song match by raw info alone — and we re-discover
+    // the same NetEase hit via normalize re-pass anyway, paying the
+    // full LRCLib-timeout penalty in between. Including normalized
+    // candidates here short-circuits that round trip.
+    NSMutableArray<NSString *> *titles = [NSMutableArray array];
+    NSMutableArray<NSString *> *artists = [NSMutableArray array];
+    if (info.title.length) [titles addObject:info.title];
+    if (info.artist.length) [artists addObject:info.artist];
+    if (info.videoId.length) {
+        YTMULyricsTitleNormalization *normalized = [[YTMULyricsTitleNormalizer sharedNormalizer] cachedNormalizationForInfo:info];
+        for (NSString *t in normalized.titleCandidates) {
+            if (t.length && ![titles containsObject:t]) [titles addObject:t];
+        }
+        for (NSString *a in normalized.artistCandidates) {
+            if (a.length && ![artists containsObject:a]) [artists addObject:a];
+        }
     }
-    if (info.artist.length && result.artists.count) {
-        if (YTMULMBestArtistSimilarity(result.artists, info.artist) < 0.3) return NO;
+    if (!titles.count) [titles addObject:@""];
+    if (!artists.count) [artists addObject:@""];
+    for (NSString *title in titles) {
+        BOOL titleOK = !title.length || !result.title.length ||
+                       YTMULyricsSimilarity(result.title, title) >= 0.5;
+        if (!titleOK) continue;
+        for (NSString *artist in artists) {
+            BOOL artistOK = !artist.length || !result.artists.count ||
+                            YTMULMBestArtistSimilarity(result.artists, artist) >= 0.3;
+            if (artistOK) return YES;
+        }
     }
-    return YES;
+    return NO;
 }
 
 // Pick the better of two candidate fallbacks by quality score against
