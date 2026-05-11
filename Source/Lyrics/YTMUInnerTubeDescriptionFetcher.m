@@ -1,5 +1,6 @@
 #import "YTMUInnerTubeDescriptionFetcher.h"
 #import "YTMULyricsTypes.h"
+#import "../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonDigest.h>
 
 // Persistent cache layout (v3 schema):
@@ -47,7 +48,7 @@ static NSString *YTMUInnerTubeSHA1(NSString *string) {
 static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMUInnerTubeDescriptionFetcher"
                                code:code
-                           userInfo:@{NSLocalizedDescriptionKey: message ?: @"fetch failed"}];
+                           userInfo:@{NSLocalizedDescriptionKey: message ?: YTMULocalized(@"LYRICS_ERROR_INNERTUBE_FETCH", @"fetch failed")}];
 }
 
 @implementation YTMUInnerTubeMetadata

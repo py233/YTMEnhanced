@@ -9,4 +9,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+// Shorthand for looking up a localized string from the YTMUltimate bundle
+// with a hard-coded English fallback. Use this in places that can't import
+// the LOC() macro (e.g. provider .m files that emit NSError descriptions).
+FOUNDATION_EXPORT NSString *YTMULocalized(NSString *key, NSString *fallback);
+
 NS_ASSUME_NONNULL_END

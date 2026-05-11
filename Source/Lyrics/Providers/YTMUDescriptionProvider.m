@@ -1,6 +1,7 @@
 #import "YTMUDescriptionProvider.h"
 #import "../YTMULyricsDescriptionExtractor.h"
 #import "../../Translation/YTMUTranslator.h"
+#import "../../Utils/NSBundle+YTMU.h"
 
 @implementation YTMUDescriptionProvider
 
@@ -12,7 +13,7 @@
     if (!info.shortDescription.length) {
         completion(nil, [NSError errorWithDomain:@"YTMUDescription"
                                             code:1
-                                        userInfo:@{NSLocalizedDescriptionKey: @"no description available"}]);
+                                        userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_NO_DESCRIPTION", @"no description available")}]);
         return;
     }
 
@@ -22,7 +23,7 @@
         // Translate selected (no chat completion) or hasn't set up a key.
         completion(nil, [NSError errorWithDomain:@"YTMUDescription"
                                             code:2
-                                        userInfo:@{NSLocalizedDescriptionKey: @"no LLM provider configured"}]);
+                                        userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_NO_LLM", @"no LLM provider configured")}]);
         return;
     }
 
@@ -40,7 +41,7 @@
             // Cached negative or short-description: legitimate miss.
             completion(nil, [NSError errorWithDomain:@"YTMUDescription"
                                                 code:3
-                                            userInfo:@{NSLocalizedDescriptionKey: @"description has no lyrics"}]);
+                                            userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_DESCRIPTION_NO_LYRICS", @"description has no lyrics")}]);
             return;
         }
 

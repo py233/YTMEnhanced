@@ -1,5 +1,6 @@
 #import "YTMUMusixMatchProvider.h"
 #import "../YTMULRCParser.h"
+#import "../../Utils/NSBundle+YTMU.h"
 
 @interface YTMUMusixMatchProvider ()
 @property (nonatomic, copy) NSString *cookie;
@@ -47,7 +48,7 @@
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *token = YTMULyricsJSONStringAtPath(json, @[@"message", @"body", @"user_token"]);
         if (!token.length) {
-            completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: @"MusixMatch token not initialized"}]);
+            completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_NO_TOKEN", @"MusixMatch token not initialized")}]);
             return;
         }
         self.token = token;
@@ -86,7 +87,7 @@
         [self captureCookie:(NSHTTPURLResponse *)response];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         if (json && ![json isKindOfClass:[NSDictionary class]]) {
-            completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: @"MusixMatch returned invalid JSON"}]);
+            completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_BAD_JSON", @"MusixMatch returned invalid JSON")}]);
             return;
         }
         completion((NSDictionary *)json, error);

@@ -1,5 +1,6 @@
 #import "YTMUNetEaseProvider.h"
 #import "../YTMULRCParser.h"
+#import "../../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonCrypto.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <float.h>
@@ -133,7 +134,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     NSString *payload = [NSString stringWithFormat:@"/api%@-36cd479b6b5-%@-36cd479b6b5-%@", path, body, sign];
     NSString *encrypted = [self hexAESForString:payload];
     if (!encrypted.length) {
-        completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:1 userInfo:@{NSLocalizedDescriptionKey: @"NetEase encryption failed"}]);
+        completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_NETEASE_CRYPTO", @"NetEase encryption failed")}]);
         return;
     }
 
@@ -169,7 +170,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
         id json = responseData ? [NSJSONSerialization JSONObjectWithData:responseData options:0 error:&error] : nil;
         if (![json isKindOfClass:[NSDictionary class]]) {
-            completion(nil, error ?: [NSError errorWithDomain:@"YTMUNetEase" code:2 userInfo:@{NSLocalizedDescriptionKey: @"NetEase returned invalid JSON"}]);
+            completion(nil, error ?: [NSError errorWithDomain:@"YTMUNetEase" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_NETEASE_BAD_JSON", @"NetEase returned invalid JSON")}]);
             return;
         }
         NSNumber *code = YTMULyricsJSONNumberAtPath(json, @[@"code"]);

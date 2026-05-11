@@ -152,4 +152,16 @@
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Išversta su %@";
 "LYRICS_PROVIDER_NO_MATCH" = "nėra atitikmens";
 "LYRICS_PROVIDER_FALLBACK" = "vertėjas";
+"LYRICS_ERROR_NO_DESCRIPTION" = "no description available";
+"LYRICS_ERROR_NO_LLM" = "no LLM configured";
+"LYRICS_ERROR_DESCRIPTION_NO_LYRICS" = "no lyrics in description";
+"LYRICS_ERROR_NETEASE_CRYPTO" = "encryption failed";
+"LYRICS_ERROR_NETEASE_BAD_JSON" = "invalid response";
+"LYRICS_ERROR_MUSIXMATCH_NO_TOKEN" = "no token";
+"LYRICS_ERROR_MUSIXMATCH_BAD_JSON" = "invalid response";
+"LYRICS_ERROR_LRCLIB_BAD_JSON" = "invalid response";
+"LYRICS_ERROR_LRCLIB_TIMEOUT" = "request timed out";
+"LYRICS_ERROR_INNERTUBE_FETCH" = "fetch failed";
+"LYRICS_ERROR_DESCRIPTION_EXTRACT" = "extract failed";
+"LYRICS_ERROR_TITLE_NORMALIZE" = "normalize failed";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Žodžiai: %lu\nVertimai: %lu\nRomanizacija: atmintis išvalyta";

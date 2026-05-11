@@ -17,3 +17,7 @@
 }
 
 @end
+
+NSString *YTMULocalized(NSString *key, NSString *fallback) {
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+}
