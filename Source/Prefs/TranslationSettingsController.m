@@ -260,23 +260,34 @@
 
 - (NSString *)languageTitleForCode:(NSString *)code {
     if ([code isEqualToString:@"auto"]) return LOC(@"TRANSLATION_AUTO");
-    // Ask NSLocale first — for healthy region-tagged codes (zh-CN,
-    // pt-BR, etc.) it returns a properly-localized display name in the
-    // user's current device language. Only fall back to the English
-    // overrides if NSLocale gives us nothing useful; this avoids the
-    // previous behaviour where Chinese users saw "Chinese (Simplified)"
-    // even when their device was set to Simplified Chinese.
-    NSString *display = [[NSLocale currentLocale] displayNameForKey:NSLocaleIdentifier value:code];
-    if (display.length) return display;
+    // Show each language by its OWN native name (autoglottonym) — same
+    // convention as pear-desktop, Telegram, iOS Settings. The picker
+    // shows TARGET languages, so the natural reader of each row is a
+    // speaker of that language; translating them all into the user's
+    // UI language just obscures the choice whenever the user's device
+    // language differs from the lyric target. Final rendering looks
+    // like:
+    //     English
+    //     简体中文
+    //     繁體中文
+    //     日本語
+    //     Português (Brasil)
+    NSLocale *nativeLocale = [NSLocale localeWithLocaleIdentifier:code];
+    NSString *native = [nativeLocale displayNameForKey:NSLocaleIdentifier value:code];
+    if (native.length) {
+        // Capitalize Latin-script names like "français" /
+        // "português (brasil)" to match Apple's language-picker style.
+        // CJK / RTL scripts have no case and pass through unchanged.
+        return [native capitalizedStringWithLocale:nativeLocale];
+    }
+    // Defensive fallback: any code where NSLocale returns nothing.
+    // Filipino's `fil` is the historical offender; everything else
+    // NSLocale handles natively.
     static NSDictionary *manualFallback = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         manualFallback = @{
-            @"zh-CN": @"Chinese (Simplified)",
-            @"zh-TW": @"Chinese (Traditional)",
-            @"pt-BR": @"Portuguese (Brazil)",
-            @"pt-PT": @"Portuguese (Portugal)",
-            @"fil":   @"Filipino",
+            @"fil": @"Filipino",
         };
     });
     return manualFallback[code] ?: code;
