@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "Po originaliomis eilutėmis rodo išverstas eilutes";
 "TRANSLATION_PROVIDER" = "Tiekėjas";
 "TRANSLATION_TARGET_LANG" = "Vertimo kalba";
-"TRANSLATION_AUTO" = "Automatinis";
 "TRANSLATION_API_KEY" = "API raktas";
 "TRANSLATION_MODEL" = "Modelis";
 "TRANSLATION_BASE_URL" = "Bazinis URL";

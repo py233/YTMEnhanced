@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "Pokazuje przetłumaczone wiersze pod oryginalnym tekstem";
 "TRANSLATION_PROVIDER" = "Dostawca";
 "TRANSLATION_TARGET_LANG" = "Język docelowy";
-"TRANSLATION_AUTO" = "Automatycznie";
 "TRANSLATION_API_KEY" = "Klucz API";
 "TRANSLATION_MODEL" = "Model";
 "TRANSLATION_BASE_URL" = "Bazowy URL";

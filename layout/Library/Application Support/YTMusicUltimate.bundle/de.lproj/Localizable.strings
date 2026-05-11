@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "Zeigt übersetzte Liedtextzeilen unter den Originalzeilen an";
 "TRANSLATION_PROVIDER" = "Anbieter";
 "TRANSLATION_TARGET_LANG" = "Zielsprache";
-"TRANSLATION_AUTO" = "Automatisch";
 "TRANSLATION_API_KEY" = "API-Schlüssel";
 "TRANSLATION_MODEL" = "Modell";
 "TRANSLATION_BASE_URL" = "Basis-URL";

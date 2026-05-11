@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "แสดงบรรทัดคำแปลใต้เนื้อเพลงต้นฉบับ";
 "TRANSLATION_PROVIDER" = "ผู้ให้บริการ";
 "TRANSLATION_TARGET_LANG" = "ภาษาปลายทาง";
-"TRANSLATION_AUTO" = "อัตโนมัติ";
 "TRANSLATION_API_KEY" = "คีย์ API";
 "TRANSLATION_MODEL" = "โมเดล";
 "TRANSLATION_BASE_URL" = "Base URL";

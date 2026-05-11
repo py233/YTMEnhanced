@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "Hiển thị dòng dịch bên dưới lời bài hát gốc";
 "TRANSLATION_PROVIDER" = "Nhà cung cấp";
 "TRANSLATION_TARGET_LANG" = "Ngôn ngữ đích";
-"TRANSLATION_AUTO" = "Tự động";
 "TRANSLATION_API_KEY" = "Khóa API";
 "TRANSLATION_MODEL" = "Mô hình";
 "TRANSLATION_BASE_URL" = "URL gốc";

@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "تعرض أسطر الترجمة أسفل الكلمات الأصلية";
 "TRANSLATION_PROVIDER" = "مزود الخدمة";
 "TRANSLATION_TARGET_LANG" = "اللغة المستهدفة";
-"TRANSLATION_AUTO" = "تلقائي";
 "TRANSLATION_API_KEY" = "مفتاح API";
 "TRANSLATION_MODEL" = "النموذج";
 "TRANSLATION_BASE_URL" = "عنوان URL الأساسي";
