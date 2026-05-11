@@ -7,23 +7,23 @@
 "NO_ADS" = "No ads";
 "NO_ADS_DESC" = "Removes ads in the app";
 "BACKGROUND_PLAYBACK" = "Background playback";
-"BACKGROUND_PLAYBACK_DESC" = "Activates background playback";
-"FORCE_PREMIUM" = "Force enable premium";
-"FORCE_PREMIUM_DESC" = "Forcibly enables premium features.\nThis option also disables Samples tab";
+"BACKGROUND_PLAYBACK_DESC" = "Enables background playback";
+"FORCE_PREMIUM" = "Force enable Premium";
+"FORCE_PREMIUM_DESC" = "Forcibly enables Premium features.\nAlso disables the Samples tab.";
 
 "PLAYER_SETTINGS" = "Player options";
 "DOWNLOAD_AUDIO" = "Download audio";
-"DOWNLOAD_AUDIO_DESC" = "Adds the option to download audio by pressing the YTMUltimate button in the player";
+"DOWNLOAD_AUDIO_DESC" = "Adds an audio download option to the player's YTMUltimate button";
 "DOWNLOAD_COVER" = "Download cover image";
-"DOWNLOAD_COVER_DESC" = "Adds the option to download cover image by pressing the YTMUltimate button in the player";
+"DOWNLOAD_COVER_DESC" = "Adds a cover-image download option to the player's YTMUltimate button";
 "PLAYBACK_RATE_BUTTON" = "Show playback rate button";
 "PLAYBACK_RATE_BUTTON_DESC" = "Adjust playback speed";
 "SELECTABLE_LYRICS" = "Lyrics text selection";
-"SELECTABLE_LYRICS_DESC" = "Enables text selection for lyrics";
+"SELECTABLE_LYRICS_DESC" = "Allow text selection on lyrics";
 "VOLBAR" = "Volume bar";
 "VOLBAR_DESC" = "Adds a volume bar to the player";
 "NO_AUTORADIO" = "Disable radio";
-"NO_AUTORADIO_DESC" = "Disables endless music feature";
+"NO_AUTORADIO_DESC" = "Disables the endless music feature";
 "SKIP_CONTENT_WARNING" = "Skip content warning";
 "SKIP_CONTENT_WARNING_DESC" = "Skips warnings about potentially harmful content";
 "AV_DEFAULT_MODE" = "Default playback mode";
@@ -38,26 +38,26 @@
 "SB_NOTIF_DURATION" = "Notification duration (sec)";
 
 "SEEK_BUTTONS" = "Replace next/previous with forward and backward buttons";
-"SEEK_TIME_FOOTER" = "Select a seek time in seconds\n\nDefaults:\nSeek backward = 10 sec.\nSeek forward = 30 sec.\n\nSkip to the next and previous tracks available by long-pressing the buttons.";
+"SEEK_TIME_FOOTER" = "Select a seek time in seconds.\n\nDefaults:\nSeek backward = 10 sec\nSeek forward = 30 sec\n\nLong-press the buttons to skip to the next or previous track.";
 "DEFAULT" = "Default";
 
 "THEME_SETTINGS" = "Theme options";
-"OLED_DARK_THEME" = "OLED Dark Theme";
-"OLED_DARK_THEME_DESC" = "Enables OLED Dark Theme";
-"OLED_DARK_KEYBOARD" = "OLED Dark Keyboard";
-"OLED_DARK_KEYBOARD_DESC" = "Enables OLED Dark Keyboard";
+"OLED_DARK_THEME" = "OLED dark theme";
+"OLED_DARK_THEME_DESC" = "Enables the OLED dark theme";
+"OLED_DARK_KEYBOARD" = "OLED dark keyboard";
+"OLED_DARK_KEYBOARD_DESC" = "Enables the OLED dark keyboard";
 "LOW_CONTRAST" = "Low contrast";
-"LOW_CONTRAST_DESC" = "Lower contrast for text and buttons";
+"LOW_CONTRAST_DESC" = "Lowers contrast for text and buttons";
 
 "NAVBAR_SETTINGS" = "Navigation bar options";
-"DONT_STICK_HEADERS" = "Dont stick headers";
-"DONT_STICK_HEADERS_DESC" = "Unsticks pinned at the top of the screen panels";
+"DONT_STICK_HEADERS" = "Don't pin section headers";
+"DONT_STICK_HEADERS_DESC" = "Stops section headers from sticking to the top of the screen";
 "HIDE_HISTORY_BUTTON" = "Hide history button";
-"HIDE_HISTORY_BUTTON_DESC" = "Hides history button in the navigation bar";
+"HIDE_HISTORY_BUTTON_DESC" = "Hides the history button in the navigation bar";
 "HIDE_CAST_BUTTON" = "Hide cast button";
-"HIDE_CAST_BUTTON_DESC" = "Hides cast button in the navigation bar";
+"HIDE_CAST_BUTTON_DESC" = "Hides the cast button in the navigation bar";
 "HIDE_FILTER_BUTTON" = "Remove sort filter button";
-"HIDE_FILTER_BUTTON_DESC" = "Removes Library/Downloads filter button from the navigation bar";
+"HIDE_FILTER_BUTTON_DESC" = "Removes the Library/Downloads filter button from the navigation bar";
 
 "TABBAR_SETTINGS" = "Tab bar options";
 "STARTUP_TAB" = "Startup tab";
@@ -82,7 +82,7 @@
 
 "LINKS" = "Links";
 "TWITTER" = "Follow %@ on Twitter";
-"TWITTER_DESC" = "Follow me for updates";
+"TWITTER_DESC" = "Follow for updates";
 "DISCORD" = "Join the Discord";
 "DISCORD_DESC" = "Report bugs and request features";
 "SOURCE_CODE" = "Source code";
@@ -90,39 +90,39 @@
 
 "CLOSE" = "Close";
 "WARNING" = "Warning";
-"LOGIN_INFO" = "App restart required after successful signing into Google account";
+"LOGIN_INFO" = "App restart required after signing into your Google account";
 "RETRY_LOGIN" = "Workaround activated.\n\nPlease try again.";
-"APPLY_MESSAGE" = "This action will close YouTube Music to apply changes. Are you sure?";
+"APPLY_MESSAGE" = "This will close YouTube Music to apply changes. Continue?";
 "CANCEL" = "Cancel";
 "YES" = "Yes";
-"REGIONAL_RESTRICTION" = "Looks like YouTube Music restricted in your country.\n\n Please use VPN to get access to YouTube Music.";
+"REGIONAL_RESTRICTION" = "YouTube Music appears to be restricted in your country.\n\nPlease use a VPN to access YouTube Music.";
 
 "DONT_RUSH" = "Don't rush brilliance";
-"DONT_RUSH_DESC" = "Required to play the song to extract the link";
+"DONT_RUSH_DESC" = "The song must be playing to extract the link";
 "SELECT_ACTION" = "Select Action";
 "DOWNLOAD_PREMIUM" = "Download (Premium required)";
 "DOWNLOADING" = "Downloading";
-"OOPS" = "Oops\nsomething went wrong";
+"OOPS" = "Oops\nSomething went wrong";
 "LINK_NOT_FOUND" = "Link not found";
 "SAVED_TO_PHOTOS" = "Saved to Photos";
 "DONE" = "Done";
-"FOUND_SEGMENT" = "Found offtopic segment";
-"SEGMENT_SKIPPED" = "Offtopic has been skipped";
+"FOUND_SEGMENT" = "Non-music segment detected";
+"SEGMENT_SKIPPED" = "Non-music segment skipped";
 "SKIP" = "Skip";
 "UNSKIP" = "Unskip";
 
-"EMPTY" = "Content you download will show here";
+"EMPTY" = "Content you download will show up here";
 "REMOVE_ALL" = "Remove all audios";
 "SHARE_ALL" = "Share all audios";
-"PREPARING" = "Preparing...";
+"PREPARING" = "Preparing…";
 "DELETE_MESSAGE" = "Are you sure you want to delete %@?";
-"ALL_DOWNLOADS" = "all download audios"; //keep it lowercase
+"ALL_DOWNLOADS" = "all downloaded audio"; //keep it lowercase
 "DELETE" = "Delete";
 "RENAME" = "Rename";
 
-"TRANSLATION_SETTINGS" = "Synced Lyrics";
+"TRANSLATION_SETTINGS" = "Synced lyrics";
 "BILINGUAL_LYRICS" = "Bilingual lyrics";
-"BILINGUAL_LYRICS_DESC" = "Shows translated lyric lines below the original lyrics";
+"BILINGUAL_LYRICS_DESC" = "Shows a translated line below each original lyric line";
 "TRANSLATION_PROVIDER" = "Provider";
 "TRANSLATION_TARGET_LANG" = "Target language";
 "TRANSLATION_AUTO" = "Auto";
@@ -135,7 +135,7 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI-compatible";
 "SYNCED_LYRICS" = "Synced lyrics overlay";
-"SYNCED_LYRICS_DESC" = "Fetches lyrics from multiple sources and renders a synced lyrics panel over the player";
+"SYNCED_LYRICS_DESC" = "Fetches lyrics from multiple sources and shows a synced lyrics panel over the player";
 "LYRICS_SOURCE" = "Lyrics source";
 "LYRICS_SOURCE_AUTO" = "Auto";
 "LYRICS_LINE_EFFECT" = "Line effect";
@@ -147,14 +147,14 @@
 "LYRICS_FONT_SMALL" = "Small";
 "LYRICS_FONT_MEDIUM" = "Medium";
 "LYRICS_FONT_LARGE" = "Large";
-"LYRICS_DEFAULT_TEXT" = "Empty line text";
+"LYRICS_DEFAULT_TEXT" = "Empty line symbol";
 "LYRICS_CHINESE_CONVERSION" = "Chinese conversion";
-"LYRICS_CHINESE_DISABLED" = "Disabled";
+"LYRICS_CHINESE_DISABLED" = "Off";
 "LYRICS_CHINESE_S2T" = "Simplified to Traditional";
 "LYRICS_CHINESE_T2S" = "Traditional to Simplified";
 "LYRICS_ROMANIZATION" = "Romanization";
-"LYRICS_SHOW_TIMECODES" = "Show time codes";
-"LYRICS_SHOW_INEXACT" = "Show inexact matches";
+"LYRICS_SHOW_TIMECODES" = "Show timecodes";
+"LYRICS_SHOW_INEXACT" = "Allow inexact matches";
 "TRANSLATION_DEBUG_LOGS" = "Debug logs";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Prints YTMULyrics and YTMUTranslation diagnostics to device logs";
 "LYRICS_PANEL_TITLE" = "Lyrics";
@@ -167,7 +167,7 @@
 "LYRICS_CHECKING" = "Checking";
 "LYRICS_NO_MATCH" = "No match";
 "LYRICS_RESET" = "Reset";
-"LYRICS_STATE_SEARCHING" = "Searching lyrics...";
+"LYRICS_STATE_SEARCHING" = "Searching for lyrics…";
 "LYRICS_STATE_NO_LYRICS" = "No lyrics found";
 "LYRICS_STATE_OPEN_SONG" = "Open a song to load lyrics.";
 "LYRICS_ATTRIBUTION_BOTH_FORMAT" = "Lyrics and translation via %@";
@@ -175,4 +175,4 @@
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Translated via %@";
 "LYRICS_PROVIDER_NO_MATCH" = "no match";
 "LYRICS_PROVIDER_FALLBACK" = "translator";
-"TRANSLATION_CACHE_CLEARED_FORMAT" = "Lyrics: %lu\nTranslations: %lu\nRomanization: memory cleared";
+"TRANSLATION_CACHE_CLEARED_FORMAT" = "Lyrics: %lu\nTranslations: %lu\nRomanization: in-memory cache cleared";
