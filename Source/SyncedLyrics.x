@@ -308,12 +308,22 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
         duration = [YTMUSafeValueForKey(player, @"currentVideoTotalMediaTime") doubleValue];
     }
 
-    // YTPlayerViewController exposes the player response under the
-    // selector `contentPlayerResponse`, NOT `playerResponse` (we missed
-    // this in earlier passes — the runtime-selector dump at startup
-    // shows it). Try both, falling back to whichever responds.
-    id playerResponse = YTMUSafeValueForKey(player, @"contentPlayerResponse");
-    if (!playerResponse) playerResponse = YTMUSafeValueForKey(player, @"playerResponse");
+    // CRITICAL: `playerResponse` is the full video-context player
+    // response — its videoDetails.title carries the COMPLETE upload
+    // title (e.g. "Qeiru - ハテ (feat. IA)") which lyric DBs like
+    // NetEase index by. `contentPlayerResponse` is YT Music's
+    // song-mode wrapper which simplifies the title to just the
+    // album-track name (e.g. "Terminal") and strips out the part
+    // that makes the song actually findable in NetEase.
+    //
+    // An earlier change here flipped these around after seeing
+    // `contentPlayerResponse` in the runtime selector list — that
+    // regressed every CJK song whose YT Music "song title" diverges
+    // from the actual video title. We probe `playerResponse` first
+    // and only fall back to `contentPlayerResponse` if the former
+    // is unavailable.
+    id playerResponse = YTMUSafeValueForKey(player, @"playerResponse");
+    if (!playerResponse) playerResponse = YTMUSafeValueForKey(player, @"contentPlayerResponse");
     id playerData = YTMUSafeValueForKey(playerResponse, @"playerData");
     id details = YTMUSafeValueForKey(playerData, @"videoDetails");
     NSString *title = YTMUStringFromObject(YTMUSafeValueForKey(details, @"title"));
