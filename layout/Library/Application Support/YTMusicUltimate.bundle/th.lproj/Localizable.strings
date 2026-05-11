@@ -108,7 +108,7 @@
 "BILINGUAL_LYRICS" = "เนื้อเพลงสองภาษา";
 "BILINGUAL_LYRICS_DESC" = "แสดงบรรทัดคำแปลใต้เนื้อเพลงต้นฉบับ";
 "TRANSLATION_PROVIDER" = "ผู้ให้บริการ";
-"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
+"TRANSLATION_FOLLOW_APP_LANG" = "ตามภาษาแอป";
 "TRANSLATION_TARGET_LANG" = "ภาษาปลายทาง";
 "TRANSLATION_API_KEY" = "คีย์ API";
 "TRANSLATION_MODEL" = "โมเดล";

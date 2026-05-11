@@ -108,7 +108,7 @@
 "BILINGUAL_LYRICS" = "Lời bài hát song ngữ";
 "BILINGUAL_LYRICS_DESC" = "Hiển thị dòng dịch bên dưới lời bài hát gốc";
 "TRANSLATION_PROVIDER" = "Nhà cung cấp";
-"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
+"TRANSLATION_FOLLOW_APP_LANG" = "Theo ngôn ngữ ứng dụng";
 "TRANSLATION_TARGET_LANG" = "Ngôn ngữ đích";
 "TRANSLATION_API_KEY" = "Khóa API";
 "TRANSLATION_MODEL" = "Mô hình";
