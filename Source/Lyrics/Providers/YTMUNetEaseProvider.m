@@ -165,7 +165,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         [self captureCookiesFromResponse:http];
         NSInteger status = http.statusCode;
         if (status < 200 || status >= 300) {
-            completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"NetEase HTTP %ld", (long)status]}]);
+            completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:YTMULocalized(@"LYRICS_ERROR_HTTP_STATUS_FORMAT", @"HTTP %ld"), (long)status]}]);
             return;
         }
         id json = responseData ? [NSJSONSerialization JSONObjectWithData:responseData options:0 error:&error] : nil;
@@ -175,7 +175,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
         NSNumber *code = YTMULyricsJSONNumberAtPath(json, @[@"code"]);
         if (code && code.integerValue != 200) {
-            completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:code.integerValue userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"NetEase API %ld", (long)code.integerValue]}]);
+            completion(nil, [NSError errorWithDomain:@"YTMUNetEase" code:code.integerValue userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:YTMULocalized(@"LYRICS_ERROR_NETEASE_API_FORMAT", @"API error %ld"), (long)code.integerValue]}]);
             return;
         }
         completion(json, nil);
