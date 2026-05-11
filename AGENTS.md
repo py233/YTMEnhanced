@@ -7,6 +7,15 @@
 - `Makefile` compiles every `Source/**/*.x`, `Source/**/*.xm`, and `Source/**/*.m` except `Source/Sideloading.x`; `Source/Sideloading.x` is added only when `SIDELOADING=1`.
 - Resource/localization files are packaged from `layout/Library/Application Support/YTMusicUltimate.bundle`; user-facing strings should use `LOC(@"KEY")` (or one of the per-module `*Localized(@"KEY", @"fallback")` wrappers in the lyrics code) and have a matching `Localizable.strings` entry in every `.lproj`. The wrappers carry an inline English fallback — when adding a key, update both the fallback and the `.strings` files. After editing, all 14 locales should have identical key sets; sanity-check with `plutil -lint layout/Library/Application\ Support/YTMusicUltimate.bundle/*.lproj/Localizable.strings`.
 
+## Localization (i18n)
+
+- A new user-facing key must ship with a real translation in every `.lproj`. Do **not** paste the English string into non-English `.strings` files as a placeholder: it is indistinguishable from a finished translation in diffs, `grep`, and `plutil -lint`, so the gap silently survives review (this is exactly how `TRANSLATION_FOLLOW_APP_LANG` landed in 11 locales as "Follow app language"). If a translation isn't ready, the key isn't ready — either translate it now, or leave the key out of that locale entirely so the fallback paths below take over.
+- Fallback is per-call-site, not magic. iOS does **not** fall back from a non-English `.lproj` to `en.lproj` on a per-key miss; it only falls back at the whole-`.lproj` level when the user's locale has no folder at all. So a key missing from a present `.lproj` behaves like this:
+  - `LOC(@"KEY")` — `value:nil`, returns the **literal key** in the UI. Loud, easy to spot during QA.
+  - `YTMULocalized(@"KEY", @"English fallback")` and per-module wrappers — return the **inline fallback**. Silent, so keep that fallback string in sync with `en.lproj`.
+- Pasting the English string into, say, `de.lproj` defeats both signals: `LOC()` no longer surfaces the literal key, and reviewers/grep can't distinguish a real "Folgen" from a placeholder. Reserve English values for `en.lproj` only.
+- After editing localization files, verify parity, not just lint validity: `plutil -lint …/*.lproj/Localizable.strings` must pass, and the key set must match across all 14 files. Quick check — `for f in layout/Library/Application\ Support/YTMusicUltimate.bundle/*.lproj/Localizable.strings; do awk -F'"' '/^"[A-Z]/{print $2}' "$f" | sort -u | wc -l; done | sort -u` should print a single number.
+
 ## Build Commands
 
 - Rootful deb: `make clean package`

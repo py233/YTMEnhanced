@@ -108,7 +108,7 @@
 "BILINGUAL_LYRICS" = "Testi bilingue";
 "BILINGUAL_LYRICS_DESC" = "Mostra le righe tradotte sotto i testi originali";
 "TRANSLATION_PROVIDER" = "Fornitore";
-"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
+"TRANSLATION_FOLLOW_APP_LANG" = "Segui la lingua dell'app";
 "TRANSLATION_TARGET_LANG" = "Lingua di destinazione";
 "TRANSLATION_API_KEY" = "Chiave API";
 "TRANSLATION_MODEL" = "Modello";

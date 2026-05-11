@@ -108,7 +108,7 @@
 "BILINGUAL_LYRICS" = "バイリンガル歌詞";
 "BILINGUAL_LYRICS_DESC" = "元の歌詞の下に翻訳行を表示します";
 "TRANSLATION_PROVIDER" = "プロバイダー";
-"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
+"TRANSLATION_FOLLOW_APP_LANG" = "アプリの言語に合わせる";
 "TRANSLATION_TARGET_LANG" = "翻訳先言語";
 "TRANSLATION_API_KEY" = "APIキー";
 "TRANSLATION_MODEL" = "モデル";

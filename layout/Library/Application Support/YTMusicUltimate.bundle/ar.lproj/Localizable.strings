@@ -108,7 +108,7 @@
 "BILINGUAL_LYRICS" = "كلمات ثنائية اللغة";
 "BILINGUAL_LYRICS_DESC" = "تعرض أسطر الترجمة أسفل الكلمات الأصلية";
 "TRANSLATION_PROVIDER" = "مزود الخدمة";
-"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
+"TRANSLATION_FOLLOW_APP_LANG" = "اتباع لغة التطبيق";
 "TRANSLATION_TARGET_LANG" = "اللغة المستهدفة";
 "TRANSLATION_API_KEY" = "مفتاح API";
 "TRANSLATION_MODEL" = "النموذج";
