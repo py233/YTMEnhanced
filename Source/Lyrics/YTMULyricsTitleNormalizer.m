@@ -1,4 +1,5 @@
 #import "YTMULyricsTitleNormalizer.h"
+#import "../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonDigest.h>
 
 // Persistent storage layout:
@@ -35,7 +36,7 @@ static NSString *YTMULNSHA1(NSString *string) {
 static NSError *YTMULNError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMULyricsTitleNormalizer"
                                code:code
-                           userInfo:@{NSLocalizedDescriptionKey: message ?: @"normalize failed"}];
+                           userInfo:@{NSLocalizedDescriptionKey: message ?: YTMULocalized(@"LYRICS_ERROR_TITLE_NORMALIZE", @"normalize failed")}];
 }
 
 #pragma mark - YTMULyricsTitleNormalization

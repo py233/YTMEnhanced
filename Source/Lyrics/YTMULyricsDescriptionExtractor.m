@@ -1,4 +1,5 @@
 #import "YTMULyricsDescriptionExtractor.h"
+#import "../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonDigest.h>
 
 // Persistent storage layout:
@@ -44,7 +45,7 @@ static NSString *YTMULDESHA1(NSString *string) {
 static NSError *YTMULDEError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMULyricsDescriptionExtractor"
                                code:code
-                           userInfo:@{NSLocalizedDescriptionKey: message ?: @"extract failed"}];
+                           userInfo:@{NSLocalizedDescriptionKey: message ?: YTMULocalized(@"LYRICS_ERROR_DESCRIPTION_EXTRACT", @"extract failed")}];
 }
 
 #pragma mark - YTMULyricsDescriptionExtraction

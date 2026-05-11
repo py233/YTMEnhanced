@@ -1,5 +1,6 @@
 #import "YTMULRCLibProvider.h"
 #import "../YTMULRCParser.h"
+#import "../../Utils/NSBundle+YTMU.h"
 
 static BOOL YTMULRCLibRegexTest(NSString *value, NSString *pattern) {
     return [value rangeOfString:pattern options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound;
@@ -63,7 +64,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
         }
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         if (![json isKindOfClass:[NSArray class]]) {
-            completion(nil, error ?: [NSError errorWithDomain:@"YTMULRCLib" code:1 userInfo:@{NSLocalizedDescriptionKey: @"LRCLib returned invalid JSON"}]);
+            completion(nil, error ?: [NSError errorWithDomain:@"YTMULRCLib" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_LRCLIB_BAD_JSON", @"LRCLib returned invalid JSON")}]);
             return;
         }
         completion(json, nil);
@@ -254,7 +255,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
                       (unsigned long)queries.count);
         completion(nil, originalError ?: [NSError errorWithDomain:@"YTMULRCLib"
                                                               code:NSURLErrorTimedOut
-                                                          userInfo:@{NSLocalizedDescriptionKey: @"LRCLib deadline exceeded"}]);
+                                                          userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_LRCLIB_TIMEOUT", @"LRCLib deadline exceeded")}]);
         return;
     }
     NSString *query = queries[index];
