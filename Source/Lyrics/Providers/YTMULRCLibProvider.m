@@ -59,7 +59,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
         }
         NSInteger status = [(NSHTTPURLResponse *)response statusCode];
         if (status < 200 || status >= 300) {
-            completion(nil, [NSError errorWithDomain:@"YTMULRCLib" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"LRCLib HTTP %ld", (long)status]}]);
+            completion(nil, [NSError errorWithDomain:@"YTMULRCLib" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:YTMULocalized(@"LYRICS_ERROR_HTTP_STATUS_FORMAT", @"HTTP %ld"), (long)status]}]);
             return;
         }
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;

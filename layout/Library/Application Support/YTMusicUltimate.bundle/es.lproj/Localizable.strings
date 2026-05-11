@@ -164,4 +164,6 @@
 "LYRICS_ERROR_INNERTUBE_FETCH" = "fetch failed";
 "LYRICS_ERROR_DESCRIPTION_EXTRACT" = "extract failed";
 "LYRICS_ERROR_TITLE_NORMALIZE" = "normalize failed";
+"LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
+"LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Letras: %lu\nTraducciones: %lu\nRomanización: memoria borrada";

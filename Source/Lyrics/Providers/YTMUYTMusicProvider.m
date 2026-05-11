@@ -1,5 +1,6 @@
 #import "YTMUYTMusicProvider.h"
 #import "../YTMULRCParser.h"
+#import "../../Utils/NSBundle+YTMU.h"
 
 @implementation YTMUYTMusicProvider
 
@@ -41,7 +42,7 @@
         }
         NSInteger status = [(NSHTTPURLResponse *)response statusCode];
         if (status < 200 || status >= 300) {
-            completion(nil, [NSError errorWithDomain:@"YTMUYTMusic" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"YTMusic HTTP %ld", (long)status]}]);
+            completion(nil, [NSError errorWithDomain:@"YTMUYTMusic" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:YTMULocalized(@"LYRICS_ERROR_HTTP_STATUS_FORMAT", @"HTTP %ld"), (long)status]}]);
             return;
         }
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;

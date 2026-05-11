@@ -260,10 +260,26 @@
 
 - (NSString *)languageTitleForCode:(NSString *)code {
     if ([code isEqualToString:@"auto"]) return LOC(@"TRANSLATION_AUTO");
-    NSDictionary *manual = @{@"zh-CN": @"Chinese (Simplified)", @"zh-TW": @"Chinese (Traditional)", @"pt-BR": @"Portuguese (Brazil)", @"pt-PT": @"Portuguese (Portugal)", @"fil": @"Filipino"};
-    if (manual[code]) return manual[code];
+    // Ask NSLocale first — for healthy region-tagged codes (zh-CN,
+    // pt-BR, etc.) it returns a properly-localized display name in the
+    // user's current device language. Only fall back to the English
+    // overrides if NSLocale gives us nothing useful; this avoids the
+    // previous behaviour where Chinese users saw "Chinese (Simplified)"
+    // even when their device was set to Simplified Chinese.
     NSString *display = [[NSLocale currentLocale] displayNameForKey:NSLocaleIdentifier value:code];
-    return display.length ? display : code;
+    if (display.length) return display;
+    static NSDictionary *manualFallback = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        manualFallback = @{
+            @"zh-CN": @"Chinese (Simplified)",
+            @"zh-TW": @"Chinese (Traditional)",
+            @"pt-BR": @"Portuguese (Brazil)",
+            @"pt-PT": @"Portuguese (Portugal)",
+            @"fil":   @"Filipino",
+        };
+    });
+    return manualFallback[code] ?: code;
 }
 
 #pragma mark - Cells
