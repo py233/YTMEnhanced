@@ -259,7 +259,11 @@
 }
 
 - (NSString *)languageTitleForCode:(NSString *)code {
-    if ([code isEqualToString:@"auto"]) return LOC(@"TRANSLATION_AUTO");
+    // The "follow app language" entry is intentionally NOT localized —
+    // every user sees the same English label, matching pear-desktop's
+    // convention and the rest of this picker (autoglottonyms). The
+    // string only exists in this one place so there's no .strings key.
+    if ([code isEqualToString:@"auto"]) return @"Follow app language";
     // Show each language by its OWN native name (autoglottonym) — same
     // convention as pear-desktop, Telegram, iOS Settings. The picker
     // shows TARGET languages, so the natural reader of each row is a
@@ -267,9 +271,10 @@
     // UI language just obscures the choice whenever the user's device
     // language differs from the lyric target. Final rendering looks
     // like:
-    //     English
+    //     Follow app language
     //     简体中文
     //     繁體中文
+    //     English
     //     日本語
     //     Português (Brasil)
     NSLocale *nativeLocale = [NSLocale localeWithLocaleIdentifier:code];

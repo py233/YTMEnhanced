@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "Orijinal sözlerin altında çevrilmiş satırları gösterir";
 "TRANSLATION_PROVIDER" = "Sağlayıcı";
 "TRANSLATION_TARGET_LANG" = "Hedef dil";
-"TRANSLATION_AUTO" = "Otomatik";
 "TRANSLATION_API_KEY" = "API anahtarı";
 "TRANSLATION_MODEL" = "Model";
 "TRANSLATION_BASE_URL" = "Temel URL";

@@ -109,7 +109,6 @@
 "BILINGUAL_LYRICS_DESC" = "Muestra las líneas traducidas debajo de las letras originales";
 "TRANSLATION_PROVIDER" = "Proveedor";
 "TRANSLATION_TARGET_LANG" = "Idioma de destino";
-"TRANSLATION_AUTO" = "Automático";
 "TRANSLATION_API_KEY" = "Clave de API";
 "TRANSLATION_MODEL" = "Modelo";
 "TRANSLATION_BASE_URL" = "URL base";
