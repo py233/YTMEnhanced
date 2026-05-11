@@ -108,6 +108,7 @@
 "BILINGUAL_LYRICS" = "Двуязычный текст";
 "BILINGUAL_LYRICS_DESC" = "Показывает переведённые строки под оригинальным текстом";
 "TRANSLATION_PROVIDER" = "Сервис";
+"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
 "TRANSLATION_TARGET_LANG" = "Язык перевода";
 "TRANSLATION_API_KEY" = "API-ключ";
 "TRANSLATION_MODEL" = "Модель";

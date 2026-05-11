@@ -108,6 +108,7 @@
 "BILINGUAL_LYRICS" = "Bilingual lyrics";
 "BILINGUAL_LYRICS_DESC" = "Shows a translated line below each original lyric line";
 "TRANSLATION_PROVIDER" = "Provider";
+"TRANSLATION_FOLLOW_APP_LANG" = "Follow app language";
 "TRANSLATION_TARGET_LANG" = "Target language";
 "TRANSLATION_API_KEY" = "API key";
 "TRANSLATION_MODEL" = "Model";

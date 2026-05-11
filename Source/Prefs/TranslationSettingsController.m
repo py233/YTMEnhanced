@@ -259,19 +259,23 @@
 }
 
 - (NSString *)languageTitleForCode:(NSString *)code {
-    // The "follow app language" entry is intentionally NOT localized —
-    // every user sees the same English label, matching pear-desktop's
-    // convention and the rest of this picker (autoglottonyms). The
-    // string only exists in this one place so there's no .strings key.
-    if ([code isEqualToString:@"auto"]) return @"Follow app language";
+    // The "follow app language" entry IS localized to the user's UI
+    // language — it's a meta-instruction ("translate into whichever
+    // language the app interface is currently in"), and the natural
+    // reader is whoever is configuring the setting in their own UI
+    // language. So a zh-Hans user sees "跟随应用语言", an en user
+    // sees "Follow app language", etc. This is the only row in the
+    // picker that follows UI language; everything else is the
+    // language's own native name (autoglottonym).
+    if ([code isEqualToString:@"auto"]) return LOC(@"TRANSLATION_FOLLOW_APP_LANG");
     // Show each language by its OWN native name (autoglottonym) — same
     // convention as pear-desktop, Telegram, iOS Settings. The picker
     // shows TARGET languages, so the natural reader of each row is a
     // speaker of that language; translating them all into the user's
     // UI language just obscures the choice whenever the user's device
     // language differs from the lyric target. Final rendering looks
-    // like:
-    //     Follow app language
+    // like (for a zh-Hans user):
+    //     跟随应用语言    ← localized to UI language
     //     简体中文
     //     繁體中文
     //     English
