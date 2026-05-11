@@ -1,6 +1,4 @@
-"SETTINGS" = "Nustatymai";
 "ENABLED" = "Įjungti \"YTMusicUltimate\"";
-"ENABLED_DESC" = "\"Premium\" funkcijos, reklamų panaikinimas, foninis atkūrimas ir kt.";
 "RESTART_FOOTER" = "Iš naujo paleiskite programą, kad pritaikytumėte pakeitimus";
 
 "PREMIUM_SETTINGS" = "\"Premium\" parinktys";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "Pašalinti programoje esančias reklamas";
 "BACKGROUND_PLAYBACK" = "Foninis atkūrimas";
 "BACKGROUND_PLAYBACK_DESC" = "Įjungti foninį atkūrimą";
-"FORCE_PREMIUM" = "Priverstinai įjungti premium funkcijas";
-"FORCE_PREMIUM_DESC" = "Priverstinai įjungia premium funcijas.\nŠis nustatymas panaikina Pavyzdžių kotelę";
 
 "PLAYER_SETTINGS" = "Grotuvo nustatymai";
 "DOWNLOAD_AUDIO" = "Atsisiųsti muziką";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "Prideda galimybę atsisiųsti viršelio atvaizdą grotuve paspaudžiant YTUltimate mygtuką";
 "PLAYBACK_RATE_BUTTON" = "Rodyti atkūrimo spartą";
 "PLAYBACK_RATE_BUTTON_DESC" = "Reguliuoti atkūrimo greitį";
-"SELECTABLE_LYRICS" = "Teksto pasirinkimas";
-"SELECTABLE_LYRICS_DESC" = "Įgalinti teksto pasirinkimą dainų žodžiams";
 "VOLBAR" = "Garsumo juosta";
 "VOLBAR_DESC" = "Įtraukti garsumo juostą grotuve";
 "NO_AUTORADIO" = "Išjungti radiją";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "Praleisti įspėjimą apie turinį";
 "SKIP_CONTENT_WARNING_DESC" = "Praleidžia įspėjimą apie potencialiai pavojingą turinį";
 "AV_DEFAULT_MODE" = "Numatytasis atkūrimo režimas";
-"AUDIO" = "Garsas";
-"VIDEO" = "Vaizdas";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "Muzikiniuose vaizdo klipuose praleidžiami su muzika nesusiję skyriai";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "Kortelių juostos nustatymai";
 "STARTUP_TAB" = "Pradžios kortelė";
-"SAMPLES" = "Pavyzdžiai";
-"HOME" = "Namai";
-"EXPLORE" = "Naršyti";
-"LIBRARY" = "Biblioteka";
 "DOWNLOADS" = "Atsisiuntimai";
 
 "TAB_SETTINGS" = "Kortelių nustatymai";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "Nerodyti Atsisiuntimų kortelės";
 
 "CLEAR_CACHE" = "Išvalyti talpyklą";
-
-"APPLY" = "Taikyti";
-"APPLY_DESC" = "Uždaro programėlę, kad pritaikytų pakeitimus";
 
 "LINKS" = "Nuorodos";
 "TWITTER" = "Sekite %@ \"Twitter\"";
@@ -114,7 +99,6 @@
 "EMPTY" = "Turinys kurį atsisiųsite bus rodomas čia";
 "REMOVE_ALL" = "Panaikinti visą muziką";
 "SHARE_ALL" = "Dalintis visa muzika";
-"PREPARING" = "Ruošiama...";
 "DELETE_MESSAGE" = "Ar esate tikri, kad norite panaikinti %@?";
 "ALL_DOWNLOADS" = "visą atsiųstą muziką"; //keep it lowercase
 "DELETE" = "Panaikinti";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "Suderinama su OpenAI";
 "SYNCED_LYRICS" = "Sinchroninių dainų žodžių sluoksnis";
-"SYNCED_LYRICS_DESC" = "Surenka dainų žodžius iš kelių šaltinių ir virš grotuvo rodo sinchroninį dainų žodžių skydelį";
 "LYRICS_SOURCE" = "Žodžių šaltinis";
 "LYRICS_SOURCE_AUTO" = "Automatinis";
-"LYRICS_LINE_EFFECT" = "Eilutės efektas";
 "LYRICS_EFFECT_FANCY" = "Pilnas";
 "LYRICS_EFFECT_SCALE" = "Mastelis";
 "LYRICS_EFFECT_OFFSET" = "Poslinkis";
 "LYRICS_EFFECT_FOCUS" = "Židinys";
-"LYRICS_FONT_SIZE" = "Šrifto dydis";
-"LYRICS_FONT_SMALL" = "Mažas";
-"LYRICS_FONT_MEDIUM" = "Vidutinis";
-"LYRICS_FONT_LARGE" = "Didelis";
 "LYRICS_DEFAULT_TEXT" = "Tuščios eilutės tekstas";
 "LYRICS_CHINESE_CONVERSION" = "Kinų rašmenų konvertavimas";
 "LYRICS_CHINESE_DISABLED" = "Išjungta";
 "LYRICS_CHINESE_S2T" = "Iš supaprastintų į tradicinius";
 "LYRICS_CHINESE_T2S" = "Iš tradicinių į supaprastintus";
 "LYRICS_ROMANIZATION" = "Romanizacija";
-"LYRICS_SHOW_TIMECODES" = "Rodyti laiko kodus";
 "LYRICS_SHOW_INEXACT" = "Rodyti netikslius atitikmenis";
 "TRANSLATION_DEBUG_LOGS" = "Derinimo žurnalai";
 "TRANSLATION_DEBUG_LOGS_DESC" = "Į įrenginio žurnalus įrašo YTMULyrics ir YTMUTranslation diagnostiką";

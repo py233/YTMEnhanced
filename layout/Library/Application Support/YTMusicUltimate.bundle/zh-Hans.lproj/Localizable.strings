@@ -1,6 +1,4 @@
-"SETTINGS" = "设置";
 "ENABLED" = "启用 YTMusicUltimate";
-"ENABLED_DESC" = "Premium 会员功能、去广告、后台播放等";
 "RESTART_FOOTER" = "重启 App 以应用更改";
 
 "PREMIUM_SETTINGS" = "Premium 功能";
@@ -8,8 +6,6 @@
 "NO_ADS_DESC" = "去除 App 内的广告";
 "BACKGROUND_PLAYBACK" = "后台播放";
 "BACKGROUND_PLAYBACK_DESC" = "启用后台播放";
-"FORCE_PREMIUM" = "强制启用 Premium";
-"FORCE_PREMIUM_DESC" = "强制启用 Premium 会员功能。\n同时会禁用「选段」标签。";
 
 "PLAYER_SETTINGS" = "播放器选项";
 "DOWNLOAD_AUDIO" = "下载音频";
@@ -18,8 +14,6 @@
 "DOWNLOAD_COVER_DESC" = "在播放器的 YTMUltimate 按钮中加入下载封面图选项";
 "PLAYBACK_RATE_BUTTON" = "显示播放速度按钮";
 "PLAYBACK_RATE_BUTTON_DESC" = "调节播放速度";
-"SELECTABLE_LYRICS" = "歌词文本选择";
-"SELECTABLE_LYRICS_DESC" = "允许在歌词上长按选择文本";
 "VOLBAR" = "音量条";
 "VOLBAR_DESC" = "在播放器中添加音量调节条";
 "NO_AUTORADIO" = "关闭电台";
@@ -27,8 +21,6 @@
 "SKIP_CONTENT_WARNING" = "跳过内容警告";
 "SKIP_CONTENT_WARNING_DESC" = "跳过潜在敏感内容的警告提示";
 "AV_DEFAULT_MODE" = "默认播放模式";
-"AUDIO" = "歌曲";
-"VIDEO" = "视频";
 
 "SKIP_NONMUSIC_PARTS" = "SponsorBlock";
 "SKIP_NONMUSIC_PARTS_DESC" = "跳过 MV 中不属于歌曲的部分";
@@ -61,10 +53,6 @@
 
 "TABBAR_SETTINGS" = "标签栏选项";
 "STARTUP_TAB" = "启动后默认页";
-"HOME" = "首页";
-"SAMPLES" = "选段";
-"EXPLORE" = "探索";
-"LIBRARY" = "媒体库";
 "DOWNLOADS" = "下载";
 
 "TAB_SETTINGS" = "标签栏项设置";
@@ -76,9 +64,6 @@
 "HIDE_DOWNLOADS" = "隐藏「下载」标签";
 
 "CLEAR_CACHE" = "清除缓存";
-
-"APPLY" = "应用";
-"APPLY_DESC" = "点按后会关闭 App 以使更改生效";
 
 "LINKS" = "相关链接";
 "TWITTER" = "在 Twitter 关注 %@";
@@ -114,7 +99,6 @@
 "EMPTY" = "下载的内容会显示在这里";
 "REMOVE_ALL" = "删除所有音频";
 "SHARE_ALL" = "分享所有音频";
-"PREPARING" = "准备中…";
 "DELETE_MESSAGE" = "确定要删除 %@ 吗？";
 "ALL_DOWNLOADS" = "所有已下载的音频"; //keep it lowercase
 "DELETE" = "删除";
@@ -135,25 +119,18 @@
 "PROVIDER_GEMINI" = "Gemini";
 "PROVIDER_OPENAI" = "OpenAI 兼容";
 "SYNCED_LYRICS" = "同步歌词浮层";
-"SYNCED_LYRICS_DESC" = "从多个来源查找歌词，在播放器上以自定义浮层显示同步歌词";
 "LYRICS_SOURCE" = "歌词来源";
 "LYRICS_SOURCE_AUTO" = "自动";
-"LYRICS_LINE_EFFECT" = "歌词行效果";
 "LYRICS_EFFECT_FANCY" = "完整效果";
 "LYRICS_EFFECT_SCALE" = "缩放";
 "LYRICS_EFFECT_OFFSET" = "偏移";
 "LYRICS_EFFECT_FOCUS" = "聚焦";
-"LYRICS_FONT_SIZE" = "字号";
-"LYRICS_FONT_SMALL" = "小";
-"LYRICS_FONT_MEDIUM" = "中";
-"LYRICS_FONT_LARGE" = "大";
 "LYRICS_DEFAULT_TEXT" = "空白行符号";
 "LYRICS_CHINESE_CONVERSION" = "简繁转换";
 "LYRICS_CHINESE_DISABLED" = "关闭";
 "LYRICS_CHINESE_S2T" = "简体转繁体";
 "LYRICS_CHINESE_T2S" = "繁体转简体";
 "LYRICS_ROMANIZATION" = "罗马音";
-"LYRICS_SHOW_TIMECODES" = "显示时间码";
 "LYRICS_SHOW_INEXACT" = "允许非精确匹配";
 "TRANSLATION_DEBUG_LOGS" = "调试日志";
 "TRANSLATION_DEBUG_LOGS_DESC" = "向设备日志输出 YTMULyrics 和 YTMUTranslation 的诊断信息";
