@@ -5,7 +5,7 @@
 - This is a Theos Objective-C/Logos iOS tweak for YouTube Music, not an Xcode or Node project.
 - The tweak target is `YTMusicUltimate`; `YTMusicUltimate.plist` injects only into `com.google.ios.youtubemusic`.
 - `Makefile` compiles every `Source/**/*.x`, `Source/**/*.xm`, and `Source/**/*.m` except `Source/Sideloading.x`; `Source/Sideloading.x` is added only when `SIDELOADING=1`.
-- Resource/localization files are packaged from `layout/Library/Application Support/YTMusicUltimate.bundle`; user-facing strings should use `LOC(@"KEY")` and have matching `Localizable.strings` entries.
+- Resource/localization files are packaged from `layout/Library/Application Support/YTMusicUltimate.bundle`; user-facing strings should use `LOC(@"KEY")` (or one of the per-module `*Localized(@"KEY", @"fallback")` wrappers in the lyrics code) and have a matching `Localizable.strings` entry in every `.lproj`. The wrappers carry an inline English fallback — when adding a key, update both the fallback and the `.strings` files. After editing, all 14 locales should have identical key sets; sanity-check with `plutil -lint layout/Library/Application\ Support/YTMusicUltimate.bundle/*.lproj/Localizable.strings`.
 
 ## Build Commands
 
@@ -30,7 +30,8 @@
 - Bilingual lyrics flow is centered on `Source/Lyrics/YTMULyricsManager.m`; providers live in `Source/Lyrics/Providers/`.
 - Translation flow is centered on `Source/Translation/YTMUTranslator.m`; providers are Google Translate, Anthropic, Gemini, and OpenAI-compatible.
 - Settings are stored in the `NSUserDefaults` dictionary key `YTMUltimate`; translation/lyrics settings changes post `YTMULyricsSettingsDidChangeNotification`.
-- Translation cache keys include `YTMUTranslationStrategyVersion` from `Source/Translation/YTMUTranslationTypes.m`; bump it when changing cache-incompatible translation behavior.
+- Translation cache keys include `YTMUTranslationStrategyVersion` from `Source/Translation/YTMUTranslationTypes.m`; bump it when changing cache-incompatible translation behavior. The lyrics layer has a parallel `YTMUInnerTubeSchemaVersion` (in `Source/Lyrics/YTMUInnerTubeDescriptionFetcher.m`) for the on-disk InnerTube description / blacklist cache — bump it when changing that plist's shape.
+- New lyrics providers should plug into the `YTMULyricsProvider` protocol and cap every individual HTTP request at ~8 s via `request.timeoutInterval`; the manager fans out providers in parallel and relies on each one self-bounding so a slow CDN can't stall the chain.
 
 ## Directory Map
 
