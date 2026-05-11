@@ -107,7 +107,7 @@
 "TRANSLATION_SETTINGS" = "Testi sincronizzati";
 "BILINGUAL_LYRICS" = "Testi bilingue";
 "BILINGUAL_LYRICS_DESC" = "Mostra le righe tradotte sotto i testi originali";
-"TRANSLATION_PROVIDER" = "Provider";
+"TRANSLATION_PROVIDER" = "Fornitore";
 "TRANSLATION_TARGET_LANG" = "Lingua di destinazione";
 "TRANSLATION_AUTO" = "Automatico";
 "TRANSLATION_API_KEY" = "Chiave API";
@@ -123,8 +123,8 @@
 "LYRICS_SOURCE_AUTO" = "Automatico";
 "LYRICS_EFFECT_FANCY" = "Completo";
 "LYRICS_EFFECT_SCALE" = "Scala";
-"LYRICS_EFFECT_OFFSET" = "Offset";
-"LYRICS_EFFECT_FOCUS" = "Focus";
+"LYRICS_EFFECT_OFFSET" = "Scostamento";
+"LYRICS_EFFECT_FOCUS" = "Messa a fuoco";
 "LYRICS_DEFAULT_TEXT" = "Testo riga vuota";
 "LYRICS_CHINESE_CONVERSION" = "Conversione cinese";
 "LYRICS_CHINESE_DISABLED" = "Disabilitato";
