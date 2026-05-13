@@ -104,23 +104,28 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 }
 
 // Reconcile a model-returned line count that's off by ≤1 with the
-// expected source line count. claude-opus consistently drifts by one
-// on long whole-song translations — typically by emitting an extra
-// blank entry at the start or end that represents an intro / outro
-// marker the model "saw" but the source didn't have. Without this
-// reconciliation the manager rejects an entire 150-line translation
-// (and another retry call) over a single misplaced blank.
+// expected source line count by scoring each candidate alignment
+// against the source's blank pattern.
 //
-// Strategy:
-//   off-by-+1: prefer dropping the edge whose blankness DOESN'T match
-//              the source's edge (i.e. the model added the blank).
-//              If both edges are blank in the model output, drop the
-//              leading one (most common drift). If neither edge is
-//              blank, bail — that's not a safe alignment.
-//   off-by--1: pad an empty entry at the end. Worst case is the last
-//              source line is shown un-translated; better than no
-//              translation at all.
-//   larger drift: bail (caller retries / errors).
+// Naïve "look at the edges" rules don't work when the song's source
+// has a blank at BOTH ends (e.g. Hi Ren on LRCLib: leading and
+// trailing silent intro/outro). In that case both candidates have
+// blank edges and edge-only inspection guesses wrong half the time.
+//
+// Instead we build the two N-entry candidates (drop-leading,
+// drop-trailing) and score each by: how many positions have the
+// SAME blank-or-not status as the source at the same index. The
+// candidate with the higher score wins; ties go to drop-trailing
+// (models statistically drift toward appending an extra closing
+// entry more often than prepending one). Deterministic and
+// content-aware, so the song that worked yesterday works the same
+// today.
+//
+// off-by-−1: pad an empty entry at the end. The most common cause
+// is the model truncating its final entry; padding at the tail at
+// worst leaves the last source line un-translated, never misaligned.
+//
+// Larger drift: bail.
 - (nullable NSArray<NSString *> *)alignedTranslation:(NSArray<NSString *> *)translated
                                        toSourceLines:(NSArray<NSString *> *)source {
     if (translated.count == source.count) return translated;
@@ -131,24 +136,22 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
     };
 
     if (translated.count == source.count + 1) {
-        BOOL srcFirstBlank = source.count ? isBlank(source.firstObject) : YES;
-        BOOL srcLastBlank = source.count ? isBlank(source.lastObject) : YES;
-        BOOL outFirstBlank = isBlank(translated.firstObject);
-        BOOL outLastBlank = isBlank(translated.lastObject);
+        NSArray *dropLeading =
+            [translated subarrayWithRange:NSMakeRange(1, translated.count - 1)];
+        NSArray *dropTrailing =
+            [translated subarrayWithRange:NSMakeRange(0, translated.count - 1)];
 
-        if (outFirstBlank && !srcFirstBlank) {
-            return [translated subarrayWithRange:NSMakeRange(1, translated.count - 1)];
+        NSUInteger scoreLeading = 0;
+        NSUInteger scoreTrailing = 0;
+        for (NSUInteger i = 0; i < source.count; i++) {
+            BOOL srcBlank = isBlank(source[i]);
+            if (srcBlank == isBlank(dropLeading[i])) scoreLeading++;
+            if (srcBlank == isBlank(dropTrailing[i])) scoreTrailing++;
         }
-        if (outLastBlank && !srcLastBlank) {
-            return [translated subarrayWithRange:NSMakeRange(0, translated.count - 1)];
-        }
-        if (outFirstBlank) {
-            return [translated subarrayWithRange:NSMakeRange(1, translated.count - 1)];
-        }
-        if (outLastBlank) {
-            return [translated subarrayWithRange:NSMakeRange(0, translated.count - 1)];
-        }
-        return nil;
+
+        if (scoreLeading > scoreTrailing) return dropLeading;
+        if (scoreTrailing >= scoreLeading) return dropTrailing;
+        return dropTrailing;
     }
     if (translated.count + 1 == source.count) {
         NSMutableArray *padded = [translated mutableCopy];
