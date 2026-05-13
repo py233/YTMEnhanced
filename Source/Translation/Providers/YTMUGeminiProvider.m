@@ -8,6 +8,25 @@ static NSString *YTMUGeminiDefaultsString(NSString *key, NSString *fallback) {
     return fallback ?: @"";
 }
 
+// Construct the generateContent endpoint from the user-configured
+// base. Empty / missing → official generativelanguage.googleapis.com.
+// We accept either a bare host (https://gemini.my-gateway.com) or one
+// already pointing at the v1beta root (https://gemini.my-gateway.com/
+// v1beta), and tack on /v1beta/models/<model>:generateContent?key=<k>
+// from whichever stripped form we land on.
+static NSString *YTMUGeminiGenerateContentURL(NSString *model, NSString *apiKey) {
+    NSString *raw = YTMUGeminiDefaultsString(@"translationBaseUrl_gemini",
+                                             @"https://generativelanguage.googleapis.com");
+    NSString *trimmed = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    while ([trimmed hasSuffix:@"/"]) trimmed = [trimmed substringToIndex:trimmed.length - 1];
+    if (!trimmed.length) trimmed = @"https://generativelanguage.googleapis.com";
+    NSString *root = [trimmed hasSuffix:@"/v1beta"] ? [trimmed substringToIndex:trimmed.length - 7] : trimmed;
+    NSString *encodedModel = [model stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]] ?: model;
+    NSString *encodedKey = [apiKey stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: apiKey;
+    return [NSString stringWithFormat:@"%@/v1beta/models/%@:generateContent?key=%@",
+            root, encodedModel, encodedKey];
+}
+
 static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message) {
     return [NSError errorWithDomain:YTMUTranslationErrorDomain
                                code:code
@@ -35,9 +54,7 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
     }
     YTMUTranslationLog(@"gemini start model=%@ lines=%lu", model, (unsigned long)request.lines.count);
 
-    NSString *urlString = [NSString stringWithFormat:@"https://generativelanguage.googleapis.com/v1beta/models/%@:generateContent?key=%@",
-                           [model stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]] ?: model,
-                           [apiKey stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: apiKey];
+    NSString *urlString = YTMUGeminiGenerateContentURL(model, apiKey);
 
     NSDictionary *body = @{
         @"systemInstruction": @{
@@ -121,9 +138,7 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
         return;
     }
 
-    NSString *urlString = [NSString stringWithFormat:@"https://generativelanguage.googleapis.com/v1beta/models/%@:generateContent?key=%@",
-                           [model stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]] ?: model,
-                           [apiKey stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: apiKey];
+    NSString *urlString = YTMUGeminiGenerateContentURL(model, apiKey);
 
     NSMutableDictionary *generationConfig = [@{@"temperature": @0.2} mutableCopy];
     if (expectJSONMode) generationConfig[@"responseMimeType"] = @"application/json";

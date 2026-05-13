@@ -8,6 +8,23 @@ static NSString *YTMUAnthropicDefaultsString(NSString *key, NSString *fallback) 
     return fallback ?: @"";
 }
 
+// Construct the messages endpoint URL from the user-configured base.
+// Empty / missing → official api.anthropic.com. We accept whatever
+// shape the user pastes (host root, host with /v1, full /v1/messages
+// path) so a custom proxy like https://anthropic.my-gateway.com or
+// https://my-gateway/anthropic/v1 both work without surprise.
+static NSString *YTMUAnthropicMessagesURL(void) {
+    NSString *raw = YTMUAnthropicDefaultsString(@"translationBaseUrl_anthropic",
+                                                @"https://api.anthropic.com");
+    NSString *trimmed = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    while ([trimmed hasSuffix:@"/"]) trimmed = [trimmed substringToIndex:trimmed.length - 1];
+    if (!trimmed.length) trimmed = @"https://api.anthropic.com";
+    if ([trimmed hasSuffix:@"/v1/messages"]) return trimmed;
+    if ([trimmed hasSuffix:@"/messages"]) return trimmed;
+    if ([trimmed hasSuffix:@"/v1"]) return [trimmed stringByAppendingString:@"/messages"];
+    return [trimmed stringByAppendingString:@"/v1/messages"];
+}
+
 static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *message) {
     return [NSError errorWithDomain:YTMUTranslationErrorDomain
                                code:code
@@ -47,7 +64,7 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     };
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
 
-    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.anthropic.com/v1/messages"]];
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUAnthropicMessagesURL()]];
     urlRequest.HTTPMethod = @"POST";
     urlRequest.timeoutInterval = 60.0;
     urlRequest.HTTPBody = bodyData;
@@ -132,7 +149,7 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
         @"temperature": @0.2,
     };
 
-    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://api.anthropic.com/v1/messages"]];
+    NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUAnthropicMessagesURL()]];
     urlRequest.HTTPMethod = @"POST";
     urlRequest.timeoutInterval = 45.0;
     urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];

@@ -245,8 +245,16 @@
     NSMutableArray *rows = [NSMutableArray array];
     [rows addObject:@{@"title": LOC(@"TRANSLATION_API_KEY"), @"key": [@"translationApiKey_" stringByAppendingString:provider], @"secure": @(YES), @"fallback": @""}];
     [rows addObject:@{@"title": LOC(@"TRANSLATION_MODEL"), @"key": [@"translationModel_" stringByAppendingString:provider], @"secure": @(NO), @"fallback": [self modelFallbackForProvider:provider]}];
+    // Base URL override is available for every API-based provider so
+    // users can route through OpenRouter / Cloudflare AI Gateway /
+    // self-hosted proxies for any of them. Each provider has its own
+    // setting key so switching between them doesn't share state.
     if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
         [rows addObject:@{@"title": LOC(@"TRANSLATION_BASE_URL"), @"key": @"translationBaseUrl", @"secure": @(NO), @"fallback": @"https://api.openai.com/v1"}];
+    } else if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) {
+        [rows addObject:@{@"title": LOC(@"TRANSLATION_BASE_URL"), @"key": @"translationBaseUrl_anthropic", @"secure": @(NO), @"fallback": @"https://api.anthropic.com"}];
+    } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
+        [rows addObject:@{@"title": LOC(@"TRANSLATION_BASE_URL"), @"key": @"translationBaseUrl_gemini", @"secure": @(NO), @"fallback": @"https://generativelanguage.googleapis.com"}];
     }
     return rows;
 }
