@@ -56,8 +56,16 @@
         return;
     }
 
-    NSURL *proxyURL = [NSURL URLWithString:@"https://ytmbrowseproxy.zvz.be/browse?prettyPrint=false"];
-    [self postURL:proxyURL body:@{@"browseId": browseId} context:[self timedLyricsContext] completion:^(NSDictionary *json, NSError *error) {
+    // Direct InnerTube call rather than routing through a third-party
+    // browse proxy: the proxy hop adds an out-of-our-control middleman
+    // whose response strings get rendered straight into the lyric UI.
+    // Try the iOS YT Music client context first — its payloads carry
+    // timed-lyrics arrays the WEB_REMIX context omits — and fall back
+    // to WEB_REMIX (via postPath:) when the iOS-context call returns
+    // null / errors out, since WEB_REMIX is more reliably reachable
+    // from sideloaded clients without full visitor-data injection.
+    NSURL *url = [NSURL URLWithString:@"https://music.youtube.com/youtubei/v1/browse?prettyPrint=false"];
+    [self postURL:url body:@{@"browseId": browseId} context:[self timedLyricsContext] completion:^(NSDictionary *json, NSError *error) {
         if (json && !error) {
             completion(json, nil);
             return;
