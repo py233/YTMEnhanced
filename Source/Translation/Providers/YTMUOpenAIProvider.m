@@ -24,6 +24,8 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
     return [trimmed stringByAppendingString:@"/responses"];
 }
 
+
+
 @implementation YTMUOpenAIProvider
 
 - (NSString *)providerName {
@@ -138,11 +140,40 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
     [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:completion] resume];
 }
 
+
 - (BOOL)shouldRetryWithoutJSONModeForStatus:(NSInteger)status body:(NSString *)body {
     if (status != 400) return NO;
     NSRange range = [body rangeOfString:@"response_format|json_object|text\\.format|json"
                                 options:NSRegularExpressionSearch | NSCaseInsensitiveSearch];
     return range.location != NSNotFound;
+}
+
+// Some proxies have a safety filter on the Responses endpoint that
+// triggers only when JSON mode is requested. The filter returns a
+// canned refusal text inside a 200 OK response (usage shows zero
+// input/output tokens — the proxy never forwards to the underlying
+// model). Detecting refusal at parse-time lets us retry without
+// JSON mode, which usually slips past the filter on the same model.
+- (BOOL)responseLooksLikeSafetyRefusal:(NSString *)text {
+    if (!text.length || text.length > 500) return NO;
+    NSString *lower = [text lowercaseString];
+    NSArray *needles = @[
+        @"i'm sorry",
+        @"i am sorry",
+        @"i cannot assist",
+        @"i can't assist",
+        @"i cannot help",
+        @"i can't help",
+        @"i cannot comply",
+        @"i can't comply",
+        @"i'm unable to",
+        @"i am unable to",
+        @"i'm not able to",
+    ];
+    for (NSString *n in needles) {
+        if ([lower rangeOfString:n].location != NSNotFound) return YES;
+    }
+    return NO;
 }
 
 - (NSString *)responseTextFromJSON:(NSDictionary *)json {
@@ -201,6 +232,22 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
     NSString *safeContent = content ?: @"";
     NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:safeContent expected:request.lines.count];
     if (!parsed) {
+        // Proxy-side safety filter: short refusal text under JSON mode.
+        // Try dropping JSON mode — some proxies gate only `text.format`
+        // and the filter is flaky enough that the no-JSON retry slips
+        // through on most attempts. Don't auto-fall back to
+        // /chat/completions: that path returns truncated output on
+        // explicit-lyrics tracks (model stops mid-stream around
+        // sensitive content) and the partial JSON we get back is
+        // worse to show than a clean error, plus the gateway admin
+        // prefers the modern Responses path.
+        if (canRetryNoJSON && [self responseLooksLikeSafetyRefusal:safeContent]) {
+            YTMUTranslationLog(@"openai-compatible response looks like safety refusal under JSON mode — retrying without JSON mode");
+            [self postRequest:request includeJSONMode:NO completion:^(NSData *retryData, NSURLResponse *retryResponse, NSError *retryError) {
+                [self handleData:retryData response:retryResponse error:retryError request:request canRetryNoJSON:NO completion:completion];
+            }];
+            return;
+        }
         NSUInteger headLen = MIN((NSUInteger)80, safeContent.length);
         NSString *head = headLen ? [safeContent substringToIndex:headLen] : @"";
         NSString *tail = safeContent.length > 80

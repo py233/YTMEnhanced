@@ -10,7 +10,7 @@
         @"Rules:",
         @"- Output ONLY a raw JSON object: {\"lines\": [\"...\", \"...\"]}.",
         @"- Your reply MUST start with `{` and end with `}`. Do NOT wrap the JSON in markdown code fences (no ```json, no ```), no preface (\"Here is the translation:\"), no commentary, no trailing notes.",
-        @"- Every value in \"lines\" is a JSON string. Any literal \" character inside a value MUST be escaped as \\\". Example: a line that reads >Uh, \"she sells seashells\"< must appear in the JSON as \"Uh, \\\"she sells seashells\\\"\" — not as \"Uh, \"she sells seashells\"\".",
+        @"- Every value in \"lines\" is a JSON string. Any literal \" character inside a value MUST be escaped as \\\".",
         [NSString stringWithFormat:@"- The \"lines\" array MUST have exactly %lu entries — the same count as the input, no exceptions.",
             (unsigned long)req.lines.count],
         @"- Do NOT add any extra entries: no leading blank, no trailing blank, no inserted \"intro\" / \"outro\" / \"chorus\" placeholder. Do NOT merge two source lines into one entry. Do NOT split a long source line across two entries.",
