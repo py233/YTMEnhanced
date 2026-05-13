@@ -189,6 +189,144 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
     });
 }
 
+// Threshold above which we split the song into fixed-size translation
+// batches. The provider asks the model to return EXACTLY N translated
+// lines as JSON; that contract holds reliably for ~40-line slices but
+// breaks above ~50–80 lines on every provider tested. Long songs come
+// back with merged refrains / dropped interjections / truncated output
+// (Anthropic's max_tokens=4096 ceiling especially) and the strict
+// line-count check then fails, with no per-line fallback because
+// shouldFallbackPerLineForError requires lineCount <= 8.
+//
+// Chunking lets each batch operate under the conditions where the
+// model is reliable, and caches each chunk independently so a partial
+// retry doesn't re-translate the whole song.
+static const NSUInteger YTMUTranslationBatchThreshold = 50;
+static const NSUInteger YTMUTranslationBatchSize = 40;
+
+- (void)translateChunkWithProvider:(id<YTMUTranslationProvider>)provider
+                           request:(YTMUTranslationRequest *)chunkRequest
+                          cacheKey:(NSString *)chunkCacheKey
+                           videoId:(NSString *)videoId
+                          language:(NSString *)language
+                        attemptsLeft:(NSUInteger)attemptsLeft
+                        completion:(void (^)(NSArray<NSString *> *_Nullable, NSError *_Nullable))completion {
+    [provider translateRequest:chunkRequest completion:^(NSArray<NSString *> *translated, NSError *error) {
+        if (!error && translated.count == chunkRequest.lines.count) {
+            [self storeTranslatedLines:translated
+                              cacheKey:chunkCacheKey
+                               videoId:videoId
+                              language:language
+                              provider:provider
+                                 lines:chunkRequest.lines];
+            completion(translated, nil);
+            return;
+        }
+        NSError *thisError = error ?: [self lineCountErrorForTranslated:translated ?: @[]
+                                                                expected:chunkRequest.lines.count];
+        if (attemptsLeft > 1) {
+            [self translateChunkWithProvider:provider
+                                     request:chunkRequest
+                                    cacheKey:chunkCacheKey
+                                     videoId:videoId
+                                    language:language
+                                attemptsLeft:attemptsLeft - 1
+                                  completion:completion];
+            return;
+        }
+        completion(nil, thisError);
+    }];
+}
+
+- (void)translateInBatchesWithProvider:(id<YTMUTranslationProvider>)provider
+                                 lines:(NSArray<NSString *> *)lines
+                                 title:(NSString *)title
+                                artist:(NSString *)artist
+                               videoId:(NSString *)videoId
+                              language:(NSString *)language
+                            completion:(void (^)(NSArray<NSString *> *_Nullable, NSError *_Nullable))completion {
+    NSUInteger total = lines.count;
+    NSUInteger batchCount = (total + YTMUTranslationBatchSize - 1) / YTMUTranslationBatchSize;
+    NSString *model = [provider modelIdentifier] ?: @"";
+    NSString *providerNameStr = [provider providerName] ?: @"";
+
+    YTMUTranslationLog(@"batched translate start videoId=%@ provider=%@ totalLines=%lu batchSize=%lu batches=%lu",
+                       videoId.length ? videoId : @"<empty>",
+                       providerNameStr,
+                       (unsigned long)total,
+                       (unsigned long)YTMUTranslationBatchSize,
+                       (unsigned long)batchCount);
+
+    NSMutableArray<NSArray<NSString *> *> *batchedResults = [NSMutableArray arrayWithCapacity:batchCount];
+    for (NSUInteger i = 0; i < batchCount; i++) [batchedResults addObject:@[]];
+
+    __block NSError *firstError = nil;
+    dispatch_group_t group = dispatch_group_create();
+
+    for (NSUInteger i = 0; i < batchCount; i++) {
+        NSUInteger start = i * YTMUTranslationBatchSize;
+        NSUInteger len = MIN(YTMUTranslationBatchSize, total - start);
+        NSArray<NSString *> *chunk = [lines subarrayWithRange:NSMakeRange(start, len)];
+        NSString *chunkCacheKey = [YTMUTranslationCache keyForVideoId:videoId
+                                                            language:language
+                                                            provider:providerNameStr
+                                                               model:model
+                                                               lines:chunk];
+
+        YTMUTranslationCacheEntry *cached = [[YTMUTranslationCache sharedCache] entryForKey:chunkCacheKey];
+        if (cached.translatedLines.count == chunk.count) {
+            batchedResults[i] = cached.translatedLines;
+            continue;
+        }
+
+        dispatch_group_enter(group);
+        YTMUTranslationRequest *chunkRequest = [self requestWithLines:chunk
+                                                                title:title
+                                                               artist:artist
+                                                          targetCode:language];
+        [self translateChunkWithProvider:provider
+                                 request:chunkRequest
+                                cacheKey:chunkCacheKey
+                                 videoId:videoId
+                                language:language
+                            attemptsLeft:2
+                              completion:^(NSArray<NSString *> *translated, NSError *error) {
+            @synchronized (batchedResults) {
+                if (translated.count == chunk.count) {
+                    batchedResults[i] = translated;
+                } else if (!firstError) {
+                    firstError = error ?: [self lineCountErrorForTranslated:translated ?: @[] expected:chunk.count];
+                }
+            }
+            dispatch_group_leave(group);
+        }];
+    }
+
+    dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        if (firstError) {
+            YTMUTranslationLog(@"batched translate failed videoId=%@ provider=%@ error=%@",
+                               videoId.length ? videoId : @"<empty>",
+                               providerNameStr,
+                               firstError.localizedDescription ?: @"<unknown>");
+            YTMUCompleteOnMain(^{ completion(nil, firstError); });
+            return;
+        }
+        NSMutableArray<NSString *> *all = [NSMutableArray arrayWithCapacity:total];
+        for (NSArray *batch in batchedResults) [all addObjectsFromArray:batch];
+        if (all.count != total) {
+            YTMUCompleteOnMain(^{
+                completion(nil, [self lineCountErrorForTranslated:all expected:total]);
+            });
+            return;
+        }
+        YTMUTranslationLog(@"batched translate success videoId=%@ provider=%@ lines=%lu",
+                           videoId.length ? videoId : @"<empty>",
+                           providerNameStr,
+                           (unsigned long)all.count);
+        YTMUCompleteOnMain(^{ completion([all copy], nil); });
+    });
+}
+
 - (void)translateLines:(NSArray<NSString *> *)lines
                videoId:(NSString *)videoId
                  title:(NSString *)title
@@ -239,6 +377,21 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
                        videoId.length ? videoId : @"<empty>",
                        [provider providerName],
                        language);
+
+    // Long songs (>50 lines) — model reliability for "return EXACTLY N
+    // lines as JSON" degrades sharply past ~80 lines. Fan out into
+    // smaller chunks and cache each independently so the strict
+    // line-count contract holds per batch.
+    if (lines.count > YTMUTranslationBatchThreshold) {
+        [self translateInBatchesWithProvider:provider
+                                       lines:lines
+                                       title:title
+                                      artist:artist
+                                     videoId:videoId
+                                    language:language
+                                  completion:completion];
+        return;
+    }
 
     YTMUTranslationRequest *request = [self requestWithLines:lines title:title artist:artist targetCode:language];
 

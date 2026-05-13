@@ -59,9 +59,16 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     // user message." Drop the prefill entirely and trust the system
     // prompt's "JSON only" rule plus the parser's first-`{...}`
     // substring fallback in parseLinesFromJSON.
+    // max_tokens raised from 4096 → 8192. Even with the batching
+    // splitter in YTMUTranslator capping each call at ~40 lines, a
+    // dense-script target language (Chinese, Japanese, Korean) can
+    // expand into 6000+ output tokens on a chunk that's mostly
+    // CJK characters. The historic 4096 ceiling truncated the JSON
+    // payload mid-string for those songs, the parser then failed,
+    // and the line-count mismatch propagated up.
     NSDictionary *body = @{
         @"model": model,
-        @"max_tokens": @4096,
+        @"max_tokens": @8192,
         @"system": [YTMUPromptBuilder systemPromptForRequest:request],
         @"messages": @[
             @{@"role": @"user", @"content": [YTMUPromptBuilder userPromptForRequest:request]},
