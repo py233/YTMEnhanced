@@ -820,14 +820,29 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                            YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
                            YTMULyricsSettingsBool(@"lyricsTranslationEnabled", NO);
 
+    // Is the current provider the source the user explicitly pinned?
+    // When the user picks "YTMusic" / "Genius" / "LRCLib" / etc. in
+    // the Lyrics source sheet, we put that provider first in
+    // `orderedProviders` and want to respect their choice for the
+    // gate logic below. "auto" means "no explicit preference, do
+    // whatever's best", which is the historical default.
+    NSString *preferred = YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto");
+    BOOL providerIsPinned = ![preferred isEqualToString:@"auto"] &&
+                            [[provider providerName] isEqualToString:preferred];
+
     // Common acceptance check shared by cache-hit and live-response paths.
-    // The quality gate runs uniformly regardless of whether the user
-    // pinned a preferred source — a wrong-song match is wrong in any
-    // mode, and the user gets a strictly better experience if we let
-    // the rest of the chain (incl. Description) take a shot.
+    // Similarity (right-song-ness) is always enforced — a wrong-song
+    // match is wrong in any mode. The synced-only check, however, is
+    // skipped for the user's pinned source: if they explicitly asked
+    // for YTMusic / Genius / LRCLib and that source returned a
+    // matching plain-text result, the picker UI labelled it
+    // "Matched" and the user expects clicking it to actually surface
+    // that source's lyrics — not silently fall through to NetEase
+    // because synced lyrics are also requested in the settings.
+    // "Preferred" means "preferred", not "best-effort if synced".
     void (^acceptOrContinue)(YTMULyricsResult *, BOOL) = ^(YTMULyricsResult *result, BOOL fromCache) {
         BOOL similar = [self result:result similarToInfo:info];
-        BOOL syncedOK = !syncedRequested || result.isSynced;
+        BOOL syncedOK = !syncedRequested || result.isSynced || providerIsPinned;
         BOOL isPerfect = similar && syncedOK;
         BOOL hasMore = (index + 1 < providers.count);
 
