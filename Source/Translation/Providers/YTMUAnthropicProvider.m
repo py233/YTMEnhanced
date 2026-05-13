@@ -52,13 +52,19 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     }
     YTMUTranslationLog(@"anthropic start model=%@ lines=%lu", model, (unsigned long)request.lines.count);
 
+    // Newer Claude models (claude-haiku-4-5+ and others) reject the
+    // assistant-prefill trick we used to seed `{` for reliable JSON
+    // output, returning HTTP 400 "This model does not support
+    // assistant message prefill. The conversation must end with a
+    // user message." Drop the prefill entirely and trust the system
+    // prompt's "JSON only" rule plus the parser's first-`{...}`
+    // substring fallback in parseLinesFromJSON.
     NSDictionary *body = @{
         @"model": model,
         @"max_tokens": @4096,
         @"system": [YTMUPromptBuilder systemPromptForRequest:request],
         @"messages": @[
             @{@"role": @"user", @"content": [YTMUPromptBuilder userPromptForRequest:request]},
-            @{@"role": @"assistant", @"content": @"{"},
         ],
         @"temperature": @0.3,
     };
@@ -104,11 +110,11 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
             }
         }
 
-        NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:[@"{" stringByAppendingString:(text ?: @"")]
+        // No prefill anymore — parse the raw response. parseLinesFromJSON
+        // already has a "find the outermost {...} substring" fallback
+        // so it tolerates models that wrap their JSON in prose.
+        NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:text
                                                        expected:request.lines.count];
-        if (!parsed) {
-            parsed = [YTMUPromptBuilder parseLinesFromJSON:text expected:request.lines.count];
-        }
         if (!parsed) {
             YTMUTranslationLog(@"anthropic parse failed lines=%lu", (unsigned long)request.lines.count);
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorParse, @"Could not parse JSON from Anthropic response"));
@@ -135,11 +141,13 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
 
     NSMutableArray *messages = [NSMutableArray array];
     [messages addObject:@{@"role": @"user", @"content": userPrompt ?: @""}];
-    // Anthropic doesn't have a strict JSON mode; the convention used by
-    // the translation path is to seed an "{" assistant turn and then
-    // re-prepend it on parse. We mirror that here when the caller wants
-    // JSON output.
-    if (expectJSONMode) [messages addObject:@{@"role": @"assistant", @"content": @"{"}];
+    // Newer Claude models reject the assistant-prefill trick with
+    // HTTP 400 ("This model does not support assistant message
+    // prefill. The conversation must end with a user message."), so
+    // we send only the user turn. Callers expecting JSON parse the
+    // raw response themselves and rely on their parsers' substring
+    // extraction (parseJsonObject / parseLinesFromJSON) to tolerate
+    // surrounding prose.
 
     NSDictionary *body = @{
         @"model": model,
@@ -171,7 +179,6 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
             return;
         }
         NSMutableString *text = [NSMutableString string];
-        if (expectJSONMode) [text appendString:@"{"];
         NSArray *content = json[@"content"];
         if ([content isKindOfClass:[NSArray class]]) {
             for (id item in content) {
@@ -180,7 +187,7 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
                 if ([part isKindOfClass:[NSString class]]) [text appendString:part];
             }
         }
-        if (text.length <= (expectJSONMode ? 1 : 0)) {
+        if (text.length == 0) {
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorEmptyResponse, @"Anthropic returned empty completion"));
             return;
         }
