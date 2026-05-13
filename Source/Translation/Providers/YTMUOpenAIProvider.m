@@ -39,12 +39,79 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
         @"model": [self modelIdentifier],
         @"instructions": [YTMUPromptBuilder systemPromptForRequest:request],
         @"input": [YTMUPromptBuilder userPromptForRequest:request],
+        // Stream the response so NSURLSession's per-chunk timeout
+        // reset keeps the connection alive through long generations
+        // (a 50-line CJK translation can sit on the wire for 50–60 s;
+        // streaming guarantees bytes arrive incrementally and never
+        // trip the timeoutInterval).
+        @"stream": @YES,
+        // max_output_tokens is a ceiling, not a target — billing
+        // is always for actual tokens generated. 8192 = sensible
+        // cap for whole-song translations: real-world bill shows
+        // worst-case ~3035 visible output tokens, and reasoning-
+        // tier models (gpt-5.x, o3, o4-mini) add ~2500 reasoning
+        // tokens internally. 8192 gives ~170% headroom over the
+        // worst observed and leaves room for the verbose end of
+        // reasoning models, while still bounding any pathological
+        // model loop well before runaway cost.
+        @"max_output_tokens": @8192,
     } mutableCopy];
 
     if (includeJSONMode) {
         body[@"text"] = @{@"format": @{@"type": @"json_object"}};
     }
     return body;
+}
+
+// OpenAI Responses streams the model output as a sequence of
+// Server-Sent Events. We only care about `response.output_text.delta`
+// events; their `delta` field carries the incremental text we
+// concatenate to reconstruct the final JSON payload. Other event
+// types (response.created / response.output_item.added /
+// response.completed / etc.) are metadata we ignore.
+static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
+    if (!data.length) return @"";
+    NSString *body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!body.length) return @"";
+    NSMutableString *accumulated = [NSMutableString string];
+    NSArray<NSString *> *events = [body componentsSeparatedByString:@"\n\n"];
+    for (NSString *event in events) {
+        NSString *dataPayload = nil;
+        for (NSString *line in [event componentsSeparatedByString:@"\n"]) {
+            if ([line hasPrefix:@"data: "]) {
+                dataPayload = [line substringFromIndex:6];
+                break;
+            }
+        }
+        if (!dataPayload.length) continue;
+        // The end-of-stream marker `data: [DONE]` is not valid JSON;
+        // skip it.
+        if ([dataPayload isEqualToString:@"[DONE]"]) continue;
+        NSData *jsonData = [dataPayload dataUsingEncoding:NSUTF8StringEncoding];
+        NSDictionary *json = jsonData
+            ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil]
+            : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) continue;
+        NSString *type = json[@"type"];
+        if ([type isEqualToString:@"response.output_text.delta"]) {
+            NSString *delta = json[@"delta"];
+            if ([delta isKindOfClass:[NSString class]]) {
+                [accumulated appendString:delta];
+            }
+        } else if ([type isEqualToString:@"error"] ||
+                   [type isEqualToString:@"response.failed"]) {
+            NSDictionary *err = json[@"error"] ?: json[@"response"];
+            NSString *msg = [err isKindOfClass:[NSDictionary class]]
+                ? err[@"message"] ?: @"OpenAI stream error"
+                : @"OpenAI stream error";
+            if (outError) {
+                *outError = [NSError errorWithDomain:YTMUTranslationErrorDomain
+                                                code:YTMUTranslationErrorHTTPStatus
+                                            userInfo:@{NSLocalizedDescriptionKey: msg}];
+            }
+        }
+    }
+    return [accumulated copy];
 }
 
 - (void)postRequest:(YTMUTranslationRequest *)request
@@ -55,11 +122,15 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
 
     NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUOpenAIResponsesURL(baseURL)]];
     urlRequest.HTTPMethod = @"POST";
-    urlRequest.timeoutInterval = 60.0;
+    // 120 s: streaming resets the timer per chunk, so even a 60+ s
+    // long-song generation has zero risk of tripping the timeout
+    // while bytes keep arriving.
+    urlRequest.timeoutInterval = 120.0;
     urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:[self requestBodyForRequest:request includeJSONMode:includeJSONMode]
                                                           options:0
                                                             error:nil];
     [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [urlRequest setValue:@"text/event-stream" forHTTPHeaderField:@"Accept"];
     if (apiKey.length) {
         [urlRequest setValue:[@"Bearer " stringByAppendingString:apiKey] forHTTPHeaderField:@"Authorization"];
     }
@@ -121,17 +192,25 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
         return;
     }
 
-    NSError *jsonError = nil;
-    NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
-    if (![json isKindOfClass:[NSDictionary class]]) {
-        completion(nil, jsonError ?: YTMUOpenAIError(YTMUTranslationErrorParse, @"OpenAI-compatible endpoint returned invalid JSON"));
+    NSError *streamError = nil;
+    NSString *content = YTMUOpenAIAccumulateSSE(data, &streamError);
+    if (streamError) {
+        completion(nil, streamError);
         return;
     }
-
-    NSString *content = [self responseTextFromJSON:json];
-    NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:content ?: @"" expected:request.lines.count];
+    NSString *safeContent = content ?: @"";
+    NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:safeContent expected:request.lines.count];
     if (!parsed) {
-        YTMUTranslationLog(@"openai-compatible responses parse failed lines=%lu", (unsigned long)request.lines.count);
+        NSUInteger headLen = MIN((NSUInteger)80, safeContent.length);
+        NSString *head = headLen ? [safeContent substringToIndex:headLen] : @"";
+        NSString *tail = safeContent.length > 80
+            ? [safeContent substringFromIndex:safeContent.length - 80]
+            : @"";
+        YTMUTranslationLog(@"openai-compatible responses parse failed lines=%lu textLen=%lu head=%@ tail=%@",
+                          (unsigned long)request.lines.count,
+                          (unsigned long)safeContent.length,
+                          head,
+                          tail);
         completion(nil, YTMUOpenAIError(YTMUTranslationErrorParse, @"Could not parse JSON from Responses API response"));
         return;
     }
@@ -155,10 +234,16 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
 - (NSDictionary *)completionBodyForSystem:(NSString *)systemPrompt
                                      user:(NSString *)userPrompt
                                  jsonMode:(BOOL)jsonMode {
+    // Chat-completion path is used by title-normalize and
+    // description-extract, both of which output short structured
+    // JSON (typically 500–1500 tokens). 4096 is plenty headroom
+    // without risking runaway output if a model misbehaves.
     NSMutableDictionary *body = [@{
         @"model": [self modelIdentifier],
         @"instructions": systemPrompt ?: @"",
         @"input": userPrompt ?: @"",
+        @"stream": @YES,
+        @"max_output_tokens": @4096,
     } mutableCopy];
     if (jsonMode) body[@"text"] = @{@"format": @{@"type": @"json_object"}};
     return body;
@@ -172,11 +257,12 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
     NSString *apiKey = YTMUOpenAIDefaultsString(@"translationApiKey_openai-compatible", @"");
     NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUOpenAIResponsesURL(baseURL)]];
     urlRequest.HTTPMethod = @"POST";
-    urlRequest.timeoutInterval = 45.0;
+    urlRequest.timeoutInterval = 120.0;
     urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:[self completionBodyForSystem:systemPrompt user:userPrompt jsonMode:jsonMode]
                                                           options:0
                                                             error:nil];
     [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [urlRequest setValue:@"text/event-stream" forHTTPHeaderField:@"Accept"];
     if (apiKey.length) [urlRequest setValue:[@"Bearer " stringByAppendingString:apiKey] forHTTPHeaderField:@"Authorization"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:completion] resume];
 }
@@ -207,8 +293,9 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
                         completion(nil, YTMUOpenAIError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"OpenAI %ld: %@", (long)retryStatus, [retryBody substringToIndex:MIN((NSUInteger)200, retryBody.length)] ?: @""]));
                         return;
                     }
-                    NSDictionary *retryJson = retryData ? [NSJSONSerialization JSONObjectWithData:retryData options:0 error:nil] : nil;
-                    NSString *text = [retryJson isKindOfClass:[NSDictionary class]] ? [weakSelf responseTextFromJSON:retryJson] : @"";
+                    NSError *retryStreamErr = nil;
+                    NSString *text = YTMUOpenAIAccumulateSSE(retryData, &retryStreamErr);
+                    if (retryStreamErr) { completion(nil, retryStreamErr); return; }
                     if (!text.length) { completion(nil, YTMUOpenAIError(YTMUTranslationErrorEmptyResponse, @"OpenAI returned empty completion")); return; }
                     completion(text, nil);
                 }];
@@ -217,12 +304,9 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
             completion(nil, YTMUOpenAIError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"OpenAI %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)200, bodyText.length)] ?: @""]));
             return;
         }
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        if (![json isKindOfClass:[NSDictionary class]]) {
-            completion(nil, YTMUOpenAIError(YTMUTranslationErrorParse, @"OpenAI returned invalid JSON"));
-            return;
-        }
-        NSString *text = [weakSelf responseTextFromJSON:json];
+        NSError *streamErr = nil;
+        NSString *text = YTMUOpenAIAccumulateSSE(data, &streamErr);
+        if (streamErr) { completion(nil, streamErr); return; }
         if (!text.length) { completion(nil, YTMUOpenAIError(YTMUTranslationErrorEmptyResponse, @"OpenAI returned empty completion")); return; }
         completion(text, nil);
     };

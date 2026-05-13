@@ -25,6 +25,73 @@ static NSString *YTMUAnthropicMessagesURL(void) {
     return [trimmed stringByAppendingString:@"/v1/messages"];
 }
 
+// Parse Anthropic's Server-Sent Events response and accumulate the
+// model's text output. The Messages endpoint streams a sequence of
+// JSON events when `"stream": true` is set on the request body:
+//
+//   event: content_block_delta
+//   data: {"type":"content_block_delta","index":0,
+//          "delta":{"type":"text_delta","text":"Hello"}}
+//
+//   event: content_block_delta
+//   data: {"type":"content_block_delta","index":0,
+//          "delta":{"type":"text_delta","text":" world"}}
+//
+// We split by blank lines, extract the `data: …` payload of each
+// event, and concatenate every text_delta. Non-stream-event payloads
+// (message_start / message_stop / message_delta / usage) are
+// silently ignored — only text_delta carries content we care about.
+// `outError` is set to a synthetic API error if the stream contains
+// an explicit `event: error` payload, so the caller can surface it
+// the same way a non-2xx HTTP status is surfaced.
+static NSString *YTMUAnthropicAccumulateSSE(NSData *data, NSError **outError) {
+    if (!data.length) return @"";
+    NSString *body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!body.length) return @"";
+    NSMutableString *accumulated = [NSMutableString string];
+    // Events are separated by a blank line (\n\n on Anthropic).
+    NSArray<NSString *> *events = [body componentsSeparatedByString:@"\n\n"];
+    for (NSString *event in events) {
+        NSString *dataPayload = nil;
+        // An event may span multiple lines; we want the first `data: ` line.
+        for (NSString *line in [event componentsSeparatedByString:@"\n"]) {
+            if ([line hasPrefix:@"data: "]) {
+                dataPayload = [line substringFromIndex:6];
+                break;
+            }
+        }
+        if (!dataPayload.length) continue;
+        NSData *jsonData = [dataPayload dataUsingEncoding:NSUTF8StringEncoding];
+        NSDictionary *json = jsonData
+            ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil]
+            : nil;
+        if (![json isKindOfClass:[NSDictionary class]]) continue;
+        NSString *type = json[@"type"];
+        if ([type isEqualToString:@"content_block_delta"]) {
+            NSDictionary *delta = json[@"delta"];
+            if ([delta isKindOfClass:[NSDictionary class]]) {
+                NSString *deltaType = delta[@"type"];
+                NSString *text = delta[@"text"];
+                if ([deltaType isEqualToString:@"text_delta"] &&
+                    [text isKindOfClass:[NSString class]]) {
+                    [accumulated appendString:text];
+                }
+            }
+        } else if ([type isEqualToString:@"error"]) {
+            NSDictionary *err = json[@"error"];
+            NSString *msg = [err isKindOfClass:[NSDictionary class]]
+                ? err[@"message"] ?: @"Anthropic stream error"
+                : @"Anthropic stream error";
+            if (outError) {
+                *outError = [NSError errorWithDomain:YTMUTranslationErrorDomain
+                                                code:YTMUTranslationErrorHTTPStatus
+                                            userInfo:@{NSLocalizedDescriptionKey: msg}];
+            }
+        }
+    }
+    return [accumulated copy];
+}
+
 static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *message) {
     return [NSError errorWithDomain:YTMUTranslationErrorDomain
                                code:code
@@ -59,13 +126,15 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     // user message." Drop the prefill entirely and trust the system
     // prompt's "JSON only" rule plus the parser's first-`{...}`
     // substring fallback in parseLinesFromJSON.
-    // max_tokens raised from 4096 → 8192. Even with the batching
-    // splitter in YTMUTranslator capping each call at ~40 lines, a
-    // dense-script target language (Chinese, Japanese, Korean) can
-    // expand into 6000+ output tokens on a chunk that's mostly
-    // CJK characters. The historic 4096 ceiling truncated the JSON
-    // payload mid-string for those songs, the parser then failed,
-    // and the line-count mismatch propagated up.
+    // max_tokens = 8192: real-world bill shows worst-case ~3035
+    // output tokens for long whole-song translations (Hi Ren, ~150
+    // lines). 8192 gives ~170% headroom for the occasional verbose
+    // model run while still bounding any pathological loop well
+    // before it could double user spending. Billing is per actual
+    // generated tokens, so this ceiling never inflates ordinary
+    // cost — it only protects against runaway. We translate the
+    // whole song in one call to preserve cross-line context
+    // (refrains, callbacks, character voices) the prompt depends on.
     NSDictionary *body = @{
         @"model": model,
         @"max_tokens": @8192,
@@ -74,16 +143,24 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
             @{@"role": @"user", @"content": [YTMUPromptBuilder userPromptForRequest:request]},
         ],
         @"temperature": @0.3,
+        @"stream": @YES,
     };
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
 
     NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUAnthropicMessagesURL()]];
     urlRequest.HTTPMethod = @"POST";
-    urlRequest.timeoutInterval = 60.0;
+    // 120 s is plenty for streaming — NSURLSession resets the timer
+    // on every chunk that arrives, so as long as the model is
+    // actively emitting tokens (which streaming guarantees) the call
+    // can run as long as needed without tripping the timeout. The
+    // old 60 s non-streaming budget got cut close on long songs
+    // (Hi Ren billed at 49–53 s per attempt).
+    urlRequest.timeoutInterval = 120.0;
     urlRequest.HTTPBody = bodyData;
     [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [urlRequest setValue:apiKey forHTTPHeaderField:@"x-api-key"];
     [urlRequest setValue:@"2023-06-01" forHTTPHeaderField:@"anthropic-version"];
+    [urlRequest setValue:@"text/event-stream" forHTTPHeaderField:@"Accept"];
 
     [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
@@ -100,30 +177,41 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
             return;
         }
 
-        NSError *jsonError = nil;
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
-        if (![json isKindOfClass:[NSDictionary class]]) {
-            completion(nil, jsonError ?: YTMUAnthropicError(YTMUTranslationErrorParse, @"Anthropic returned invalid JSON"));
+        // Parse the SSE stream. Even though we're using completionHandler
+        // (so all bytes are buffered before this block fires), the
+        // streaming response shape (a) lets NSURLSession's per-chunk
+        // timeout reset keep the connection alive while the model
+        // generates, and (b) is the same wire format Anthropic itself
+        // is moving toward as the preferred surface.
+        NSError *streamError = nil;
+        NSString *text = YTMUAnthropicAccumulateSSE(data, &streamError);
+        if (streamError) {
+            YTMUTranslationLog(@"anthropic stream error: %@", streamError.localizedDescription);
+            completion(nil, streamError);
             return;
         }
 
-        NSMutableString *text = [NSMutableString string];
-        NSArray *content = json[@"content"];
-        if ([content isKindOfClass:[NSArray class]]) {
-            for (id item in content) {
-                if (![item isKindOfClass:[NSDictionary class]]) continue;
-                NSString *part = ((NSDictionary *)item)[@"text"];
-                if ([part isKindOfClass:[NSString class]]) [text appendString:part];
-            }
-        }
-
-        // No prefill anymore — parse the raw response. parseLinesFromJSON
-        // already has a "find the outermost {...} substring" fallback
-        // so it tolerates models that wrap their JSON in prose.
+        // parseLinesFromJSON already has fence-stripping, prose-
+        // substring, and brace-balanced extraction fallbacks so it
+        // tolerates models that wrap their JSON in markdown fences
+        // or prefatory commentary.
         NSArray *parsed = [YTMUPromptBuilder parseLinesFromJSON:text
                                                        expected:request.lines.count];
         if (!parsed) {
-            YTMUTranslationLog(@"anthropic parse failed lines=%lu", (unsigned long)request.lines.count);
+            // Surface enough of the actual response to diagnose
+            // future parse failures without dumping the whole body.
+            // 80 chars on each end is plenty to see fence shape /
+            // truncation point.
+            NSUInteger headLen = MIN((NSUInteger)80, text.length);
+            NSString *head = headLen ? [text substringToIndex:headLen] : @"";
+            NSString *tail = text.length > 80
+                ? [text substringFromIndex:text.length - 80]
+                : @"";
+            YTMUTranslationLog(@"anthropic parse failed lines=%lu textLen=%lu head=%@ tail=%@",
+                              (unsigned long)request.lines.count,
+                              (unsigned long)text.length,
+                              head,
+                              tail);
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorParse, @"Could not parse JSON from Anthropic response"));
             return;
         }
@@ -158,19 +246,21 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
 
     NSDictionary *body = @{
         @"model": model,
-        @"max_tokens": @1024,
+        @"max_tokens": @8192,
         @"system": systemPrompt ?: @"",
         @"messages": messages,
         @"temperature": @0.2,
+        @"stream": @YES,
     };
 
     NSMutableURLRequest *urlRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:YTMUAnthropicMessagesURL()]];
     urlRequest.HTTPMethod = @"POST";
-    urlRequest.timeoutInterval = 45.0;
+    urlRequest.timeoutInterval = 120.0;
     urlRequest.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
     [urlRequest setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [urlRequest setValue:apiKey forHTTPHeaderField:@"x-api-key"];
     [urlRequest setValue:@"2023-06-01" forHTTPHeaderField:@"anthropic-version"];
+    [urlRequest setValue:@"text/event-stream" forHTTPHeaderField:@"Accept"];
 
     [[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) { completion(nil, error); return; }
@@ -180,19 +270,11 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"Anthropic %ld: %@", (long)status, [bodyText substringToIndex:MIN((NSUInteger)200, bodyText.length)] ?: @""]));
             return;
         }
-        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-        if (![json isKindOfClass:[NSDictionary class]]) {
-            completion(nil, YTMUAnthropicError(YTMUTranslationErrorParse, @"Anthropic returned invalid JSON"));
+        NSError *streamError = nil;
+        NSString *text = YTMUAnthropicAccumulateSSE(data, &streamError);
+        if (streamError) {
+            completion(nil, streamError);
             return;
-        }
-        NSMutableString *text = [NSMutableString string];
-        NSArray *content = json[@"content"];
-        if ([content isKindOfClass:[NSArray class]]) {
-            for (id item in content) {
-                if (![item isKindOfClass:[NSDictionary class]]) continue;
-                NSString *part = ((NSDictionary *)item)[@"text"];
-                if ([part isKindOfClass:[NSString class]]) [text appendString:part];
-            }
         }
         if (text.length == 0) {
             completion(nil, YTMUAnthropicError(YTMUTranslationErrorEmptyResponse, @"Anthropic returned empty completion"));

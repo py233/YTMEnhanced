@@ -233,11 +233,26 @@ static NSString *const YTMULNSystemPrompt =
 
 #pragma mark - JSON parsing
 
+// Strip ```json…``` (any language tag) by walking characters: skip
+// the opening ``` + optional language tag + separating whitespace, and
+// strip a trailing ``` if present. The earlier "find first newline"
+// approach failed silently when a model emitted `\`\`\`{...}\`\`\``
+// with no newline after the fence.
 - (NSString *)stripMarkdownFences:(NSString *)text {
     NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if ([trimmed hasPrefix:@"```"]) {
-        NSRange firstNewline = [trimmed rangeOfString:@"\n"];
-        if (firstNewline.location != NSNotFound) trimmed = [trimmed substringFromIndex:NSMaxRange(firstNewline)];
+        NSUInteger i = 3;
+        while (i < trimmed.length) {
+            unichar c = [trimmed characterAtIndex:i];
+            if (c == '\n' || c == '\r' || c == ' ' || c == '\t') break;
+            i++;
+        }
+        while (i < trimmed.length) {
+            unichar c = [trimmed characterAtIndex:i];
+            if (c != '\n' && c != '\r' && c != ' ' && c != '\t') break;
+            i++;
+        }
+        trimmed = [trimmed substringFromIndex:i];
     }
     if ([trimmed hasSuffix:@"```"]) trimmed = [trimmed substringToIndex:trimmed.length - 3];
     return [trimmed stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -247,18 +262,52 @@ static NSString *const YTMULNSystemPrompt =
     if (!text.length) return nil;
     NSString *clean = [self stripMarkdownFences:text];
     NSData *data = [clean dataUsingEncoding:NSUTF8StringEncoding];
-    if (!data) return nil;
-    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-    // Some models wrap the JSON in extra prose despite the prompt. Find
-    // the outermost {...} substring as a last-ditch attempt.
+    if (data) {
+        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if ([obj isKindOfClass:[NSDictionary class]]) return obj;
+    }
+    // Greedy first { … last } (handles prose like "Here's the JSON:" + trailing notes).
     NSRange open = [clean rangeOfString:@"{"];
     NSRange close = [clean rangeOfString:@"}" options:NSBackwardsSearch];
-    if (open.location == NSNotFound || close.location == NSNotFound || close.location <= open.location) return nil;
-    NSString *substr = [clean substringWithRange:NSMakeRange(open.location, close.location - open.location + 1)];
-    NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
-    obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
-    return [obj isKindOfClass:[NSDictionary class]] ? obj : nil;
+    if (open.location != NSNotFound && close.location != NSNotFound && close.location > open.location) {
+        NSString *substr = [clean substringWithRange:NSMakeRange(open.location, close.location - open.location + 1)];
+        NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
+        id obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
+        if ([obj isKindOfClass:[NSDictionary class]]) return obj;
+    }
+    // Brace-balanced extraction: respects JSON string literals so
+    // braces inside `"..."` don't confuse the depth counter. Catches
+    // mid-output trailing prose / fence remnants that would otherwise
+    // drag `lastIndexOf` past the real closing brace.
+    if (open.location != NSNotFound) {
+        NSUInteger len = clean.length;
+        NSUInteger depth = 0;
+        BOOL inString = NO;
+        BOOL escape = NO;
+        NSUInteger endIdx = NSNotFound;
+        for (NSUInteger i = open.location; i < len; i++) {
+            unichar c = [clean characterAtIndex:i];
+            if (inString) {
+                if (escape) { escape = NO; continue; }
+                if (c == '\\') { escape = YES; continue; }
+                if (c == '"') inString = NO;
+                continue;
+            }
+            if (c == '"') { inString = YES; continue; }
+            if (c == '{') { depth++; }
+            else if (c == '}') {
+                if (depth > 0) depth--;
+                if (depth == 0) { endIdx = i; break; }
+            }
+        }
+        if (endIdx != NSNotFound) {
+            NSString *substr = [clean substringWithRange:NSMakeRange(open.location, endIdx - open.location + 1)];
+            NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
+            id obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
+            if ([obj isKindOfClass:[NSDictionary class]]) return obj;
+        }
+    }
+    return nil;
 }
 
 - (nullable YTMULyricsTitleNormalization *)normalizationFromResponseDict:(NSDictionary *)dict {
