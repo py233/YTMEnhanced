@@ -806,23 +806,92 @@ static NSInteger const kLastFMCacheSchemaVersion = 8;
     if (llmTitle.length && !listen.correctedTrack.length) {
         listen.correctedTrack = llmTitle;
     }
-    // Intentionally do NOT apply LLM-derived artist. The lyrics-path
-    // normalizer's prompt explicitly digs through YT description
-    // credits and extracts the "real composer" (per its rules:
-    // "Handle Vocaloid: producer (P) = artist_primary"). That is
-    // correct for lyrics search but WRONG for scrobble submission —
-    // a cover/repost channel like `tosho_aTe` uploading a song by
-    // VOCALOID producer `あめのむらくもP` would be scrobbled to the
-    // producer's last.fm entry instead of the channel's, mismatching
-    // what the user sees in YT Music's Now Playing and creating
-    // orphan entries no one else aggregates to. We keep the Tier 1
-    // cleaned artist (which has already had `- Topic` / `VEVO` /
-    // trailing parens stripped) as the authoritative scrobble artist.
-    YTMUScrobbleLog(@"[resolver] tier3 applied%@ track=\"%@\" (artist kept as cleaned; llm suggested artist=\"%@\" conf=%.2f)",
+    YTMUScrobbleLog(@"[resolver] tier3 applied%@ track=\"%@\" (llm suggested artist=\"%@\" conf=%.2f)",
                     fromCache ? @" (cache)" : @"",
                     llmTitle ?: @"",
                     llmArtist ?: @"",
                     result.confidence);
+
+    // LLM-suggested artist treated as a SEARCH HINT, not a direct
+    // override. Rationale:
+    //
+    //   * The lyrics-path normalizer extracts "the real composer"
+    //     (Vocaloid producer) which is correct for lyrics search but
+    //     wrong for scrobble attribution when the YT uploader IS the
+    //     creator (e.g. `tosho_aTe` is their own producer alias).
+    //   * Tier 3 only fires AFTER Tier 2 missed for the cleaned
+    //     artist — so when the channel-name attribution has its own
+    //     popular canonical on last.fm (tosho_aTe / *Luna / etc.),
+    //     we already submitted to it and Tier 3 is skipped.
+    //   * When Tier 3 DOES fire, the channel name has no canonical.
+    //     In that case the LLM-suggested artist (original producer)
+    //     IS plausibly where the canonical lives — but we don't
+    //     trust it blindly. We re-run track.search with (LLM title,
+    //     LLM artist) and only override if a real popular entry
+    //     comes back. If nothing real exists under the LLM artist
+    //     either, we fall through to the cleaned channel attribution.
+    //
+    // Threshold: LLM confidence ≥ 0.85 — high-confidence producer
+    // identification only. Lower-confidence guesses are ignored to
+    // avoid LLM artist hallucinations bleeding into scrobbles.
+    NSString *cleanedArtist = listen.cleanedArtist.length
+        ? listen.cleanedArtist : listen.artist;
+    if (llmArtist.length == 0
+        || [llmArtist isEqualToString:cleanedArtist]
+        || result.confidence < 0.85) {
+        return;
+    }
+    YTMULastFMScrobbler *lf = [YTMUScrobbleManager sharedManager].lastfm;
+    if (![lf isConfigured]) return;
+
+    NSString *searchTrack = llmTitle.length
+        ? llmTitle
+        : (listen.cleanedTrack.length ? listen.cleanedTrack : listen.trackName);
+    NSString *signature = [self signatureForListen:listen];
+    YTMUScrobbleLog(@"[resolver] tier3 llm-hint search: track=\"%@\" artist=\"%@\" (vs cleaned artist=\"%@\")",
+                    searchTrack, llmArtist, cleanedArtist);
+
+    __weak typeof(self) weakSelf = self;
+    [lf searchTrack:searchTrack
+             artist:llmArtist
+              limit:5
+         completion:^(NSArray<YTMULastFMSearchResult *> *searchResults, NSError *err) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (err) {
+            YTMUScrobbleLog(@"[resolver] tier3 llm-hint search error: %@", err.localizedDescription);
+            return;
+        }
+        NSArray *filtered = [strongSelf filterAndSort:searchResults
+                                       matchingArtist:llmArtist
+                                                track:searchTrack];
+        YTMULastFMSearchResult *hit = filtered.firstObject;
+        if (!hit || hit.listeners <= 0) {
+            YTMUScrobbleLog(@"[resolver] tier3 llm-hint search → no real canonical under LLM artist (%lu raw, %lu filtered)",
+                            (unsigned long)searchResults.count,
+                            (unsigned long)filtered.count);
+            return;
+        }
+        listen.correctedTrack = hit.track;
+        listen.correctedArtist = hit.artist;
+        // Persist to Tier 2 cache so future plays of the same song
+        // skip Tier 3 entirely and pick up the canonical directly.
+        NSDictionary *entry = @{
+            @"ts": @([[NSDate date] timeIntervalSince1970]),
+            @"track": hit.track,
+            @"artist": hit.artist,
+            @"trackMBID": hit.mbid ?: @"",
+            @"listeners": @(hit.listeners),
+            @"source": @"tier3-llm-hint",
+            @"schema": @(kLastFMCacheSchemaVersion),
+        };
+        [strongSelf writeCache:strongSelf.lastfmCache
+                        forKey:signature
+                         entry:entry
+                     persistTo:kLastFMCacheKey];
+        YTMUScrobbleLog(@"[resolver] tier3 llm-hint search HIT → \"%@\" / \"%@\" (%ld listeners), cached",
+                        hit.track, hit.artist, (long)hit.listeners);
+    }];
 }
 
 #pragma mark - Cache
