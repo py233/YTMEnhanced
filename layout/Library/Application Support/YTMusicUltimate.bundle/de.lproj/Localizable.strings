@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Liedtexte: %lu\nÜbersetzungen: %lu\nRomanisierung: Speicher geleert";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Scrobbling aktivieren";
+"SCROBBLE_MASTER_FOOTER" = "Hauptschalter. Wenn aus, werden keine Wiedergaben an irgendeinen Dienst gesendet.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "An Last.fm senden";
+"SCROBBLE_LASTFM_FOOTER" = "Registriere eine API-Anwendung unter last.fm/api/account/create, füge API key und secret hier ein und tippe dann Authentifizieren.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Authentifizieren";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "Ich habe zugestimmt — fertig";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Abmelden";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Safari zum Zustimmen öffnen";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari öffnet Last.fm, damit du diese App autorisieren kannst. Nach der Zustimmung kehre hierher zurück und tippe denselben Knopf erneut, um abzuschließen.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Safari öffnen";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm verbunden";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Last.fm-Authentifizierung fehlgeschlagen";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "An ListenBrainz senden";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "Kopiere dein User Token von listenbrainz.org/profile/ und füge es hier ein. Der API root muss nur geändert werden, wenn du selbst hostest.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Token überprüfen";
+"SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz-Token gültig";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "ListenBrainz-Token ungültig";
+
+"SCROBBLE_STATUS" = "Status";
+"SCROBBLE_CONNECTED_AS" = "Verbunden als %@";
+"SCROBBLE_NOT_CONNECTED" = "Nicht verbunden";
+
+"SCROBBLE_DEBUG_LOGS" = "Debug-Logs";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Schreibt Scrobble-Diagnose in die Geräteprotokolle";
