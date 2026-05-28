@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Letras: %lu\nTraducciones: %lu\nRomanización: memoria borrada";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Activar scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "Interruptor principal. Cuando está apagado, no se envían reproducciones a ningún servicio.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Enviar a Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "Registra una aplicación API en last.fm/api/account/create, pega aquí el API key y el secret, y luego toca Autenticar.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Autenticar";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "He aprobado — finalizar";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Cerrar sesión";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Abrir Safari para aprobar";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari abrirá Last.fm para que puedas autorizar esta app. Después de aprobar, vuelve aquí y toca el botón otra vez para finalizar.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Abrir Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm conectado";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Falló la autenticación de Last.fm";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "Enviar a ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "Copia tu User Token desde listenbrainz.org/profile/ y pégalo aquí. Solo necesitas cambiar el API root si te alojas a ti mismo.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Validar token";
+"SCROBBLE_LISTENBRAINZ_OK" = "Token de ListenBrainz válido";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "Token de ListenBrainz no válido";
+
+"SCROBBLE_STATUS" = "Estado";
+"SCROBBLE_CONNECTED_AS" = "Conectado como %@";
+"SCROBBLE_NOT_CONNECTED" = "No conectado";
+
+"SCROBBLE_DEBUG_LOGS" = "Registros de depuración";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Imprime diagnóstico de scrobble en los registros del dispositivo";
