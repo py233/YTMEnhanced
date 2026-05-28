@@ -1,8 +1,21 @@
 #import "YTMUScrobbleManager.h"
 #import "YTMUPlaybackBroadcaster.h"
+#import "YTMUScrobbleResolver.h"
 #import "Providers/YTMULastFMScrobbler.h"
 #import "Providers/YTMUListenBrainzScrobbler.h"
+#import "../Lyrics/YTMULyricsPlaybackState.h"
+#import "../Headers/YTPlayerViewController.h"
 #import <UIKit/UIKit.h>
+
+// How long to wait after a track change before launching the
+// resolver's async Tier 2 / Tier 3 work. The delay exists so the
+// lyrics path's YT-player hook has a chance to fire and update the
+// YTMULyricsPlaybackState singleton with the new player VC — without
+// that, currentVideoID often comes back nil (the weak ref to the
+// previous VC has been cleared and the new VC hasn't been hooked
+// yet). 1s is well under the 4s now-playing deferred and ample for
+// the YT side to settle.
+static const NSTimeInterval kResolverKickoffDelaySeconds = 1.0;
 
 // Hold off on submitting now-playing this long after a track change.
 // Filters out the "user fast-skipped through three songs in two
@@ -156,6 +169,52 @@ static const NSTimeInterval kNowPlayingResumeMinElapsedSeconds = 4.0;
     NSInteger token = self.nowPlayingScheduleToken;
     if (!next || ![next hasMinimumMetadata]) return;
 
+    // Normalize before any submission goes out. Tier 1 is sync and
+    // writes cleaned*; Tier 2 + Tier 3 are async and write
+    // corrected*/MBID fields onto the same listen object over the
+    // next 0.2-several seconds. The deferred now-playing below
+    // reads `[listen bestTrack]` etc., so whichever stages have
+    // completed by then are what actually get submitted.
+    YTMUScrobbleResolver *resolver = [YTMUScrobbleResolver sharedResolver];
+    [resolver applyTier1ToListen:next];
+
+    // Defer the async resolution so the lyrics path's player hook
+    // has time to refresh [YTMULyricsPlaybackState sharedState]
+    // with the new track's YTPlayerViewController — without that,
+    // videoId comes back nil and Tier 3 (LLM normalize) can't run
+    // because it needs videoId as its disk-cache key. The existing
+    // now-playing deferred (scheduled just below) already uses
+    // weakSelf/captured; we share them with a separate `dispatch_after`
+    // block here that fires earlier so the resolver has time to
+    // populate corrected* fields before the now-playing block reads
+    // [listen bestTrack].
+    __weak typeof(self) weakSelfForResolve = self;
+    YTMUListen *resolveTarget = next;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kResolverKickoffDelaySeconds * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelfForResolve;
+        if (!strongSelf) return;
+        // Bail if user already skipped past this track.
+        if (strongSelf.currentListen != resolveTarget) return;
+        // Try once more to grab videoId. The lyrics path's hook
+        // fires on YT's playback-controller event which comes in
+        // some milliseconds after MPNowPlayingInfoCenter updates,
+        // so this second attempt usually wins where the broadcaster's
+        // initial capture lost the race.
+        if (resolveTarget.videoId.length == 0) {
+            @try {
+                YTPlayerViewController *player = [YTMULyricsPlaybackState sharedState].playerViewController;
+                NSString *vid = [player respondsToSelector:@selector(currentVideoID)] ? [player currentVideoID] : nil;
+                if ([vid isKindOfClass:[NSString class]] && vid.length) {
+                    resolveTarget.videoId = vid;
+                    YTMUScrobbleLog(@"[resolver] late videoId capture %@", vid);
+                }
+            } @catch (__unused NSException *exception) {
+            }
+        }
+        [resolver resolveAsyncForListen:resolveTarget];
+    });
+
     __weak typeof(self) weakSelf = self;
     YTMUListen *captured = next;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kNowPlayingDelaySeconds * NSEC_PER_SEC)),
@@ -229,9 +288,13 @@ static const NSTimeInterval kNowPlayingResumeMinElapsedSeconds = 4.0;
     for (id<YTMUScrobbler> provider in self.providers) {
         if (![provider isEnabled] || ![provider isConfigured]) continue;
         NSString *pid = [provider identifier];
+        NSString *submittedTrack = [snapshot bestTrack];
+        NSString *submittedArtist = [snapshot bestArtist];
         [provider submitScrobble:snapshot completion:^(BOOL ok, NSError *err) {
             if (ok) {
-                YTMUScrobbleLog(@"scrobble ok provider=%@ track=\"%@\"", pid, snapshot.trackName);
+                YTMUScrobbleLog(@"scrobble ok provider=%@ track=\"%@\" / \"%@\" (raw=\"%@\" / \"%@\")",
+                                pid, submittedTrack, submittedArtist,
+                                snapshot.trackName, snapshot.artist);
                 // A successful submission proves the network is back
                 // up. Hop onto main to drain anything that piled up
                 // while it was down.
@@ -239,7 +302,8 @@ static const NSTimeInterval kNowPlayingResumeMinElapsedSeconds = 4.0;
                     [weakSelf flushQueueIfPossible];
                 });
             } else {
-                YTMUScrobbleLog(@"scrobble failed provider=%@ err=%@ → queue", pid, err.localizedDescription);
+                YTMUScrobbleLog(@"scrobble failed provider=%@ track=\"%@\" / \"%@\" err=%@ → queue",
+                                pid, submittedTrack, submittedArtist, err.localizedDescription);
                 [weakSelf enqueuePending:snapshot forProvider:pid];
             }
         }];

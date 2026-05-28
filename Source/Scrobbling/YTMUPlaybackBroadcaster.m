@@ -1,5 +1,7 @@
 #import "YTMUPlaybackBroadcaster.h"
 #import "YTMUScrobbleTypes.h"
+#import "../Lyrics/YTMULyricsPlaybackState.h"
+#import "../Headers/YTPlayerViewController.h"
 #import <MediaPlayer/MediaPlayer.h>
 
 // Poll cadence. 1 Hz is enough for scrobbling (we tolerate the
@@ -113,6 +115,24 @@ static const NSInteger kEmptyTicksForStop = 2;
             next.durationSeconds = duration > 0 ? duration : 0;
             next.startedAtUnix = wallClock;
             next.elapsedPlayedSeconds = 0;
+            // Capture the YouTube video id off the lyrics path's
+            // playback-state singleton. The lyrics tweak already
+            // wires `notePlayerViewController:` on every track
+            // change, so this reference is fresh by the time our
+            // broadcaster ticks. Used by the resolver as a stable
+            // cache key for LLM normalize results, and by the LB
+            // submission body for additional_info.origin_url.
+            @try {
+                YTPlayerViewController *player = [YTMULyricsPlaybackState sharedState].playerViewController;
+                NSString *videoId = [player respondsToSelector:@selector(currentVideoID)] ? [player currentVideoID] : nil;
+                if ([videoId isKindOfClass:[NSString class]] && videoId.length) {
+                    next.videoId = videoId;
+                }
+            } @catch (__unused NSException *exception) {
+                // Defensive: YT internals occasionally throw when
+                // queried mid-transition. videoId is optional, so
+                // we silently leave it nil.
+            }
         }
         self.lastTrackName = track;
         self.lastArtist = artist;
