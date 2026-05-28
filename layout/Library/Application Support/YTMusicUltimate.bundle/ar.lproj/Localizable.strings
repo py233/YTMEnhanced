@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "الكلمات: %lu\nالترجمات: %lu\nالكتابة اللاتينية: تم مسح الذاكرة";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "تفعيل الـ scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "المفتاح الرئيسي. عند الإيقاف، لن يتم إرسال أي تشغيل إلى أي خدمة.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "الإرسال إلى Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "سجّل تطبيق API على last.fm/api/account/create، ثم ألصق API key وsecret هنا، ثم اضغط مصادقة.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "مصادقة";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "وافقت — إنهاء";
+"SCROBBLE_LASTFM_SIGN_OUT" = "تسجيل الخروج";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "فتح Safari للموافقة";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "سيفتح Safari صفحة Last.fm حتى تتمكن من تفويض هذا التطبيق. بعد الموافقة عُد إلى هنا واضغط نفس الزر مرة أخرى لإنهاء العملية.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "فتح Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "تم الاتصال بـ Last.fm";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "فشل مصادقة Last.fm";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "الإرسال إلى ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "انسخ User Token الخاص بك من listenbrainz.org/profile/ والصقه هنا. لا يحتاج API root إلى التغيير إلا إذا كنت تستضيف بنفسك.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "التحقق من الـ token";
+"SCROBBLE_LISTENBRAINZ_OK" = "Token ListenBrainz صالح";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "Token ListenBrainz غير صالح";
+
+"SCROBBLE_STATUS" = "الحالة";
+"SCROBBLE_CONNECTED_AS" = "متصل باسم %@";
+"SCROBBLE_NOT_CONNECTED" = "غير متصل";
+
+"SCROBBLE_DEBUG_LOGS" = "سجلات التصحيح";
+"SCROBBLE_DEBUG_LOGS_DESC" = "طباعة تشخيص scrobble في سجلات الجهاز";
