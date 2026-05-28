@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Testi: %lu\nTraduzioni: %lu\nRomanizzazione: memoria cancellata";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Attiva scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "Interruttore principale. Quando spento, nessun ascolto viene inviato ad alcun servizio.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Invia a Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "Registra un'applicazione API su last.fm/api/account/create, incolla qui API key e secret, poi tocca Autentica.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Autentica";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "Ho approvato — completa";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Esci";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Apri Safari per approvare";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari aprirà Last.fm così potrai autorizzare quest'app. Dopo l'approvazione torna qui e tocca di nuovo il pulsante per completare.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Apri Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm connesso";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Autenticazione Last.fm fallita";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "Invia a ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "Copia il tuo User Token da listenbrainz.org/profile/ e incollalo qui. L'API root va cambiato solo se ospiti la tua istanza.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Valida token";
+"SCROBBLE_LISTENBRAINZ_OK" = "Token ListenBrainz valido";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "Token ListenBrainz non valido";
+
+"SCROBBLE_STATUS" = "Stato";
+"SCROBBLE_CONNECTED_AS" = "Connesso come %@";
+"SCROBBLE_NOT_CONNECTED" = "Non connesso";
+
+"SCROBBLE_DEBUG_LOGS" = "Log di debug";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Stampa la diagnostica scrobble nei log del dispositivo";
