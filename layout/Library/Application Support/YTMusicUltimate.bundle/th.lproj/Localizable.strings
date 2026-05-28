@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "เนื้อเพลง: %lu\nคำแปล: %lu\nอักษรโรมัน: ล้างหน่วยความจำแล้ว";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "เปิดใช้งาน scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "สวิตช์หลัก เมื่อปิดอยู่ จะไม่ส่งประวัติการฟังไปยังบริการใดๆ";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "ส่งไปยัง Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "ลงทะเบียนแอปพลิเคชัน API ที่ last.fm/api/account/create วาง API key และ secret ที่นี่ จากนั้นกดยืนยันตัวตน";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "ยืนยันตัวตน";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "ฉันอนุมัติแล้ว — เสร็จสิ้น";
+"SCROBBLE_LASTFM_SIGN_OUT" = "ออกจากระบบ";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "เปิด Safari เพื่ออนุมัติ";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari จะเปิด Last.fm เพื่อให้คุณอนุญาตแอปนี้ หลังอนุมัติแล้วกลับมาที่นี่และกดปุ่มเดิมอีกครั้งเพื่อทำให้เสร็จ";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "เปิด Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "เชื่อมต่อ Last.fm แล้ว";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "การยืนยันตัวตน Last.fm ล้มเหลว";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "ส่งไปยัง ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "คัดลอก User Token ของคุณจาก listenbrainz.org/profile/ แล้ววางที่นี่ จำเป็นต้องเปลี่ยน API root เฉพาะกรณีที่คุณโฮสต์เอง";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "ตรวจสอบ token";
+"SCROBBLE_LISTENBRAINZ_OK" = "Token ListenBrainz ใช้งานได้";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "Token ListenBrainz ใช้งานไม่ได้";
+
+"SCROBBLE_STATUS" = "สถานะ";
+"SCROBBLE_CONNECTED_AS" = "เชื่อมต่อในชื่อ %@";
+"SCROBBLE_NOT_CONNECTED" = "ยังไม่ได้เชื่อมต่อ";
+
+"SCROBBLE_DEBUG_LOGS" = "บันทึกการดีบัก";
+"SCROBBLE_DEBUG_LOGS_DESC" = "พิมพ์ข้อมูลวินิจฉัย scrobble ไปยังบันทึกของอุปกรณ์";
