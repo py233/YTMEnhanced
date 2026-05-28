@@ -44,8 +44,48 @@ extern NSString *const kYTMUPlaybackUserInfoIsPlaying;
 @property (nonatomic) NSTimeInterval elapsedPlayedSeconds;
 
 // Optional. YT Music's video id; included in ListenBrainz
-// additional_info.origin_url ("https://music.youtube.com/watch?v=…").
+// additional_info.origin_url ("https://music.youtube.com/watch?v=…")
+// and used as a stable key for the LLM normalize disk cache.
 @property (nonatomic, copy, nullable) NSString *videoId;
+
+#pragma mark Normalization fields (populated by YTMUScrobbleResolver)
+
+// Tier 1 output (regex cleanup, always populated synchronously by
+// the manager right after the listen is constructed).
+@property (nonatomic, copy, nullable) NSString *cleanedTrack;
+@property (nonatomic, copy, nullable) NSString *cleanedArtist;
+@property (nonatomic, copy, nullable) NSString *cleanedAlbum;
+
+// Tier 2 output (last.fm track.getCorrection + LLM result, whichever
+// the resolver picked as the best canonical). Populated async; may
+// remain nil if no canonical was found / network was down.
+@property (nonatomic, copy, nullable) NSString *correctedTrack;
+@property (nonatomic, copy, nullable) NSString *correctedArtist;
+@property (nonatomic, copy, nullable) NSString *correctedAlbum;
+
+// MBIDs from ListenBrainz /1/metadata/lookup. Attached to LB
+// scrobble submissions as additional_info.recording_mbid etc.
+// last.fm's submit API doesn't accept MBIDs in the scrobble body.
+@property (nonatomic, copy, nullable) NSString *recordingMBID;
+@property (nonatomic, copy, nullable) NSArray<NSString *> *artistMBIDs;
+@property (nonatomic, copy, nullable) NSString *releaseMBID;
+
+#pragma mark Submission helpers
+
+// Best available value for each field, picking the highest-priority
+// non-empty source: corrected > cleaned > raw. All three accessors
+// always return a non-nil string (raw is the fallback; the manager
+// already gates submission on hasMinimumMetadata so trackName/artist
+// are non-empty for any submitted listen).
+- (NSString *)bestTrack;
+- (NSString *)bestArtist;
+- (nullable NSString *)bestAlbum;
+
+// Convenience: the resolved recording MBID for LB submissions, or
+// nil when not resolved.
+- (nullable NSString *)bestRecordingMBID;
+
+#pragma mark Threshold / validity
 
 // Returns YES if elapsedPlayedSeconds has reached the scrobble
 // threshold, defined as min(duration/2, 240s) when duration > 30s.
@@ -53,7 +93,8 @@ extern NSString *const kYTMUPlaybackUserInfoIsPlaying;
 - (BOOL)hasReachedScrobbleThreshold;
 
 // Returns YES when track + artist are both non-empty — required by
-// both last.fm and ListenBrainz APIs.
+// both last.fm and ListenBrainz APIs. Checks raw fields because the
+// cleaned/corrected ones may not be populated yet at submission time.
 - (BOOL)hasMinimumMetadata;
 
 - (NSDictionary<NSString *, id> *)serialize;
