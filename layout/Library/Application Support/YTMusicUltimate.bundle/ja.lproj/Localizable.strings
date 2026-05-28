@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "歌詞: %lu\n翻訳: %lu\nローマ字: メモリキャッシュを削除しました";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Scrobblingを有効にする";
+"SCROBBLE_MASTER_FOOTER" = "マスタースイッチ。オフのときはどのサービスにも再生履歴は送信されません。";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Last.fmに送信";
+"SCROBBLE_LASTFM_FOOTER" = "last.fm/api/account/createでAPIアプリを登録し、API keyとsecretをここに貼り付けてから「認証」をタップしてください。";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "認証";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "承認しました — 完了";
+"SCROBBLE_LASTFM_SIGN_OUT" = "サインアウト";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Safariを開いて承認";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "SafariでLast.fmが開き、このアプリを認可できます。承認後にここへ戻って同じボタンをタップして完了します。";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Safariを開く";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fmに接続済み";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Last.fmの認証に失敗しました";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "ListenBrainzに送信";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "listenbrainz.org/profile/ からUser Tokenをコピーしてここに貼り付けてください。API rootは自分でホストする場合のみ変更が必要です。";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "トークンを検証";
+"SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainzトークンは有効です";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "ListenBrainzトークンが無効です";
+
+"SCROBBLE_STATUS" = "状態";
+"SCROBBLE_CONNECTED_AS" = "%@として接続済み";
+"SCROBBLE_NOT_CONNECTED" = "未接続";
+
+"SCROBBLE_DEBUG_LOGS" = "デバッグログ";
+"SCROBBLE_DEBUG_LOGS_DESC" = "scrobbleの診断情報をデバイスログに出力します";
