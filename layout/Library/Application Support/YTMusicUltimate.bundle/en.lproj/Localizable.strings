@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Lyrics: %lu\nTranslations: %lu\nRomanization: in-memory cache cleared";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Enable scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "Master switch. When off, no listens are submitted to any provider.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Send to Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "Register an API application at last.fm/api/account/create, paste the API key and secret here, then tap Authenticate.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Authenticate";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "I've approved — finish";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Sign out";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Open Safari to approve";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari will open Last.fm so you can authorize this app. After approving, come back here and tap the button again to finish.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Open Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm connected";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Last.fm authentication failed";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "Send to ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "Copy your user token from listenbrainz.org/profile/ and paste it here. The API root only needs changing if you self-host.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Validate token";
+"SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz token valid";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "ListenBrainz token invalid";
+
+"SCROBBLE_STATUS" = "Status";
+"SCROBBLE_CONNECTED_AS" = "Connected as %@";
+"SCROBBLE_NOT_CONNECTED" = "Not connected";
+
+"SCROBBLE_DEBUG_LOGS" = "Debug logs";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Prints scrobble diagnostics to device logs";

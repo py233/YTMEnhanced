@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API 错误 %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "歌词：%lu\n翻译：%lu\n罗马音：已清除内存缓存";
+
+"SCROBBLING_SETTINGS" = "听歌记录上传";
+"SCROBBLE_MASTER_ENABLE" = "启用上传";
+"SCROBBLE_MASTER_FOOTER" = "总开关。关闭后不会向任何服务上传听歌记录。";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "发送到 Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "在 last.fm/api/account/create 申请一个 API 应用,把 API key 和 secret 粘到这里,然后点「授权」。";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "授权";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "我已经在 Safari 里授权了 - 完成";
+"SCROBBLE_LASTFM_SIGN_OUT" = "退出登录";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "打开 Safari 授权";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari 会打开 Last.fm 授权页。完成授权后回来点同一个按钮完成第二步。";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "打开 Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm 已连接";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Last.fm 授权失败";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "发送到 ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "从 listenbrainz.org/profile/ 复制 User Token 粘到这里。除非你自建,否则 API 根地址保持默认即可。";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API 根地址";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "验证 token";
+"SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz token 有效";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "ListenBrainz token 无效";
+
+"SCROBBLE_STATUS" = "状态";
+"SCROBBLE_CONNECTED_AS" = "已连接:%@";
+"SCROBBLE_NOT_CONNECTED" = "未连接";
+
+"SCROBBLE_DEBUG_LOGS" = "调试日志";
+"SCROBBLE_DEBUG_LOGS_DESC" = "把 scrobble 诊断信息输出到设备日志";

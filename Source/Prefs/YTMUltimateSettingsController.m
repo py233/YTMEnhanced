@@ -77,7 +77,7 @@
         case 0:
             return 1;
         case 1:
-            return 6;
+            return 7;
         case 2:
             return 1;
         case 3:
@@ -128,7 +128,8 @@
             @{@"title": LOC(@"THEME_SETTINGS"), @"image": @"paintbrush"},
             @{@"title": LOC(@"NAVBAR_SETTINGS"), @"image": @"sidebar.trailing"},
             @{@"title": LOC(@"TABBAR_SETTINGS"), @"image": @"dock.rectangle"},
-            @{@"title": LOC(@"TRANSLATION_SETTINGS"), @"image": @"character.bubble"}
+            @{@"title": LOC(@"TRANSLATION_SETTINGS"), @"image": @"character.bubble"},
+            @{@"title": LOC(@"SCROBBLING_SETTINGS"), @"image": @"waveform.path"}
         ];
 
         NSDictionary *settingData = settingsData[indexPath.row];
@@ -217,7 +218,8 @@
                                  [ThemeSettingsController class],
                                  [NavBarSettingsController class],
                                  [OtherSettingsController class],
-                                 [TranslationSettingsController class]];
+                                 [TranslationSettingsController class],
+                                 [ScrobblingSettingsController class]];
 
         if (indexPath.row >= 0 && indexPath.row < controllers.count) {
             UIViewController *controller = [[controllers[indexPath.row] alloc] init];

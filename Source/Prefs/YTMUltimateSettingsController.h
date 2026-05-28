@@ -5,7 +5,8 @@
 #import "NavBarSettingsController.h"
 #import "TabBarSettingsController.h"
 #import "TranslationSettingsController.h"
+#import "ScrobblingSettingsController.h"
 
-@interface YTMUltimateSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource> 
+@interface YTMUltimateSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource>
 @property (nonatomic, strong) UITableView* tableView;
 @end
