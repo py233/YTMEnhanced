@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Tekst: %lu\nTłumaczenia: %lu\nRomanizacja: pamięć wyczyszczona";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Włącz scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "Główny przełącznik. Gdy wyłączony, żadne odtworzenia nie są wysyłane do żadnej usługi.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Wyślij do Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "Zarejestruj aplikację API na last.fm/api/account/create, wklej tutaj API key i secret, a następnie naciśnij Uwierzytelnij.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Uwierzytelnij";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "Zatwierdziłem — zakończ";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Wyloguj";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Otwórz Safari, aby zatwierdzić";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari otworzy Last.fm, abyś mógł autoryzować tę aplikację. Po zatwierdzeniu wróć tutaj i ponownie naciśnij ten sam przycisk, aby zakończyć.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Otwórz Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Połączono z Last.fm";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Uwierzytelnianie Last.fm nieudane";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "Wyślij do ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "Skopiuj swój User Token z listenbrainz.org/profile/ i wklej go tutaj. API root należy zmienić tylko jeśli hostujesz własną instancję.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Sprawdź token";
+"SCROBBLE_LISTENBRAINZ_OK" = "Token ListenBrainz prawidłowy";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "Token ListenBrainz nieprawidłowy";
+
+"SCROBBLE_STATUS" = "Status";
+"SCROBBLE_CONNECTED_AS" = "Połączono jako %@";
+"SCROBBLE_NOT_CONNECTED" = "Nie połączono";
+
+"SCROBBLE_DEBUG_LOGS" = "Logi debugowania";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Wypisuje diagnostykę scrobble do logów urządzenia";
