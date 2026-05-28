@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Sözler: %lu\nÇeviriler: %lu\nLatinleştirme: bellek temizlendi";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Scrobbling'i etkinleştir";
+"SCROBBLE_MASTER_FOOTER" = "Ana anahtar. Kapalıyken hiçbir servise dinleme gönderilmez.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Last.fm'e gönder";
+"SCROBBLE_LASTFM_FOOTER" = "last.fm/api/account/create adresinde bir API uygulaması oluştur, API key ile secret'ı buraya yapıştır ve Kimlik Doğrula'ya dokun.";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Kimlik doğrula";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "Onayladım — bitir";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Çıkış yap";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Onaylamak için Safari'yi aç";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari, bu uygulamayı yetkilendirebilmen için Last.fm'i açacak. Onayladıktan sonra buraya dön ve bitirmek için aynı düğmeye tekrar dokun.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Safari'yi aç";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm bağlandı";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Last.fm kimlik doğrulama başarısız";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "ListenBrainz'e gönder";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "User Token'ı listenbrainz.org/profile/ adresinden kopyala ve buraya yapıştır. API root yalnızca kendi sunucunu kullanıyorsan değişmeli.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Token'ı doğrula";
+"SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz token geçerli";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "ListenBrainz token geçersiz";
+
+"SCROBBLE_STATUS" = "Durum";
+"SCROBBLE_CONNECTED_AS" = "%@ olarak bağlı";
+"SCROBBLE_NOT_CONNECTED" = "Bağlı değil";
+
+"SCROBBLE_DEBUG_LOGS" = "Hata ayıklama günlükleri";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Scrobble tanılamasını cihaz günlüklerine yazar";
