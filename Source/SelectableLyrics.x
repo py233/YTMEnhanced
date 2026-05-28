@@ -110,6 +110,7 @@ static NSArray<NSDictionary *> *YTMULyricsPageSourceOptions(void) {
             @{@"key": YTMULyricsSourceNetEase, @"title": @"NetEase"},
             @{@"key": YTMULyricsSourceMusixMatch, @"title": @"MusixMatch"},
             @{@"key": YTMULyricsSourceGenius, @"title": @"Genius"},
+            @{@"key": YTMULyricsSourceDescription, @"title": @"Description"},
         ];
     });
     return options;
@@ -1076,7 +1077,12 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
     UIView *host = [self ytmu_sheetHostView];
     UIEdgeInsets safe = UIEdgeInsetsZero;
     if (@available(iOS 11.0, *)) safe = host.safeAreaInsets;
-    CGFloat sheetHeight = MIN(host.bounds.size.height * 0.50, height + safe.bottom);
+    // 0.5 host-height cap was too tight for the source menu after we
+    // grew to 7 rows (7 × 48 + 54 title + safe.bottom ≈ 424pt, which
+    // hits the 50% cap on common ~844pt screens and clips the home-
+    // indicator area). Allow up to 0.62 so the last row stays
+    // tappable, while still preventing absurd sheets on big lists.
+    CGFloat sheetHeight = MIN(host.bounds.size.height * 0.62, height + safe.bottom);
 
     UIView *backdrop = [[UIView alloc] initWithFrame:host.bounds];
     backdrop.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.32];
@@ -1239,7 +1245,12 @@ static void YTMULyricsPageTabState(UIView *root, BOOL *selected, CGFloat *bottom
 
 - (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView {
     NSArray *options = YTMULyricsPageSourceOptions();
-    CGFloat height = 54.0 + MIN((CGFloat)options.count, 6.0) * 48.0;
+    // Height must reflect the actual number of rows we draw. A
+    // previous MIN(..., 6.0) cap silently truncated when a new
+    // provider (Description) was added — the 7th row got painted
+    // into the sheet but the container only sized for 6 rows, so
+    // the new row sat on top of (or under) the home indicator.
+    CGFloat height = 54.0 + (CGFloat)options.count * 48.0;
     [self ytmu_prepareSheetWithHeight:height title:YTMULyricsPageLocalized(@"LYRICS_SOURCE", @"Lyrics source")];
     NSString *selected = YTMULyricsPageString(@"lyricsPreferredSource", @"auto");
     NSDictionary *availability = [YTMULyricsManager sharedManager].sourceAvailability ?: @{};
