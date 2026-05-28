@@ -6,26 +6,6 @@ static NSString *const kLastFMBaseURL = @"https://ws.audioscrobbler.com/2.0/";
 // last.fm batch limit per scrobble call.
 static const NSUInteger kLastFMBatchMax = 50;
 
-#pragma mark - YTMULastFMCorrection
-
-@implementation YTMULastFMCorrection
-
-- (instancetype)initWithTrack:(NSString *)track
-                       artist:(NSString *)artist
-                    trackMBID:(NSString *)trackMBID
-                   artistMBID:(NSString *)artistMBID {
-    self = [super init];
-    if (self) {
-        _track = [track copy];
-        _artist = [artist copy];
-        _trackMBID = [trackMBID copy];
-        _artistMBID = [artistMBID copy];
-    }
-    return self;
-}
-
-@end
-
 @implementation YTMULastFMSearchResult
 
 - (instancetype)initWithTrack:(NSString *)track
@@ -200,80 +180,6 @@ static NSError *YTMULastFMError(NSInteger code, NSString *message) {
     YTMUScrobbleSetDefaults(@"lastfm_username", nil);
 }
 
-#pragma mark - Corrections
-
-- (void)fetchCorrectionForTrack:(NSString *)track
-                         artist:(NSString *)artist
-                     completion:(void (^)(YTMULastFMCorrection *_Nullable, NSError *_Nullable))completion {
-    NSString *apiKey = self.apiKey;
-    if (!apiKey.length) {
-        completion(nil, YTMULastFMError(1010, @"API key missing — Tier 2a skipped"));
-        return;
-    }
-    if (!track.length || !artist.length) {
-        completion(nil, YTMULastFMError(1011, @"track/artist required"));
-        return;
-    }
-    // track.getCorrection is a read-only call: no api_sig, no sk
-    // required. https://www.last.fm/api/show/track.getCorrection
-    NSString *url = [NSString stringWithFormat:@"%@?method=track.getCorrection&api_key=%@&track=%@&artist=%@&format=json",
-                     kLastFMBaseURL,
-                     YTMULastFMURLEncode(apiKey),
-                     YTMULastFMURLEncode(track),
-                     YTMULastFMURLEncode(artist)];
-    [self performJSONRequest:[NSURL URLWithString:url]
-                      method:@"GET"
-                        body:nil
-                  completion:^(NSDictionary *json, NSError *error) {
-        if (error) {
-            completion(nil, error);
-            return;
-        }
-        // last.fm's quirky response shape: when there's no
-        // correction, the top-level "corrections" field is an empty
-        // string (NOT an empty dictionary). When there IS a
-        // correction, it's `{"correction": {"track": {...}, "@attr":
-        // {"index": "0"}}}`. Be defensive about both.
-        id corrections = json[@"corrections"];
-        if (![corrections isKindOfClass:[NSDictionary class]]) {
-            // Empty-string case = no correction needed / available.
-            completion(nil, nil);
-            return;
-        }
-        id correction = ((NSDictionary *)corrections)[@"correction"];
-        if (![correction isKindOfClass:[NSDictionary class]]) {
-            completion(nil, nil);
-            return;
-        }
-        NSDictionary *trackDict = correction[@"track"];
-        if (![trackDict isKindOfClass:[NSDictionary class]]) {
-            completion(nil, nil);
-            return;
-        }
-        NSString *correctedTrack = [trackDict[@"name"] isKindOfClass:[NSString class]] ? trackDict[@"name"] : nil;
-        NSString *trackMBID = [trackDict[@"mbid"] isKindOfClass:[NSString class]] ? trackDict[@"mbid"] : nil;
-        NSDictionary *artistDict = trackDict[@"artist"];
-        NSString *correctedArtist = nil;
-        NSString *artistMBID = nil;
-        if ([artistDict isKindOfClass:[NSDictionary class]]) {
-            if ([artistDict[@"name"] isKindOfClass:[NSString class]]) correctedArtist = artistDict[@"name"];
-            if ([artistDict[@"mbid"] isKindOfClass:[NSString class]]) artistMBID = artistDict[@"mbid"];
-        }
-        if (!correctedTrack.length || !correctedArtist.length) {
-            completion(nil, nil);
-            return;
-        }
-        // Empty-string MBIDs come through occasionally — normalize to nil.
-        if (trackMBID.length == 0) trackMBID = nil;
-        if (artistMBID.length == 0) artistMBID = nil;
-        YTMULastFMCorrection *result = [[YTMULastFMCorrection alloc] initWithTrack:correctedTrack
-                                                                            artist:correctedArtist
-                                                                         trackMBID:trackMBID
-                                                                        artistMBID:artistMBID];
-        completion(result, nil);
-    }];
-}
-
 #pragma mark - Search
 
 - (void)searchTrack:(NSString *)track
@@ -358,58 +264,6 @@ static NSError *YTMULastFMError(NSInteger code, NSString *message) {
                                                                   listeners:listeners]];
         }
         completion(parsed, nil);
-    }];
-}
-
-- (void)fetchArtistListenerCountForArtist:(NSString *)artist
-                               completion:(void (^)(NSInteger listeners,
-                                                     NSError *_Nullable error))completion {
-    NSString *apiKey = self.apiKey;
-    if (!apiKey.length) {
-        completion(0, YTMULastFMError(1010, @"API key missing — artist.getInfo skipped"));
-        return;
-    }
-    if (!artist.length) {
-        completion(0, YTMULastFMError(1011, @"artist required"));
-        return;
-    }
-    // artist.getInfo: read-only, no signing.
-    // https://www.last.fm/api/show/artist.getInfo
-    NSString *url = [NSString stringWithFormat:
-                     @"%@?method=artist.getInfo&api_key=%@&format=json&artist=%@",
-                     kLastFMBaseURL,
-                     YTMULastFMURLEncode(apiKey),
-                     YTMULastFMURLEncode(artist)];
-    [self performJSONRequest:[NSURL URLWithString:url]
-                      method:@"GET"
-                        body:nil
-                  completion:^(NSDictionary *json, NSError *error) {
-        if (error) {
-            // 404 / "Artist not found" comes through as last.fm error
-            // body which performJSONRequest may or may not surface; just
-            // treat any error as 0 listeners — the caller's fallback
-            // doesn't care about distinguishing "missing" from "0".
-            completion(0, error);
-            return;
-        }
-        id artistDict = json[@"artist"];
-        if (![artistDict isKindOfClass:[NSDictionary class]]) {
-            completion(0, nil);
-            return;
-        }
-        id stats = ((NSDictionary *)artistDict)[@"stats"];
-        if (![stats isKindOfClass:[NSDictionary class]]) {
-            completion(0, nil);
-            return;
-        }
-        id listenersRaw = ((NSDictionary *)stats)[@"listeners"];
-        NSInteger listeners = 0;
-        if ([listenersRaw isKindOfClass:[NSString class]]) {
-            listeners = [(NSString *)listenersRaw integerValue];
-        } else if ([listenersRaw isKindOfClass:[NSNumber class]]) {
-            listeners = [(NSNumber *)listenersRaw integerValue];
-        }
-        completion(listeners, nil);
     }];
 }
 

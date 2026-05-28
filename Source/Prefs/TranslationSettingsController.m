@@ -187,17 +187,6 @@
     ];
 }
 
-- (NSArray<NSDictionary *> *)lyricSourceOptions {
-    return @[
-        @{@"key": @"auto", @"title": LOC(@"LYRICS_SOURCE_AUTO")},
-        @{@"key": YTMULyricsSourceYTMusic, @"title": @"YTMusic"},
-        @{@"key": YTMULyricsSourceLRCLib, @"title": @"LRCLib"},
-        @{@"key": YTMULyricsSourceNetEase, @"title": @"NetEase"},
-        @{@"key": YTMULyricsSourceMusixMatch, @"title": @"MusixMatch"},
-        @{@"key": YTMULyricsSourceGenius, @"title": @"Genius"},
-    ];
-}
-
 - (NSArray<NSDictionary *> *)lineEffectOptions {
     return @[
         @{@"key": @"fancy", @"title": LOC(@"LYRICS_EFFECT_FANCY")},

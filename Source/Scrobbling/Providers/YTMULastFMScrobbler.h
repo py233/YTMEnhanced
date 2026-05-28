@@ -3,24 +3,6 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-#pragma mark - Title correction result
-
-// Lightweight summary of one last.fm correction lookup. Track and
-// artist are non-nil when the call succeeds — they may equal the
-// input verbatim (meaning "last.fm thinks the input is already
-// canonical"). The MBIDs are nil when last.fm has no MusicBrainz
-// link for the entry.
-@interface YTMULastFMCorrection : NSObject
-@property (nonatomic, copy) NSString *track;
-@property (nonatomic, copy) NSString *artist;
-@property (nonatomic, copy, nullable) NSString *trackMBID;
-@property (nonatomic, copy, nullable) NSString *artistMBID;
-- (instancetype)initWithTrack:(NSString *)track
-                       artist:(NSString *)artist
-                    trackMBID:(nullable NSString *)trackMBID
-                   artistMBID:(nullable NSString *)artistMBID;
-@end
-
 #pragma mark - Track search result
 
 // One row from last.fm's `track.search` response. Critically, this
@@ -64,16 +46,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark Title corrections (used by YTMUScrobbleResolver)
 
-// Calls last.fm `track.getCorrection`. No signing / no session
-// required — uses the stored api_key only. Completion is invoked on
-// an arbitrary queue. When the user hasn't configured an api_key
-// the correction is nil and error describes the missing config;
-// the resolver treats this as "skip Tier 2a".
-- (void)fetchCorrectionForTrack:(NSString *)track
-                         artist:(NSString *)artist
-                     completion:(void (^)(YTMULastFMCorrection *_Nullable correction,
-                                           NSError *_Nullable error))completion;
-
 // Calls last.fm `track.search`. Returns top `limit` matches, each
 // carrying a `listeners` count from last.fm's index. The resolver
 // uses this to popularity-rank multiple candidate titles (e.g. CJK
@@ -89,16 +61,6 @@ NS_ASSUME_NONNULL_BEGIN
               limit:(NSUInteger)limit
          completion:(void (^)(NSArray<YTMULastFMSearchResult *> *_Nullable results,
                               NSError *_Nullable error))completion;
-
-// Calls last.fm `artist.getInfo`. Used as a fallback when track.search
-// finds no canonical entries for any candidate — we still want to know
-// which sub-artist alias is the popular canonical one (e.g.
-// "Suzaku-朱雀-" → "Suzaku" with 3,313 listeners) so we can scrobble
-// to that artist even when the specific track is orphaned. Returns
-// listener count (0 if artist not found or HTTP fails).
-- (void)fetchArtistListenerCountForArtist:(NSString *)artist
-                               completion:(void (^)(NSInteger listeners,
-                                                     NSError *_Nullable error))completion;
 
 @end
 
