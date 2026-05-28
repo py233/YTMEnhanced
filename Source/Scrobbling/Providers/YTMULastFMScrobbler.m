@@ -6,6 +6,44 @@ static NSString *const kLastFMBaseURL = @"https://ws.audioscrobbler.com/2.0/";
 // last.fm batch limit per scrobble call.
 static const NSUInteger kLastFMBatchMax = 50;
 
+#pragma mark - YTMULastFMCorrection
+
+@implementation YTMULastFMCorrection
+
+- (instancetype)initWithTrack:(NSString *)track
+                       artist:(NSString *)artist
+                    trackMBID:(NSString *)trackMBID
+                   artistMBID:(NSString *)artistMBID {
+    self = [super init];
+    if (self) {
+        _track = [track copy];
+        _artist = [artist copy];
+        _trackMBID = [trackMBID copy];
+        _artistMBID = [artistMBID copy];
+    }
+    return self;
+}
+
+@end
+
+@implementation YTMULastFMSearchResult
+
+- (instancetype)initWithTrack:(NSString *)track
+                       artist:(NSString *)artist
+                         mbid:(NSString *)mbid
+                    listeners:(NSInteger)listeners {
+    self = [super init];
+    if (self) {
+        _track = [track copy];
+        _artist = [artist copy];
+        _mbid = [mbid copy];
+        _listeners = listeners;
+    }
+    return self;
+}
+
+@end
+
 #pragma mark - Helpers
 
 static NSString *YTMULastFMMD5(NSString *input) {
@@ -162,15 +200,239 @@ static NSError *YTMULastFMError(NSInteger code, NSString *message) {
     YTMUScrobbleSetDefaults(@"lastfm_username", nil);
 }
 
+#pragma mark - Corrections
+
+- (void)fetchCorrectionForTrack:(NSString *)track
+                         artist:(NSString *)artist
+                     completion:(void (^)(YTMULastFMCorrection *_Nullable, NSError *_Nullable))completion {
+    NSString *apiKey = self.apiKey;
+    if (!apiKey.length) {
+        completion(nil, YTMULastFMError(1010, @"API key missing — Tier 2a skipped"));
+        return;
+    }
+    if (!track.length || !artist.length) {
+        completion(nil, YTMULastFMError(1011, @"track/artist required"));
+        return;
+    }
+    // track.getCorrection is a read-only call: no api_sig, no sk
+    // required. https://www.last.fm/api/show/track.getCorrection
+    NSString *url = [NSString stringWithFormat:@"%@?method=track.getCorrection&api_key=%@&track=%@&artist=%@&format=json",
+                     kLastFMBaseURL,
+                     YTMULastFMURLEncode(apiKey),
+                     YTMULastFMURLEncode(track),
+                     YTMULastFMURLEncode(artist)];
+    [self performJSONRequest:[NSURL URLWithString:url]
+                      method:@"GET"
+                        body:nil
+                  completion:^(NSDictionary *json, NSError *error) {
+        if (error) {
+            completion(nil, error);
+            return;
+        }
+        // last.fm's quirky response shape: when there's no
+        // correction, the top-level "corrections" field is an empty
+        // string (NOT an empty dictionary). When there IS a
+        // correction, it's `{"correction": {"track": {...}, "@attr":
+        // {"index": "0"}}}`. Be defensive about both.
+        id corrections = json[@"corrections"];
+        if (![corrections isKindOfClass:[NSDictionary class]]) {
+            // Empty-string case = no correction needed / available.
+            completion(nil, nil);
+            return;
+        }
+        id correction = ((NSDictionary *)corrections)[@"correction"];
+        if (![correction isKindOfClass:[NSDictionary class]]) {
+            completion(nil, nil);
+            return;
+        }
+        NSDictionary *trackDict = correction[@"track"];
+        if (![trackDict isKindOfClass:[NSDictionary class]]) {
+            completion(nil, nil);
+            return;
+        }
+        NSString *correctedTrack = [trackDict[@"name"] isKindOfClass:[NSString class]] ? trackDict[@"name"] : nil;
+        NSString *trackMBID = [trackDict[@"mbid"] isKindOfClass:[NSString class]] ? trackDict[@"mbid"] : nil;
+        NSDictionary *artistDict = trackDict[@"artist"];
+        NSString *correctedArtist = nil;
+        NSString *artistMBID = nil;
+        if ([artistDict isKindOfClass:[NSDictionary class]]) {
+            if ([artistDict[@"name"] isKindOfClass:[NSString class]]) correctedArtist = artistDict[@"name"];
+            if ([artistDict[@"mbid"] isKindOfClass:[NSString class]]) artistMBID = artistDict[@"mbid"];
+        }
+        if (!correctedTrack.length || !correctedArtist.length) {
+            completion(nil, nil);
+            return;
+        }
+        // Empty-string MBIDs come through occasionally — normalize to nil.
+        if (trackMBID.length == 0) trackMBID = nil;
+        if (artistMBID.length == 0) artistMBID = nil;
+        YTMULastFMCorrection *result = [[YTMULastFMCorrection alloc] initWithTrack:correctedTrack
+                                                                            artist:correctedArtist
+                                                                         trackMBID:trackMBID
+                                                                        artistMBID:artistMBID];
+        completion(result, nil);
+    }];
+}
+
+#pragma mark - Search
+
+- (void)searchTrack:(NSString *)track
+             artist:(NSString *)artist
+              limit:(NSUInteger)limit
+         completion:(void (^)(NSArray<YTMULastFMSearchResult *> *_Nullable, NSError *_Nullable))completion {
+    NSString *apiKey = self.apiKey;
+    if (!apiKey.length) {
+        completion(nil, YTMULastFMError(1010, @"API key missing — search skipped"));
+        return;
+    }
+    if (!track.length) {
+        completion(nil, YTMULastFMError(1011, @"track required"));
+        return;
+    }
+    NSUInteger effectiveLimit = limit == 0 ? 5 : MIN(limit, (NSUInteger)10);
+    // track.search supports filtering by artist; we pass it when we
+    // have one to improve recall on common track titles.
+    // https://www.last.fm/api/show/track.search
+    NSMutableString *url = [NSMutableString stringWithFormat:
+                            @"%@?method=track.search&api_key=%@&format=json&limit=%lu&track=%@",
+                            kLastFMBaseURL,
+                            YTMULastFMURLEncode(apiKey),
+                            (unsigned long)effectiveLimit,
+                            YTMULastFMURLEncode(track)];
+    if (artist.length) {
+        [url appendFormat:@"&artist=%@", YTMULastFMURLEncode(artist)];
+    }
+    [self performJSONRequest:[NSURL URLWithString:url]
+                      method:@"GET"
+                        body:nil
+                  completion:^(NSDictionary *json, NSError *error) {
+        if (error) {
+            completion(nil, error);
+            return;
+        }
+        // Response shape:
+        //   { "results": { "trackmatches": { "track": [...] } } }
+        // BUT "track" can be:
+        //   - an array (multiple matches)
+        //   - a single dict (one match)
+        //   - missing / empty string (no matches)
+        id results = json[@"results"];
+        if (![results isKindOfClass:[NSDictionary class]]) {
+            completion(@[], nil);
+            return;
+        }
+        id matches = ((NSDictionary *)results)[@"trackmatches"];
+        if (![matches isKindOfClass:[NSDictionary class]]) {
+            completion(@[], nil);
+            return;
+        }
+        id tracksRaw = ((NSDictionary *)matches)[@"track"];
+        NSArray *tracks = nil;
+        if ([tracksRaw isKindOfClass:[NSArray class]]) {
+            tracks = tracksRaw;
+        } else if ([tracksRaw isKindOfClass:[NSDictionary class]]) {
+            tracks = @[tracksRaw];
+        } else {
+            completion(@[], nil);
+            return;
+        }
+        NSMutableArray<YTMULastFMSearchResult *> *parsed = [NSMutableArray array];
+        for (id t in tracks) {
+            if (![t isKindOfClass:[NSDictionary class]]) continue;
+            NSString *name = [t[@"name"] isKindOfClass:[NSString class]] ? t[@"name"] : nil;
+            NSString *resultArtist = [t[@"artist"] isKindOfClass:[NSString class]] ? t[@"artist"] : nil;
+            NSString *mbid = [t[@"mbid"] isKindOfClass:[NSString class]] ? t[@"mbid"] : nil;
+            if (mbid.length == 0) mbid = nil;
+            // `listeners` arrives as a string like "350"; coerce.
+            NSInteger listeners = 0;
+            id listenersRaw = t[@"listeners"];
+            if ([listenersRaw isKindOfClass:[NSString class]]) {
+                listeners = [(NSString *)listenersRaw integerValue];
+            } else if ([listenersRaw isKindOfClass:[NSNumber class]]) {
+                listeners = [(NSNumber *)listenersRaw integerValue];
+            }
+            if (!name.length || !resultArtist.length) continue;
+            [parsed addObject:[[YTMULastFMSearchResult alloc] initWithTrack:name
+                                                                     artist:resultArtist
+                                                                       mbid:mbid
+                                                                  listeners:listeners]];
+        }
+        completion(parsed, nil);
+    }];
+}
+
+- (void)fetchArtistListenerCountForArtist:(NSString *)artist
+                               completion:(void (^)(NSInteger listeners,
+                                                     NSError *_Nullable error))completion {
+    NSString *apiKey = self.apiKey;
+    if (!apiKey.length) {
+        completion(0, YTMULastFMError(1010, @"API key missing — artist.getInfo skipped"));
+        return;
+    }
+    if (!artist.length) {
+        completion(0, YTMULastFMError(1011, @"artist required"));
+        return;
+    }
+    // artist.getInfo: read-only, no signing.
+    // https://www.last.fm/api/show/artist.getInfo
+    NSString *url = [NSString stringWithFormat:
+                     @"%@?method=artist.getInfo&api_key=%@&format=json&artist=%@",
+                     kLastFMBaseURL,
+                     YTMULastFMURLEncode(apiKey),
+                     YTMULastFMURLEncode(artist)];
+    [self performJSONRequest:[NSURL URLWithString:url]
+                      method:@"GET"
+                        body:nil
+                  completion:^(NSDictionary *json, NSError *error) {
+        if (error) {
+            // 404 / "Artist not found" comes through as last.fm error
+            // body which performJSONRequest may or may not surface; just
+            // treat any error as 0 listeners — the caller's fallback
+            // doesn't care about distinguishing "missing" from "0".
+            completion(0, error);
+            return;
+        }
+        id artistDict = json[@"artist"];
+        if (![artistDict isKindOfClass:[NSDictionary class]]) {
+            completion(0, nil);
+            return;
+        }
+        id stats = ((NSDictionary *)artistDict)[@"stats"];
+        if (![stats isKindOfClass:[NSDictionary class]]) {
+            completion(0, nil);
+            return;
+        }
+        id listenersRaw = ((NSDictionary *)stats)[@"listeners"];
+        NSInteger listeners = 0;
+        if ([listenersRaw isKindOfClass:[NSString class]]) {
+            listeners = [(NSString *)listenersRaw integerValue];
+        } else if ([listenersRaw isKindOfClass:[NSNumber class]]) {
+            listeners = [(NSNumber *)listenersRaw integerValue];
+        }
+        completion(listeners, nil);
+    }];
+}
+
 #pragma mark - Submission
 
 - (void)submitNowPlaying:(YTMUListen *)listen {
     if (![self isEnabled] || ![self isConfigured]) return;
     if (![listen hasMinimumMetadata]) return;
+    // Snapshot the values actually being submitted so the log can
+    // show the canonical name even though the YTMUListen mutates
+    // (resolver may write later corrections that this submission
+    // doesn't see, and we want the log to match what we sent).
+    NSString *submittedTrack = [listen bestTrack];
+    NSString *submittedArtist = [listen bestArtist];
     NSDictionary<NSString *, NSString *> *params = [self baseParamsForListen:listen method:@"track.updateNowPlaying"];
     [self submitSignedParams:params completion:^(BOOL ok, NSError *err) {
-        if (!ok) YTMUScrobbleLog(@"lastfm now-playing failed: %@", err.localizedDescription);
-        else YTMUScrobbleLog(@"lastfm now-playing ok track=\"%@\"", listen.trackName);
+        if (!ok) {
+            YTMUScrobbleLog(@"lastfm now-playing failed track=\"%@\" / \"%@\": %@",
+                            submittedTrack, submittedArtist, err.localizedDescription);
+        } else {
+            YTMUScrobbleLog(@"lastfm now-playing ok track=\"%@\" / \"%@\"",
+                            submittedTrack, submittedArtist);
+        }
     }];
 }
 
@@ -197,9 +459,11 @@ static NSError *YTMULastFMError(NSInteger code, NSString *message) {
     params[@"api_key"] = self.apiKey;
     params[@"sk"] = self.sessionKey;
     [slice enumerateObjectsUsingBlock:^(YTMUListen *listen, NSUInteger i, BOOL *stop) {
-        params[[NSString stringWithFormat:@"track[%lu]", (unsigned long)i]] = listen.trackName ?: @"";
-        params[[NSString stringWithFormat:@"artist[%lu]", (unsigned long)i]] = listen.artist ?: @"";
-        if (listen.albumName.length) params[[NSString stringWithFormat:@"album[%lu]", (unsigned long)i]] = listen.albumName;
+        // Submit the best resolved values (corrected > cleaned > raw).
+        params[[NSString stringWithFormat:@"track[%lu]", (unsigned long)i]] = [listen bestTrack];
+        params[[NSString stringWithFormat:@"artist[%lu]", (unsigned long)i]] = [listen bestArtist];
+        NSString *album = [listen bestAlbum];
+        if (album.length) params[[NSString stringWithFormat:@"album[%lu]", (unsigned long)i]] = album;
         params[[NSString stringWithFormat:@"timestamp[%lu]", (unsigned long)i]] = [NSString stringWithFormat:@"%lld", (long long)listen.startedAtUnix];
         if (listen.durationSeconds > 0) {
             params[[NSString stringWithFormat:@"duration[%lu]", (unsigned long)i]] = [NSString stringWithFormat:@"%ld", (long)round(listen.durationSeconds)];
@@ -215,9 +479,13 @@ static NSError *YTMULastFMError(NSInteger code, NSString *message) {
     params[@"method"] = method;
     params[@"api_key"] = self.apiKey;
     params[@"sk"] = self.sessionKey;
-    params[@"track"] = listen.trackName ?: @"";
-    params[@"artist"] = listen.artist ?: @"";
-    if (listen.albumName.length) params[@"album"] = listen.albumName;
+    // Best resolved values (corrected if last.fm/LLM returned a
+    // canonical, otherwise cleaned via regex, otherwise the raw
+    // MPNowPlayingInfoCenter strings).
+    params[@"track"] = [listen bestTrack];
+    params[@"artist"] = [listen bestArtist];
+    NSString *album = [listen bestAlbum];
+    if (album.length) params[@"album"] = album;
     if (listen.durationSeconds > 0) params[@"duration"] = [NSString stringWithFormat:@"%ld", (long)round(listen.durationSeconds)];
     return params;
 }

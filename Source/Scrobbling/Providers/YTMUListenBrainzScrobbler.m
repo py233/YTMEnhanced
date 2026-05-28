@@ -12,6 +12,9 @@ static NSError *YTMUListenBrainzError(NSInteger code, NSString *message) {
                            userInfo:@{NSLocalizedDescriptionKey: message ?: @"ListenBrainz error"}];
 }
 
+@implementation YTMUListenBrainzMatch
+@end
+
 @implementation YTMUListenBrainzScrobbler
 
 - (NSString *)identifier {
@@ -70,14 +73,101 @@ static NSError *YTMUListenBrainzError(NSInteger code, NSString *message) {
     }] resume];
 }
 
+#pragma mark - Metadata lookup
+
+- (void)fetchMetadataLookupForTrack:(NSString *)track
+                             artist:(NSString *)artist
+                              album:(NSString *)album
+                         completion:(void (^)(YTMUListenBrainzMatch *_Nullable, NSError *_Nullable))completion {
+    if (!track.length || !artist.length) {
+        completion(nil, YTMUListenBrainzError(2010, @"track/artist required"));
+        return;
+    }
+    NSString *root = self.apiRoot;
+    NSMutableCharacterSet *allowed = [NSCharacterSet.URLQueryAllowedCharacterSet mutableCopy];
+    [allowed removeCharactersInString:@"&=+?#"];
+    NSMutableArray<NSString *> *pairs = [NSMutableArray array];
+    [pairs addObject:[NSString stringWithFormat:@"recording_name=%@",
+                      [track stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: track]];
+    [pairs addObject:[NSString stringWithFormat:@"artist_name=%@",
+                      [artist stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: artist]];
+    if (album.length) {
+        [pairs addObject:[NSString stringWithFormat:@"release_name=%@",
+                          [album stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: album]];
+    }
+    [pairs addObject:@"metadata=true"];
+    NSString *urlString = [NSString stringWithFormat:@"%@/1/metadata/lookup?%@",
+                           root, [pairs componentsJoinedByString:@"&"]];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
+    request.HTTPMethod = @"GET";
+    request.timeoutInterval = 30.0;
+    // ListenBrainz's metadata lookup endpoint actually does require
+    // the user's auth token (despite some docs saying "optional").
+    // Without this header live tests see HTTP 401 on every call.
+    NSString *token = self.userToken;
+    if (token.length) {
+        [request setValue:[NSString stringWithFormat:@"Token %@", token] forHTTPHeaderField:@"Authorization"];
+    }
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request
+                                    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            completion(nil, error);
+            return;
+        }
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        // 404 or 200-empty means "no match" — not a failure.
+        if (status == 404) {
+            completion(nil, nil);
+            return;
+        }
+        if (status < 200 || status >= 300) {
+            completion(nil, YTMUListenBrainzError(status, [NSString stringWithFormat:@"HTTP %ld", (long)status]));
+            return;
+        }
+        if (data.length == 0) {
+            completion(nil, nil);
+            return;
+        }
+        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![json isKindOfClass:[NSDictionary class]] || json.count == 0) {
+            completion(nil, nil);
+            return;
+        }
+        // recording_mbid is the most useful piece. If the lookup
+        // didn't return one, treat the whole result as "no canonical
+        // match" so the resolver doesn't try to use partial data.
+        NSString *recordingMBID = [json[@"recording_mbid"] isKindOfClass:[NSString class]] ? json[@"recording_mbid"] : nil;
+        if (recordingMBID.length == 0) {
+            completion(nil, nil);
+            return;
+        }
+        YTMUListenBrainzMatch *match = [[YTMUListenBrainzMatch alloc] init];
+        match.recordingMBID = recordingMBID;
+        if ([json[@"release_mbid"] isKindOfClass:[NSString class]]) match.releaseMBID = json[@"release_mbid"];
+        if ([json[@"artist_mbids"] isKindOfClass:[NSArray class]]) match.artistMBIDs = json[@"artist_mbids"];
+        if ([json[@"recording_name"] isKindOfClass:[NSString class]]) match.track = json[@"recording_name"];
+        if ([json[@"artist_credit_name"] isKindOfClass:[NSString class]]) match.artist = json[@"artist_credit_name"];
+        if ([json[@"release_name"] isKindOfClass:[NSString class]]) match.releaseName = json[@"release_name"];
+        completion(match, nil);
+    }] resume];
+}
+
 #pragma mark - Submission
 
 - (void)submitNowPlaying:(YTMUListen *)listen {
     if (![self isEnabled] || ![self isConfigured] || ![listen hasMinimumMetadata]) return;
+    NSString *submittedTrack = [listen bestTrack];
+    NSString *submittedArtist = [listen bestArtist];
     NSDictionary *body = [self bodyForListens:@[listen] listenType:@"playing_now" includeTimestamp:NO];
     [self submitBody:body completion:^(BOOL ok, NSError *err) {
-        if (!ok) YTMUScrobbleLog(@"listenbrainz now-playing failed: %@", err.localizedDescription);
-        else YTMUScrobbleLog(@"listenbrainz now-playing ok track=\"%@\"", listen.trackName);
+        if (!ok) {
+            YTMUScrobbleLog(@"listenbrainz now-playing failed track=\"%@\" / \"%@\": %@",
+                            submittedTrack, submittedArtist, err.localizedDescription);
+        } else {
+            YTMUScrobbleLog(@"listenbrainz now-playing ok track=\"%@\" / \"%@\"",
+                            submittedTrack, submittedArtist);
+        }
     }];
 }
 
@@ -117,11 +207,20 @@ static NSError *YTMUListenBrainzError(NSInteger code, NSString *message) {
             additional[@"music_service"] = @"music.youtube.com";
         }
         if (listen.durationSeconds > 0) additional[@"duration"] = @((long)round(listen.durationSeconds));
+        // Attach MBIDs when the resolver found a canonical match.
+        // ListenBrainz uses these to deduplicate against MusicBrainz
+        // entries; without them, the listen still goes through but
+        // takes the slower fuzzy-match path on the server side.
+        if (listen.recordingMBID.length) additional[@"recording_mbid"] = listen.recordingMBID;
+        if (listen.releaseMBID.length) additional[@"release_mbid"] = listen.releaseMBID;
+        if (listen.artistMBIDs.count) additional[@"artist_mbids"] = listen.artistMBIDs;
 
         NSMutableDictionary *trackMeta = [NSMutableDictionary dictionary];
-        trackMeta[@"track_name"] = listen.trackName ?: @"";
-        trackMeta[@"artist_name"] = listen.artist ?: @"";
-        if (listen.albumName.length) trackMeta[@"release_name"] = listen.albumName;
+        // Best resolved values (corrected > cleaned > raw).
+        trackMeta[@"track_name"] = [listen bestTrack];
+        trackMeta[@"artist_name"] = [listen bestArtist];
+        NSString *album = [listen bestAlbum];
+        if (album.length) trackMeta[@"release_name"] = album;
         trackMeta[@"additional_info"] = additional;
 
         NSMutableDictionary *entry = [NSMutableDictionary dictionary];
