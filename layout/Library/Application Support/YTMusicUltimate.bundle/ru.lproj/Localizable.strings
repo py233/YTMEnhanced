@@ -167,3 +167,37 @@
 "LYRICS_ERROR_HTTP_STATUS_FORMAT" = "HTTP %ld";
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "API error %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Текст: %lu\nПереводы: %lu\nРоманизация: память очищена";
+
+"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLE_MASTER_ENABLE" = "Включить scrobbling";
+"SCROBBLE_MASTER_FOOTER" = "Главный переключатель. Когда выключен, прослушивания не отправляются ни одному сервису.";
+
+"SCROBBLE_LASTFM_HEADER" = "Last.fm";
+"SCROBBLE_LASTFM_ENABLE" = "Отправлять на Last.fm";
+"SCROBBLE_LASTFM_FOOTER" = "Зарегистрируй API-приложение на last.fm/api/account/create, вставь сюда API key и secret, затем нажми «Войти».";
+"SCROBBLE_API_KEY" = "API key";
+"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_LASTFM_AUTHENTICATE" = "Войти";
+"SCROBBLE_LASTFM_FINISH_AUTH" = "Я одобрил — завершить";
+"SCROBBLE_LASTFM_SIGN_OUT" = "Выйти";
+"SCROBBLE_LASTFM_OPEN_BROWSER" = "Открыть Safari для одобрения";
+"SCROBBLE_LASTFM_OPEN_BROWSER_MSG" = "Safari откроет Last.fm для авторизации этого приложения. После одобрения вернись сюда и снова нажми ту же кнопку, чтобы завершить.";
+"SCROBBLE_LASTFM_OPEN_SAFARI" = "Открыть Safari";
+"SCROBBLE_LASTFM_AUTHENTICATED" = "Last.fm подключён";
+"SCROBBLE_LASTFM_AUTH_FAILED" = "Ошибка авторизации Last.fm";
+
+"SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_ENABLE" = "Отправлять на ListenBrainz";
+"SCROBBLE_LISTENBRAINZ_FOOTER" = "Скопируй свой User Token со страницы listenbrainz.org/profile/ и вставь сюда. API root нужно менять только при собственном размещении.";
+"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_API_ROOT" = "API root";
+"SCROBBLE_LISTENBRAINZ_VALIDATE" = "Проверить токен";
+"SCROBBLE_LISTENBRAINZ_OK" = "Токен ListenBrainz действителен";
+"SCROBBLE_LISTENBRAINZ_FAIL" = "Токен ListenBrainz недействителен";
+
+"SCROBBLE_STATUS" = "Состояние";
+"SCROBBLE_CONNECTED_AS" = "Подключён как %@";
+"SCROBBLE_NOT_CONNECTED" = "Не подключён";
+
+"SCROBBLE_DEBUG_LOGS" = "Отладочные логи";
+"SCROBBLE_DEBUG_LOGS_DESC" = "Печатает диагностику scrobble в журнал устройства";
