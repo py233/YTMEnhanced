@@ -1,7 +1,10 @@
-# YTMEnhanced
+<h1 align="center">YTMEnhanced</h1>
 
 <p align="center">
-A YouTube Music iOS tweak with bilingual lyrics, on-device translation, and real-time scrobbling.
+  <img src="assets/screenshots/lyrics.jpg" alt="Bilingual lyrics — Japanese with romaji, English, and German, each translated line by line" width="100%">
+</p>
+<p align="center">
+  <img src="assets/screenshots/settings.jpg" alt="Lyrics source picker, translation providers, and scrobbling settings" width="100%">
 </p>
 
 ## Features
@@ -10,10 +13,6 @@ A YouTube Music iOS tweak with bilingual lyrics, on-device translation, and real
 - **Translation** — bring your own LLM key (Anthropic / Gemini / OpenAI-compatible) or use Google Translate
 - **Scrobbling** — real-time Last.fm and ListenBrainz with an offline queue
 - Plus the usual basics — ad removal, background playback, audio downloads, SponsorBlock, seek buttons, playback rate — via [YTMusicUltimate](https://github.com/ginsudev/YTMusicUltimate)
-
-## Screenshots
-
-> _WIP._
 
 ## Build
 
