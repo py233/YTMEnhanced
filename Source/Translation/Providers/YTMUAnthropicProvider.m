@@ -135,6 +135,12 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     // cost — it only protects against runaway. We translate the
     // whole song in one call to preserve cross-line context
     // (refrains, callbacks, character voices) the prompt depends on.
+    // `temperature` is intentionally omitted. Newer Claude models
+    // reject it with HTTP 400 "temperature is deprecated for this
+    // model"; omitting it uses the model default and works across
+    // both old and new models. Output stays reliable because the
+    // system prompt enforces JSON-only and the parser tolerates
+    // surrounding prose.
     NSDictionary *body = @{
         @"model": model,
         @"max_tokens": @8192,
@@ -142,7 +148,6 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
         @"messages": @[
             @{@"role": @"user", @"content": [YTMUPromptBuilder userPromptForRequest:request]},
         ],
-        @"temperature": @0.3,
         @"stream": @YES,
     };
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
@@ -244,12 +249,14 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
     // extraction (parseJsonObject / parseLinesFromJSON) to tolerate
     // surrounding prose.
 
+    // `temperature` omitted — newer Claude models reject it with
+    // HTTP 400 "temperature is deprecated for this model". Default
+    // temperature is fine; callers parse JSON defensively.
     NSDictionary *body = @{
         @"model": model,
         @"max_tokens": @8192,
         @"system": systemPrompt ?: @"",
         @"messages": messages,
-        @"temperature": @0.2,
         @"stream": @YES,
     };
 
