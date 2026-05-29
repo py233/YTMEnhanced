@@ -1,59 +1,44 @@
-# YTMusicUltimate
-<p align="center">
-<img src=https://user-images.githubusercontent.com/38832025/235781424-06d81647-b3db-4d9b-94dc-cd65cdf09145.png?raw=true) />
-</p>    
+# YTMEnhanced
 
 <p align="center">
-<img src=https://user-images.githubusercontent.com/38832025/235781207-6d1ad44e-0c32-4aec-9c75-cb928ca8a0d3.png?raw=true) />
+<img src="https://user-images.githubusercontent.com/38832025/235781424-06d81647-b3db-4d9b-94dc-cd65cdf09145.png?raw=true" />
 </p>
 
 <p align="center">
-The best tweak for the YouTube Music on iOS.
+A YouTube Music iOS tweak with bilingual lyrics, on-device translation, and real-time scrobbling.
 </p>
 
-## Download Links
+## Features
 
-* **Jailbreak:**
-Add __[https://ginsu.dev/repo](https://ginsu.dev/repo)__ to your favorite installer and download latest version from there, or from __[Releases](https://github.com/ginsudev/YTMusicUltimate/releases)__ page.
+- **Bilingual lyrics** — original and translation shown line by line, pulled from multiple lyrics sources automatically
+- **Translation** — bring your own LLM key (Anthropic / Gemini / OpenAI-compatible) or use Google Translate
+- **Scrobbling** — real-time Last.fm and ListenBrainz with an offline queue
+- Plus the usual basics: ad removal, background playback, audio downloads, SponsorBlock, seek buttons, playback rate
 
-(arm.deb version for Rootful and arm64.deb version for Rootless devices)
+## Screenshots
 
-* **Sideloading:**
-  We no longer provide a sideloading IPA but you can build one yourself, keep reading:
+> _WIP._
 
-## How to build a YTMusicUltimate IPA by yourself using Github actions
+## Build
 
-If this is your first time here, start from step 1. If you built a YTMU IPA before, skip steps 1 and 2. Instead, click on the "Sync fork" button to get the latest version of the tweak and continue through step 3.
+Sideloaded IPA (needs [Theos](https://theos.dev/) + [`cyan`](https://github.com/asdfzxcvbn/pyzule-rw)):
 
-1. Fork this repository using the fork button on the top right.
-2. On your forked repository, go to Repository Settings > Actions, enable Read and Write permissions.
-3. Go to the Actions tab on your forked repo, click on "Build and Release YTMusicUltimate" located on the left side. Click "Run workflow" button located on the right side.
-4. Find a decrypted YTMusic .ipa file (we cannot provide you this due to legal reasons) and upload it to a file provider(filebin.net or Dropbox is recommended). Paste the url to the necessary field and click "Run workflow".
-5. Wait for the build to finish. You can download the tweaked IPA from the releases section of your forked repo. (If you can't find the releases section, go to your forked repo and add /releases to the url. i.e github.com/user/YTMusicUltimate/releases)
+```sh
+scripts/build_sideload_ipa.sh <decrypted_ytm.ipa>
+```
 
-## IPA building troubleshooting(I can't build the IPA/Github action fails/I can't find the releases section etc.)
+Or build a `.deb` with `make clean package` (`ROOTLESS=1` / `ROOTHIDE=1` as needed). You supply your own decrypted YouTube Music `.ipa`.
 
-99.9% of the time, the culprit is the IPA URL you provided. You HAVE TO provide a decryped IPA. It cannot be any other extension, it has to be a **.ipa** file. Find a decrypted YTMusic IPA(we can't help you with that), upload it to filebin.net or Dropbox, give the direct link to the GitHub action. If you find a working ipa and upload it properly, everything will start working perfectly, pinky promise.
+## Acknowledgements
 
-If the github action works and you cannot find where you can download the result, you need to add /releases to the url of your forked repository. It'll probably look like this: https://github.com/YOURUSERNAME/YTMusicUltimate/releases, don't forget to replace the YOURUSERNAME part with your username. It may seem invisible but if the github action is successful, IPA will be there.
+- [YTMusicUltimate](https://github.com/ginsudev/YTMusicUltimate) — the base tweak this is built on (GPL-3.0)
+- [SponsorBlock](https://sponsor.ajay.app/) — segment-skip data
+- [LRCLIB](https://lrclib.net/), [NetEase Cloud Music](https://music.163.com/), Genius, Musixmatch — lyrics sources
+- [Last.fm](https://last.fm/api/) · [ListenBrainz](https://listenbrainz.org/) — scrobbling
+- [mobile-ffmpeg](https://github.com/tanersener/mobile-ffmpeg), [MBProgressHUD](https://github.com/jdg/MBProgressHUD) — bundled libraries
 
+## License
 
-## How to build the package by yourself on your device
-1. Install __[Theos](https://theos.dev/docs/installation)__
-2. Clone this repo __[using git](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository)__
-3. Cd your YTMusicUltimate folder and run:
+GPL-3.0. See [LICENSE](LICENSE).
 
-   • '**make clean package**' to build deb for rootful device
-   
-   • '**make clean package ROOTLESS=1**' to build deb for rootless device
-   
-   • '**make clean package SIDELOADING=1**' to build deb for injecting in to ipa
-   
-   
-
-   • To learn how to inject tweaks in to ipa visit __[here (Azule)](https://github.com/Al4ise/Azule)__
-
-
-
-
-Made with ❤ by Ginsu and Dayanch96
+Not affiliated with YouTube or Google LLC. "YouTube" and "YouTube Music" are trademarks of Google LLC.
