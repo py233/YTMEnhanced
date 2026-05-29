@@ -1,4 +1,4 @@
-"ENABLED" = "YTMusicUltimate'i etkinleştir";
+"ENABLED" = "YTMEnhanced'i etkinleştir";
 "RESTART_FOOTER" = "Değişiklikleri uygulamak için uygulamayı yeniden başlatın";
 
 "PREMIUM_SETTINGS" = "Premium ayarları";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "Oynatıcı ayarları";
 "DOWNLOAD_AUDIO" = "Ses indir";
-"DOWNLOAD_AUDIO_DESC" = "Oynatıcıdaki YTMUltimate butonuna basarak ses indirme özelliğini ekler";
+"DOWNLOAD_AUDIO_DESC" = "Oynatıcıdaki YTMEnhanced butonuna basarak ses indirme özelliğini ekler";
 "DOWNLOAD_COVER" = "Albüm resmi indir";
-"DOWNLOAD_COVER_DESC" = "Oynatıcıdaki YTMUltimate butonuna basarak albüm resmi indirme özelliğini ekler";
+"DOWNLOAD_COVER_DESC" = "Oynatıcıdaki YTMEnhanced butonuna basarak albüm resmi indirme özelliğini ekler";
 "PLAYBACK_RATE_BUTTON" = "Oynatma hızı düğmesini göster";
 "PLAYBACK_RATE_BUTTON_DESC" = "Oynatma hızını ayarla";
 "VOLBAR" = "Ses çubuğu";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "Hata ayıklama günlükleri";
 "SCROBBLE_DEBUG_LOGS_DESC" = "Scrobble tanılamasını cihaz günlüklerine yazar";
+
+"TRANSLATION_SELECT_MODEL" = "Model seç";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "Elle gir";
+"TRANSLATION_MODEL_FETCH_FAILED" = "Modeller alınamadı";
+"TRANSLATION_MODEL_NEED_KEY" = "Önce API anahtarını gir";
+
+"TRANSLATION_TEST_MODEL" = "Modeli test et";
+"TRANSLATION_TEST_SUCCESS" = "Model çalışıyor";
+"TRANSLATION_TEST_FAILED" = "Test başarısız";
+"TRANSLATION_TEST_NO_PROVIDER" = "Önce bir sağlayıcı seç ve API anahtarı gir";

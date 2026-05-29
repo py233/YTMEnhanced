@@ -1,4 +1,4 @@
-"ENABLED" = "啟用";
+"ENABLED" = "啟用 YTMEnhanced";
 "RESTART_FOOTER" = "重新啟動應用程式以套用變更";
 
 "PREMIUM_SETTINGS" = "Premium功能";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "除錯日誌";
 "SCROBBLE_DEBUG_LOGS_DESC" = "把 scrobble 診斷資訊輸出到裝置日誌";
+
+"TRANSLATION_SELECT_MODEL" = "選擇模型";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "手動輸入";
+"TRANSLATION_MODEL_FETCH_FAILED" = "無法取得模型清單";
+"TRANSLATION_MODEL_NEED_KEY" = "請先填寫 API key";
+
+"TRANSLATION_TEST_MODEL" = "測試模型";
+"TRANSLATION_TEST_SUCCESS" = "模型可用";
+"TRANSLATION_TEST_FAILED" = "測試失敗";
+"TRANSLATION_TEST_NO_PROVIDER" = "請先選擇 provider 並填寫 API key";

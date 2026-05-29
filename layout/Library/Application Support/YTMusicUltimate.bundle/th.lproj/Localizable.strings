@@ -1,4 +1,4 @@
-"ENABLED" = "เปิดใช้งาน YTMusicUltimate";
+"ENABLED" = "เปิดใช้งาน YTMEnhanced";
 "RESTART_FOOTER" = "ต้องรีสตาร์ทแอปเพื่อปรับใช้งาน";
 
 "PREMIUM_SETTINGS" = "พรีเมียม";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "เครื่องเล่น";
 "DOWNLOAD_AUDIO" = "ดาวน์โหลดเสียง";
-"DOWNLOAD_AUDIO_DESC" = "เพิ่มตัวเลือกดาวน์โหลดเสียงโดยกดปุ่ม YTMUltimate ในเครื่องเล่น";
+"DOWNLOAD_AUDIO_DESC" = "เพิ่มตัวเลือกดาวน์โหลดเสียงโดยกดปุ่ม YTMEnhanced ในเครื่องเล่น";
 "DOWNLOAD_COVER" = "ดาวน์โหลดภาพปก";
-"DOWNLOAD_COVER_DESC" = "เพิ่มตัวเลือกดาวน์โหลดภาพปกโดยกดปุ่ม YTMUltimate ในเครื่องเล่น";
+"DOWNLOAD_COVER_DESC" = "เพิ่มตัวเลือกดาวน์โหลดภาพปกโดยกดปุ่ม YTMEnhanced ในเครื่องเล่น";
 "PLAYBACK_RATE_BUTTON" = "แสดงปุ่มปรับความเร็ว";
 "PLAYBACK_RATE_BUTTON_DESC" = "ใช้ในการปรับความเร็วการเล่น";
 "VOLBAR" = "แถบปรับระดับเสียง";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "บันทึกการดีบัก";
 "SCROBBLE_DEBUG_LOGS_DESC" = "พิมพ์ข้อมูลวินิจฉัย scrobble ไปยังบันทึกของอุปกรณ์";
+
+"TRANSLATION_SELECT_MODEL" = "เลือกโมเดล";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "ป้อนเอง";
+"TRANSLATION_MODEL_FETCH_FAILED" = "ดึงรายการโมเดลไม่สำเร็จ";
+"TRANSLATION_MODEL_NEED_KEY" = "กรอกคีย์ API ก่อน";
+
+"TRANSLATION_TEST_MODEL" = "ทดสอบโมเดล";
+"TRANSLATION_TEST_SUCCESS" = "โมเดลใช้งานได้";
+"TRANSLATION_TEST_FAILED" = "ทดสอบไม่สำเร็จ";
+"TRANSLATION_TEST_NO_PROVIDER" = "เลือกผู้ให้บริการและกรอกคีย์ API ก่อน";

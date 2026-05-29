@@ -1,4 +1,4 @@
-"ENABLED" = "Bật YTMusicUltimate";
+"ENABLED" = "Bật YTMEnhanced";
 "RESTART_FOOTER" = "Khởi động lại ứng dụng để áp dụng các thay đổi";
 
 "PREMIUM_SETTINGS" = "Tùy chọn Premium";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "Tùy chọn trình phát";
 "DOWNLOAD_AUDIO" = "Tải âm thanh xuống";
-"DOWNLOAD_AUDIO_DESC" = "Thêm tùy chọn tải xuống âm thanh bằng cách nhấn nút YTMUltimate trong trình phát";
+"DOWNLOAD_AUDIO_DESC" = "Thêm tùy chọn tải xuống âm thanh bằng cách nhấn nút YTMEnhanced trong trình phát";
 "DOWNLOAD_COVER" = "Tải ảnh bìa xuống";
-"DOWNLOAD_COVER_DESC" = "Thêm tùy chọn tải xuống ảnh bìa bằng cách nhấn nút YTMUltimate trong trình phát";
+"DOWNLOAD_COVER_DESC" = "Thêm tùy chọn tải xuống ảnh bìa bằng cách nhấn nút YTMEnhanced trong trình phát";
 "PLAYBACK_RATE_BUTTON" = "Nút điều khiển tốc độ";
 "PLAYBACK_RATE_BUTTON_DESC" = "Hiển thị nút điều khiển tốc độ phát";
 "VOLBAR" = "Thanh âm lượng";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "Nhật ký gỡ lỗi";
 "SCROBBLE_DEBUG_LOGS_DESC" = "In chẩn đoán scrobble vào nhật ký thiết bị";
+
+"TRANSLATION_SELECT_MODEL" = "Chọn mô hình";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "Nhập thủ công";
+"TRANSLATION_MODEL_FETCH_FAILED" = "Không lấy được danh sách mô hình";
+"TRANSLATION_MODEL_NEED_KEY" = "Nhập khóa API trước";
+
+"TRANSLATION_TEST_MODEL" = "Kiểm tra mô hình";
+"TRANSLATION_TEST_SUCCESS" = "Mô hình hoạt động";
+"TRANSLATION_TEST_FAILED" = "Kiểm tra thất bại";
+"TRANSLATION_TEST_NO_PROVIDER" = "Chọn nhà cung cấp và nhập khóa API trước";

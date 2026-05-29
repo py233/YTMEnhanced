@@ -1,4 +1,4 @@
-"ENABLED" = "有効";
+"ENABLED" = "YTMEnhancedを有効にする";
 "RESTART_FOOTER" = "変更を適用するためにアプリを再起動";
 
 "PREMIUM_SETTINGS" = "プレミアムオプション";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "プレーヤーオプション";
 "DOWNLOAD_AUDIO" = "Download audio";
-"DOWNLOAD_AUDIO_DESC" = "Adds the option to download audio by pressing the YTMUltimate button in the player";
+"DOWNLOAD_AUDIO_DESC" = "Adds the option to download audio by pressing the YTMEnhanced button in the player";
 "DOWNLOAD_COVER" = "Download cover image";
-"DOWNLOAD_COVER_DESC" = "Adds the option to download cover image by pressing the YTMUltimate button in the player";
+"DOWNLOAD_COVER_DESC" = "Adds the option to download cover image by pressing the YTMEnhanced button in the player";
 "PLAYBACK_RATE_BUTTON" = "再生速度ボタンを表示";
 "PLAYBACK_RATE_BUTTON_DESC" = "再生速度を変更できます";
 "VOLBAR" = "ボリュームバー";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "デバッグログ";
 "SCROBBLE_DEBUG_LOGS_DESC" = "scrobbleの診断情報をデバイスログに出力します";
+
+"TRANSLATION_SELECT_MODEL" = "モデルを選択";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "手動で入力";
+"TRANSLATION_MODEL_FETCH_FAILED" = "モデル一覧を取得できませんでした";
+"TRANSLATION_MODEL_NEED_KEY" = "先に API キーを入力してください";
+
+"TRANSLATION_TEST_MODEL" = "モデルをテスト";
+"TRANSLATION_TEST_SUCCESS" = "モデルは正常です";
+"TRANSLATION_TEST_FAILED" = "テスト失敗";
+"TRANSLATION_TEST_NO_PROVIDER" = "先にプロバイダーを選び API キーを入力してください";

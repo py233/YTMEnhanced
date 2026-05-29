@@ -1,4 +1,4 @@
-"ENABLED" = "启用 YTMusicUltimate";
+"ENABLED" = "启用 YTMEnhanced";
 "RESTART_FOOTER" = "重启 App 以应用更改";
 
 "PREMIUM_SETTINGS" = "Premium 功能";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "播放器选项";
 "DOWNLOAD_AUDIO" = "下载音频";
-"DOWNLOAD_AUDIO_DESC" = "在播放器的 YTMUltimate 按钮中加入下载音频选项";
+"DOWNLOAD_AUDIO_DESC" = "在播放器的 YTMEnhanced 按钮中加入下载音频选项";
 "DOWNLOAD_COVER" = "下载封面";
-"DOWNLOAD_COVER_DESC" = "在播放器的 YTMUltimate 按钮中加入下载封面图选项";
+"DOWNLOAD_COVER_DESC" = "在播放器的 YTMEnhanced 按钮中加入下载封面图选项";
 "PLAYBACK_RATE_BUTTON" = "显示播放速度按钮";
 "PLAYBACK_RATE_BUTTON_DESC" = "调节播放速度";
 "VOLBAR" = "音量条";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "调试日志";
 "SCROBBLE_DEBUG_LOGS_DESC" = "把 scrobble 诊断信息输出到设备日志";
+
+"TRANSLATION_SELECT_MODEL" = "选择模型";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "手动输入";
+"TRANSLATION_MODEL_FETCH_FAILED" = "无法获取模型列表";
+"TRANSLATION_MODEL_NEED_KEY" = "请先填写 API key";
+
+"TRANSLATION_TEST_MODEL" = "测试模型";
+"TRANSLATION_TEST_SUCCESS" = "模型可用";
+"TRANSLATION_TEST_FAILED" = "测试失败";
+"TRANSLATION_TEST_NO_PROVIDER" = "请先选择 provider 并填写 API key";

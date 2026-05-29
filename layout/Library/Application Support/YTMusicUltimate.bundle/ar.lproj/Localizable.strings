@@ -1,4 +1,4 @@
-"ENABLED" = "تفعيل";
+"ENABLED" = "تفعيل YTMEnhanced";
 "RESTART_FOOTER" = "قم بإغلاق وإعادة فتح البرنامج لتطبيق الاعدادات";
 
 "PREMIUM_SETTINGS" = "مميزات البريميوم";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "إعدادات المشغل";
 "DOWNLOAD_AUDIO" = "تحميل الموسيقي";
-"DOWNLOAD_AUDIO_DESC" = "يضيف خيار تنزيل الصوت عند الضغط على زر YTMUltimate في المشغل";
+"DOWNLOAD_AUDIO_DESC" = "يضيف خيار تنزيل الصوت عند الضغط على زر YTMEnhanced في المشغل";
 "DOWNLOAD_COVER" = "تحميل صورة الغلاف";
-"DOWNLOAD_COVER_DESC" = "يضيف خيار تنزيل صورة الغلاف عند الضغط على زر YTMUltimate في المشغل";
+"DOWNLOAD_COVER_DESC" = "يضيف خيار تنزيل صورة الغلاف عند الضغط على زر YTMEnhanced في المشغل";
 "PLAYBACK_RATE_BUTTON" = "إظهار زر تقييم التشغيل";
 "PLAYBACK_RATE_BUTTON_DESC" = "التحكم بسرعة التشغيل";
 "VOLBAR" = "شريط الصوت";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "سجلات التصحيح";
 "SCROBBLE_DEBUG_LOGS_DESC" = "طباعة تشخيص scrobble في سجلات الجهاز";
+
+"TRANSLATION_SELECT_MODEL" = "اختر النموذج";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "إدخال يدوي";
+"TRANSLATION_MODEL_FETCH_FAILED" = "تعذّر جلب النماذج";
+"TRANSLATION_MODEL_NEED_KEY" = "أدخل مفتاح API أولاً";
+
+"TRANSLATION_TEST_MODEL" = "اختبار النموذج";
+"TRANSLATION_TEST_SUCCESS" = "النموذج يعمل";
+"TRANSLATION_TEST_FAILED" = "فشل الاختبار";
+"TRANSLATION_TEST_NO_PROVIDER" = "اختر مزوّدًا وأدخل مفتاح API أولاً";

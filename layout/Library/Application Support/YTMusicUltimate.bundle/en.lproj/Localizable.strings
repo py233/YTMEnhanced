@@ -1,4 +1,4 @@
-"ENABLED" = "Enable YTMusicUltimate";
+"ENABLED" = "Enable YTMEnhanced";
 "RESTART_FOOTER" = "Restart the app to apply changes";
 
 "PREMIUM_SETTINGS" = "Premium options";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "Player options";
 "DOWNLOAD_AUDIO" = "Download audio";
-"DOWNLOAD_AUDIO_DESC" = "Adds an audio download option to the player's YTMUltimate button";
+"DOWNLOAD_AUDIO_DESC" = "Adds an audio download option to the player's YTMEnhanced button";
 "DOWNLOAD_COVER" = "Download cover image";
-"DOWNLOAD_COVER_DESC" = "Adds a cover-image download option to the player's YTMUltimate button";
+"DOWNLOAD_COVER_DESC" = "Adds a cover-image download option to the player's YTMEnhanced button";
 "PLAYBACK_RATE_BUTTON" = "Show playback rate button";
 "PLAYBACK_RATE_BUTTON_DESC" = "Adjust playback speed";
 "VOLBAR" = "Volume bar";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "Debug logs";
 "SCROBBLE_DEBUG_LOGS_DESC" = "Prints scrobble diagnostics to device logs";
+
+"TRANSLATION_SELECT_MODEL" = "Select model";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "Enter manually";
+"TRANSLATION_MODEL_FETCH_FAILED" = "Couldn't fetch models";
+"TRANSLATION_MODEL_NEED_KEY" = "Enter your API key first";
+
+"TRANSLATION_TEST_MODEL" = "Test model";
+"TRANSLATION_TEST_SUCCESS" = "Model is working";
+"TRANSLATION_TEST_FAILED" = "Test failed";
+"TRANSLATION_TEST_NO_PROVIDER" = "Select a provider and enter an API key first";

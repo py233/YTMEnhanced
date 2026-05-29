@@ -1,4 +1,4 @@
-"ENABLED" = "Activar YTMusicUltimate";
+"ENABLED" = "Activar YTMEnhanced";
 "RESTART_FOOTER" = "Reinicia la aplicación para aplicar los cambios";
 
 "PREMIUM_SETTINGS" = "Opciones premium";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "Opciones del reproductor";
 "DOWNLOAD_AUDIO" = "Descargar audio";
-"DOWNLOAD_AUDIO_DESC" = "Añade la opción de descargar audio pulsando el botón YTMUltimate en el reproductor";
+"DOWNLOAD_AUDIO_DESC" = "Añade la opción de descargar audio pulsando el botón YTMEnhanced en el reproductor";
 "DOWNLOAD_COVER" = "Descargar imagen de portada";
-"DOWNLOAD_COVER_DESC" = "Añade la opción de descargar la imagen de portada pulsando el botón YTMUltimate en el reproductor";
+"DOWNLOAD_COVER_DESC" = "Añade la opción de descargar la imagen de portada pulsando el botón YTMEnhanced en el reproductor";
 "PLAYBACK_RATE_BUTTON" = "Mostrar botón de velocidad de reproducción";
 "PLAYBACK_RATE_BUTTON_DESC" = "Ajustar la velocidad de reproducción";
 "VOLBAR" = "Barra de volumen";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "Registros de depuración";
 "SCROBBLE_DEBUG_LOGS_DESC" = "Imprime diagnóstico de scrobble en los registros del dispositivo";
+
+"TRANSLATION_SELECT_MODEL" = "Seleccionar modelo";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "Introducir manualmente";
+"TRANSLATION_MODEL_FETCH_FAILED" = "No se pudieron obtener los modelos";
+"TRANSLATION_MODEL_NEED_KEY" = "Introduce primero tu clave API";
+
+"TRANSLATION_TEST_MODEL" = "Probar modelo";
+"TRANSLATION_TEST_SUCCESS" = "El modelo funciona";
+"TRANSLATION_TEST_FAILED" = "Prueba fallida";
+"TRANSLATION_TEST_NO_PROVIDER" = "Selecciona un proveedor e introduce una clave API primero";

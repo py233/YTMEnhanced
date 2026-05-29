@@ -1,4 +1,4 @@
-"ENABLED" = "Įjungti \"YTMusicUltimate\"";
+"ENABLED" = "Įjungti \"YTMEnhanced\"";
 "RESTART_FOOTER" = "Iš naujo paleiskite programą, kad pritaikytumėte pakeitimus";
 
 "PREMIUM_SETTINGS" = "\"Premium\" parinktys";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "Derinimo žurnalai";
 "SCROBBLE_DEBUG_LOGS_DESC" = "Spausdina scrobble diagnostiką į įrenginio žurnalus";
+
+"TRANSLATION_SELECT_MODEL" = "Pasirinkti modelį";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "Įvesti rankiniu būdu";
+"TRANSLATION_MODEL_FETCH_FAILED" = "Nepavyko gauti modelių";
+"TRANSLATION_MODEL_NEED_KEY" = "Pirma įveskite API raktą";
+
+"TRANSLATION_TEST_MODEL" = "Tikrinti modelį";
+"TRANSLATION_TEST_SUCCESS" = "Modelis veikia";
+"TRANSLATION_TEST_FAILED" = "Patikrinimas nepavyko";
+"TRANSLATION_TEST_NO_PROVIDER" = "Pirma pasirinkite tiekėją ir įveskite API raktą";

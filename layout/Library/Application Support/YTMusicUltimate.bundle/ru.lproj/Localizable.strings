@@ -1,4 +1,4 @@
-"ENABLED" = "Включить YTMusicUltimate";
+"ENABLED" = "Включить YTMEnhanced";
 "RESTART_FOOTER" = "Для применения настроек потребуется перезапуск";
 
 "PREMIUM_SETTINGS" = "Премиум настройки";
@@ -9,9 +9,9 @@
 
 "PLAYER_SETTINGS" = "Настройки плеера";
 "DOWNLOAD_AUDIO" = "Скачать аудио";
-"DOWNLOAD_AUDIO_DESC" = "Добавляет опцию загрузки аудио нажатием на кнопку «YTMUltimate» в плеере";
+"DOWNLOAD_AUDIO_DESC" = "Добавляет опцию загрузки аудио нажатием на кнопку «YTMEnhanced» в плеере";
 "DOWNLOAD_COVER" = "Скачать обложку";
-"DOWNLOAD_COVER_DESC" = "Добавляет опцию загрузки обложки песни нажатием на кнопку «YTMUltimate» в плеере";
+"DOWNLOAD_COVER_DESC" = "Добавляет опцию загрузки обложки песни нажатием на кнопку «YTMEnhanced» в плеере";
 "PLAYBACK_RATE_BUTTON" = "Скорость воспроизведения";
 "PLAYBACK_RATE_BUTTON_DESC" = "Добавляет иконку, позволяющую регулировать скорость воспроизведения";
 "VOLBAR" = "Регулировка громкости";
@@ -201,3 +201,13 @@
 
 "SCROBBLE_DEBUG_LOGS" = "Отладочные логи";
 "SCROBBLE_DEBUG_LOGS_DESC" = "Печатает диагностику scrobble в журнал устройства";
+
+"TRANSLATION_SELECT_MODEL" = "Выбрать модель";
+"TRANSLATION_MODEL_ENTER_MANUALLY" = "Ввести вручную";
+"TRANSLATION_MODEL_FETCH_FAILED" = "Не удалось загрузить модели";
+"TRANSLATION_MODEL_NEED_KEY" = "Сначала введите ключ API";
+
+"TRANSLATION_TEST_MODEL" = "Проверить модель";
+"TRANSLATION_TEST_SUCCESS" = "Модель работает";
+"TRANSLATION_TEST_FAILED" = "Проверка не удалась";
+"TRANSLATION_TEST_NO_PROVIDER" = "Сначала выберите провайдера и введите ключ API";
