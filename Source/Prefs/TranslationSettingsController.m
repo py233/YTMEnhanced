@@ -45,6 +45,9 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = LOC(@"TRANSLATION_SETTINGS");
+    if (@available(iOS 14.0, *)) {
+        self.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeGeneric;
+    }
     [self ensureDefaults];
 
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];

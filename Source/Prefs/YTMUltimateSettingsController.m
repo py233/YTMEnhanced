@@ -18,6 +18,13 @@
     self.navigationItem.leftBarButtonItem = closeButton;
     self.navigationItem.rightBarButtonItem = applyButton;
 
+    // Show the system-localized generic "Back" on pushed sub-pages instead of
+    // this screen's title, which otherwise shows next to short titles (e.g.
+    // "Scrobbling") but collapses to "Back" next to longer ones.
+    if (@available(iOS 14.0, *)) {
+        self.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeGeneric;
+    }
+
     self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     self.tableView.dataSource = self;
