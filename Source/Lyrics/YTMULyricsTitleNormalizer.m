@@ -194,7 +194,7 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
 #pragma mark - Prompts
 
 static NSString *const YTMULNSystemPrompt =
-@"You are a music metadata normalizer. Your only job is to extract the canonical song title and artist for a YouTube Music video so they can be used to look up lyrics in third-party databases (LRCLib, NetEase, MusixMatch, Genius). Output strict JSON only, with no markdown fences and no commentary.\n"
+@"You are a music metadata normalizer. Your only job is to extract the canonical song title and artist for a YouTube Music video so they can be used to look up lyrics in third-party databases (LRCLIB, NetEase, Musixmatch, Genius). Output strict JSON only, with no markdown fences and no commentary.\n"
 @"\n"
 @"Rules:\n"
 @"- The YouTube channel/uploader is often NOT the actual artist. Cover channels, label aggregators, individual fans uploading old OSTs, or doujin/Vocaloid distributors all post under names that do not match the performer or composer. Identify the real artist from the title, description, and any staff list (\"曲: ...\" / \"歌: ...\" / \"作詞: ...\" / \"vocal:\" / \"music:\").\n"

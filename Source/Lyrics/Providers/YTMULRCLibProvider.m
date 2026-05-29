@@ -64,7 +64,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
         }
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         if (![json isKindOfClass:[NSArray class]]) {
-            completion(nil, error ?: [NSError errorWithDomain:@"YTMULRCLib" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_LRCLIB_BAD_JSON", @"LRCLib returned invalid JSON")}]);
+            completion(nil, error ?: [NSError errorWithDomain:@"YTMULRCLib" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_LRCLIB_BAD_JSON", @"LRCLIB returned invalid JSON")}]);
             return;
         }
         completion(json, nil);
@@ -199,7 +199,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
     [self fetchQuery:primary withTimeout:primaryTimeout completion:^(NSArray<NSDictionary *> *items, NSError *error) {
         YTMULyricsResult *best = error ? nil : [self bestResultFromItems:items info:info];
         if (best) {
-            YTMULyricsLog(@"LRCLib match title=%@ lines=%lu plain=%d",
+            YTMULyricsLog(@"LRCLIB match title=%@ lines=%lu plain=%d",
                           best.title,
                           (unsigned long)best.lines.count,
                           best.plainLyrics.length > 0);
@@ -249,13 +249,13 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
     NSTimeInterval remaining = [self remainingBudgetFromStart:startedAt];
     if (remaining < 0.8) {
         NSTimeInterval elapsed = YTMULRCLibTotalDeadline - remaining;
-        YTMULyricsLog(@"LRCLib deadline reached after %.1fs (%lu of %lu fallbacks attempted) — giving up",
+        YTMULyricsLog(@"LRCLIB deadline reached after %.1fs (%lu of %lu fallbacks attempted) — giving up",
                       elapsed,
                       (unsigned long)index,
                       (unsigned long)queries.count);
         completion(nil, originalError ?: [NSError errorWithDomain:@"YTMULRCLib"
                                                               code:NSURLErrorTimedOut
-                                                          userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_LRCLIB_TIMEOUT", @"LRCLib deadline exceeded")}]);
+                                                          userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_LRCLIB_TIMEOUT", @"LRCLIB deadline exceeded")}]);
         return;
     }
     NSString *query = queries[index];

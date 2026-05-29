@@ -48,7 +48,7 @@
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *token = YTMULyricsJSONStringAtPath(json, @[@"message", @"body", @"user_token"]);
         if (!token.length) {
-            completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_NO_TOKEN", @"MusixMatch token not initialized")}]);
+            completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_NO_TOKEN", @"Musixmatch token not initialized")}]);
             return;
         }
         self.token = token;
@@ -87,7 +87,7 @@
         [self captureCookie:(NSHTTPURLResponse *)response];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         if (json && ![json isKindOfClass:[NSDictionary class]]) {
-            completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_BAD_JSON", @"MusixMatch returned invalid JSON")}]);
+            completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_BAD_JSON", @"Musixmatch returned invalid JSON")}]);
             return;
         }
         completion((NSDictionary *)json, error);
@@ -133,7 +133,7 @@
         [self queryMacroWithInfo:info token:token completion:^(NSDictionary *json, NSError *queryError) {
             YTMULyricsResult *result = queryError ? nil : [self resultFromJSON:json info:info];
             if (result) {
-                YTMULyricsLog(@"MusixMatch match title=%@ synced=%d lines=%lu",
+                YTMULyricsLog(@"Musixmatch match title=%@ synced=%d lines=%lu",
                               result.title,
                               result.isSynced,
                               (unsigned long)result.lineTexts.count);

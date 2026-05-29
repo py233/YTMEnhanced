@@ -1,9 +1,9 @@
 #import "YTMULyricsTypes.h"
 
 NSString *const YTMULyricsSourceYTMusic = @"YTMusic";
-NSString *const YTMULyricsSourceLRCLib = @"LRCLib";
+NSString *const YTMULyricsSourceLRCLib = @"LRCLIB";
 NSString *const YTMULyricsSourceNetEase = @"NetEase";
-NSString *const YTMULyricsSourceMusixMatch = @"MusixMatch";
+NSString *const YTMULyricsSourceMusixMatch = @"Musixmatch";
 NSString *const YTMULyricsSourceGenius = @"Genius";
 NSString *const YTMULyricsSourceDescription = @"Description";
 

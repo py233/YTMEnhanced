@@ -106,9 +106,9 @@ static NSArray<NSDictionary *> *YTMULyricsPageSourceOptions(void) {
         options = @[
             @{@"key": @"auto", @"title": YTMULyricsPageLocalized(@"LYRICS_SOURCE_AUTO", @"Auto")},
             @{@"key": YTMULyricsSourceYTMusic, @"title": @"YTMusic"},
-            @{@"key": YTMULyricsSourceLRCLib, @"title": @"LRCLib"},
+            @{@"key": YTMULyricsSourceLRCLib, @"title": @"LRCLIB"},
             @{@"key": YTMULyricsSourceNetEase, @"title": @"NetEase"},
-            @{@"key": YTMULyricsSourceMusixMatch, @"title": @"MusixMatch"},
+            @{@"key": YTMULyricsSourceMusixMatch, @"title": @"Musixmatch"},
             @{@"key": YTMULyricsSourceGenius, @"title": @"Genius"},
             @{@"key": YTMULyricsSourceDescription, @"title": @"Description"},
         ];
