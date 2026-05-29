@@ -2796,7 +2796,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
     YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
     YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
-    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(YES));
+    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(NO));
     YTMULyricsSetDefault(dict, @"lyricsFocusBlur", @(YES));
     [defaults setObject:dict forKey:@"YTMUltimate"];
 }

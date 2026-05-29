@@ -152,8 +152,8 @@ void YTMUScrobbleSetDefaults(NSString *key, id _Nullable value);
 #pragma mark - Logging
 
 // Same shape as YTMULyricsLog / YTMUTranslationLog. Gated on the
-// `scrobbleDebugLogs` defaults key (default YES — flip to NO once
-// shipping). Format string is required.
+// `scrobbleDebugLogs` defaults key (default NO — users opt in from
+// the Scrobbling settings when diagnosing). Format string is required.
 void YTMUScrobbleLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 
 NS_ASSUME_NONNULL_END

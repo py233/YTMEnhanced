@@ -204,7 +204,7 @@ static NSDictionary *YTMULyricsSettingsDictionary(void) {
 
 BOOL YTMULyricsDebugLoggingEnabled(void) {
     id value = YTMULyricsSettingsDictionary()[@"translationDebugLogs"];
-    return value == nil ? YES : [value boolValue];
+    return value == nil ? NO : [value boolValue];
 }
 
 void YTMULyricsLog(NSString *format, ...) {

@@ -179,7 +179,7 @@ void YTMUScrobbleSetDefaults(NSString *key, id _Nullable value) {
 #pragma mark - Logging
 
 void YTMUScrobbleLog(NSString *format, ...) {
-    if (!YTMUScrobbleDefaultsBool(@"scrobbleDebugLogs", YES)) return;
+    if (!YTMUScrobbleDefaultsBool(@"scrobbleDebugLogs", NO)) return;
     va_list args;
     va_start(args, format);
     NSString *message = [[NSString alloc] initWithFormat:format arguments:args];

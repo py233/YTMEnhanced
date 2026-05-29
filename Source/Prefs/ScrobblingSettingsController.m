@@ -231,7 +231,7 @@ typedef NS_ENUM(NSInteger, ScrobblingSection) {
             return [self switchCellWithTitle:LOC(@"SCROBBLE_DEBUG_LOGS")
                                       detail:LOC(@"SCROBBLE_DEBUG_LOGS_DESC")
                                          key:@"scrobbleDebugLogs"
-                                    fallback:YES
+                                    fallback:NO
                                       action:@selector(toggleSwitch:)];
         default: break;
     }

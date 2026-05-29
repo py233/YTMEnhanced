@@ -15,7 +15,7 @@ NSString *const YTMUTranslationErrorDomain = @"YTMUTranslationErrorDomain";
 BOOL YTMUTranslationDebugLoggingEnabled(void) {
     NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
     id value = dict[@"translationDebugLogs"];
-    return value == nil ? YES : [value boolValue];
+    return value == nil ? NO : [value boolValue];
 }
 
 void YTMUTranslationLog(NSString *format, ...) {
