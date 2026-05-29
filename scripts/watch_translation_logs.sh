@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stream YTMusicUltimate-Bilingual logs from a connected iPhone.
+# Stream YTMEnhanced logs from a connected iPhone.
 # By default catches BOTH log prefixes — [YTMULyrics] and [YTMUTranslation] —
 # plus any other line containing "YTMU".
 FILTER="${1:-YTMU}"

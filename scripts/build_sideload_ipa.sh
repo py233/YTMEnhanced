@@ -9,9 +9,9 @@ Usage:
 Examples:
   scripts/build_sideload_ipa.sh "_YouTube Music_v9.17-AppAssassin.ipa"
   scripts/build_sideload_ipa.sh "_YouTube Music_v9.17-AppAssassin.ipa" \
-    "build/ipa/YTMusicUltimate-Bilingual.ipa" \
-    "YTMusic Bilingual" \
-    "com.py233.ytmusicultimate.bilingual"
+    "build/ipa/YTMEnhanced.ipa" \
+    "YTMEnhanced" \
+    "com.py233.ytmenhanced"
 
 Environment:
   THEOS defaults to /Users/py_23/theos
@@ -25,9 +25,9 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
 fi
 
 IPA_INPUT="$1"
-IPA_OUTPUT="${2:-build/ipa/YTMusicUltimate-Bilingual.ipa}"
-DISPLAY_NAME="${3:-YTMusic Bilingual}"
-BUNDLE_ID="${4:-com.py233.ytmusicultimate.bilingual}"
+IPA_OUTPUT="${2:-build/ipa/YTMEnhanced.ipa}"
+DISPLAY_NAME="${3:-YTMEnhanced}"
+BUNDLE_ID="${4:-com.py233.ytmenhanced}"
 THEOS="${THEOS:-/Users/py_23/theos}"
 CYAN="${CYAN:-cyan}"
 
@@ -64,7 +64,7 @@ echo "==> Injecting $DEB into $IPA_INPUT"
 "$CYAN" \
   -i "$IPA_INPUT" \
   -o "$IPA_OUTPUT" \
-  -u -w -s \
+  -u -w -s -e \
   -f "$DEB" \
   -n "$DISPLAY_NAME" \
   -b "$BUNDLE_ID" \
