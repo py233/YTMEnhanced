@@ -242,7 +242,7 @@
         }
     }
     actionTitle:LOC(@"RENAME")];
-    alertView.title = @"YTMusicUltimate";
+    alertView.title = @"YTMEnhanced";
 
     UIView *customView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, alertView.frameForDialog.size.width - 50, 75)];
     textView.frame = customView.frame;
@@ -270,7 +270,7 @@
         }
     }
     actionTitle:LOC(@"DELETE")];
-    alertView.title = @"YTMusicUltimate";
+    alertView.title = @"YTMEnhanced";
     alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), [self.audioFiles[indexPath.row] stringByDeletingPathExtension]];
     [alertView show];
 }
@@ -379,7 +379,7 @@
         }
     }
     actionTitle:LOC(@"DELETE")];
-    alertView.title = @"YTMusicUltimate";
+    alertView.title = @"YTMEnhanced";
     alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), LOC(@"ALL_DOWNLOADS")];
     [alertView show];
 }

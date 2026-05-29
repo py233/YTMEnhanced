@@ -43,7 +43,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
     }];
     NSString *url = [NSString stringWithFormat:@"https://lrclib.net/api/search?%@", [parts componentsJoinedByString:@"&"]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
-    [request setValue:@"YTMusicUltimate-Bilingual/1.0 (https://github.com/py233/YTMusicUltimate-Bilingual)" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"YTMEnhanced/1.0 (https://github.com/py233/YTMEnhanced)" forHTTPHeaderField:@"User-Agent"];
     request.timeoutInterval = timeout;
     return request;
 }

@@ -201,7 +201,7 @@ static NSError *YTMUListenBrainzError(NSInteger code, NSString *message) {
     for (YTMUListen *listen in listens) {
         NSMutableDictionary *additional = [NSMutableDictionary dictionary];
         additional[@"media_player"] = @"YouTube Music (iOS)";
-        additional[@"submission_client"] = @"YTMusicUltimate";
+        additional[@"submission_client"] = @"YTMEnhanced";
         if (listen.videoId.length) {
             additional[@"origin_url"] = [NSString stringWithFormat:@"https://music.youtube.com/watch?v=%@", listen.videoId];
             additional[@"music_service"] = @"music.youtube.com";

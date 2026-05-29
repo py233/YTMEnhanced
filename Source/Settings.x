@@ -46,9 +46,9 @@
         [imageView.layer renderInContext:rendererContext.CGContext];
     }];
 
-    //Create the YTMusicUltimate button
-    YTMAccountButton *button = [[%c(YTMAccountButton) alloc] initWithTitle:@"YTMusicUltimate" identifier:@"ytmult" icon:icon actionBlock:^(BOOL arg4) {
-        //Push YTMusicUltimate view controller.
+    //Create the YTMEnhanced button
+    YTMAccountButton *button = [[%c(YTMAccountButton) alloc] initWithTitle:@"YTMEnhanced" identifier:@"ytmult" icon:icon actionBlock:^(BOOL arg4) {
+        //Push the settings view controller.
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:[[YTMUltimateSettingsController alloc] init]];
         [nav setModalPresentationStyle: UIModalPresentationFullScreen];
         [self._viewControllerForAncestor presentViewController:nav animated:YES completion:nil];
