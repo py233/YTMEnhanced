@@ -1,6 +1,7 @@
 #import "TranslationSettingsController.h"
 #import "../Headers/ABCSwitch.h"
 #import "../Translation/YTMUTranslationTypes.h"
+#import "../Translation/YTMUTranslator.h"
 #import "../Translation/YTMUPromptBuilder.h"
 #import "../Translation/YTMUTranslationCache.h"
 #import "../Lyrics/YTMULyricsCache.h"
@@ -136,7 +137,7 @@
     YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
     YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
     YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
-    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(YES));
+    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(NO));
     [defaults setObject:dict forKey:@"YTMUltimate"];
 }
 
@@ -233,7 +234,11 @@
     if ([provider isEqualToString:YTMUTranslationProviderGoogle]) return @[];
     NSMutableArray *rows = [NSMutableArray array];
     [rows addObject:@{@"title": LOC(@"TRANSLATION_API_KEY"), @"key": [@"translationApiKey_" stringByAppendingString:provider], @"secure": @(YES), @"fallback": @""}];
-    [rows addObject:@{@"title": LOC(@"TRANSLATION_MODEL"), @"key": [@"translationModel_" stringByAppendingString:provider], @"secure": @(NO), @"fallback": [self modelFallbackForProvider:provider]}];
+    // Model is a tappable picker row (type=model): tapping fetches the
+    // provider's available models from its /models endpoint and shows
+    // a chooser, with a manual-entry fallback for relays with custom
+    // names or when the fetch fails.
+    [rows addObject:@{@"title": LOC(@"TRANSLATION_MODEL"), @"key": [@"translationModel_" stringByAppendingString:provider], @"secure": @(NO), @"fallback": [self modelFallbackForProvider:provider], @"type": @"model"}];
     // Base URL override is available for every API-based provider so
     // users can route through OpenRouter / Cloudflare AI Gateway /
     // self-hosted proxies for any of them. Each provider has its own
@@ -245,6 +250,10 @@
     } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
         [rows addObject:@{@"title": LOC(@"TRANSLATION_BASE_URL"), @"key": @"translationBaseUrl_gemini", @"secure": @(NO), @"fallback": @"https://generativelanguage.googleapis.com"}];
     }
+    // Availability test button: fires a one-shot completion with the
+    // current key/model/baseURL through the real provider path and
+    // reports whether the model actually answers.
+    [rows addObject:@{@"type": @"test"}];
     return rows;
 }
 
@@ -380,6 +389,28 @@
     if (indexPath.section == 4) {
         NSArray *rows = [self providerConfigRows];
         NSDictionary *row = rows[indexPath.row];
+        // Model row: render as a tappable Value1 cell showing the
+        // current model, with a disclosure chevron. Tap handling is in
+        // didSelectRowAtIndexPath (fetch + chooser).
+        if ([row[@"type"] isEqualToString:@"model"]) {
+            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"modelPickerCell"];
+            cell.textLabel.text = row[@"title"];
+            NSString *current = [self stringSetting:row[@"key"] fallback:row[@"fallback"]];
+            cell.detailTextLabel.text = current.length ? current : row[@"fallback"];
+            cell.detailTextLabel.adjustsFontSizeToFitWidth = YES;
+            cell.detailTextLabel.minimumScaleFactor = 0.6;
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            return cell;
+        }
+        if ([row[@"type"] isEqualToString:@"test"]) {
+            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"modelTestCell"];
+            cell.textLabel.text = LOC(@"TRANSLATION_TEST_MODEL");
+            cell.textLabel.textColor = [UIColor systemBlueColor];
+            cell.textLabel.textAlignment = NSTextAlignmentCenter;
+            cell.imageView.image = [UIImage systemImageNamed:@"checkmark.seal"];
+            cell.imageView.tintColor = [UIColor systemBlueColor];
+            return cell;
+        }
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"textFieldCell"];
         cell.textLabel.text = row[@"title"];
         cell.textLabel.adjustsFontSizeToFitWidth = YES;
@@ -400,7 +431,7 @@
     }
 
     if (indexPath.section == 5) {
-        return [self switchCellWithTitle:LOC(@"TRANSLATION_DEBUG_LOGS") detail:LOC(@"TRANSLATION_DEBUG_LOGS_DESC") key:@"translationDebugLogs" fallback:YES action:@selector(toggleSwitch:)];
+        return [self switchCellWithTitle:LOC(@"TRANSLATION_DEBUG_LOGS") detail:LOC(@"TRANSLATION_DEBUG_LOGS_DESC") key:@"translationDebugLogs" fallback:NO action:@selector(toggleSwitch:)];
     }
 
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"clearCacheCell"];
@@ -412,6 +443,11 @@
 }
 
 - (BOOL)tableView:(UITableView *)tableView shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 4) {
+        if (indexPath.row >= (NSInteger)[self providerConfigRows].count) return NO;
+        NSString *type = [self providerConfigRows][indexPath.row][@"type"];
+        return [type isEqualToString:@"model"] || [type isEqualToString:@"test"];
+    }
     return indexPath.section == 1 || indexPath.section == 3 || indexPath.section == 6;
 }
 
@@ -423,6 +459,16 @@
         [self showProviderPicker];
     } else if (indexPath.section == 3 && indexPath.row == 1) {
         [self showLanguagePicker];
+    } else if (indexPath.section == 4) {
+        NSArray *rows = [self providerConfigRows];
+        if (indexPath.row < (NSInteger)rows.count) {
+            NSString *type = rows[indexPath.row][@"type"];
+            if ([type isEqualToString:@"model"]) {
+                [self showModelPickerForRow:rows[indexPath.row] atIndexPath:indexPath];
+            } else if ([type isEqualToString:@"test"]) {
+                [self runModelTestAtIndexPath:indexPath];
+            }
+        }
     } else if (indexPath.section == 6) {
         [self clearCaches];
     }
@@ -474,6 +520,226 @@
         [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:1 inSection:3]] withRowAnimation:UITableViewRowAnimationAutomatic];
     };
     [self.navigationController pushViewController:controller animated:YES];
+}
+
+#pragma mark - Model picker
+
+// Tap on the Model row: fetch the provider's available models from its
+// /models endpoint, then push a searchable-style chooser (reusing the
+// language list controller) with a manual-entry fallback at the top.
+- (void)showModelPickerForRow:(NSDictionary *)row atIndexPath:(NSIndexPath *)indexPath {
+    NSString *provider = [self currentProvider];
+    NSString *modelKey = row[@"key"];
+    NSString *fallback = row[@"fallback"];
+
+    // Spinner on the cell while fetching.
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    [spinner startAnimating];
+    cell.accessoryView = spinner;
+
+    __weak typeof(self) weakSelf = self;
+    [self fetchModelsForProvider:provider completion:^(NSArray<NSString *> *models, NSError *error) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        // Restore the cell accessory.
+        UITableViewCell *liveCell = [strongSelf.tableView cellForRowAtIndexPath:indexPath];
+        liveCell.accessoryView = nil;
+        liveCell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+
+        if (error || models.count == 0) {
+            // Fetch failed / empty — offer manual entry instead of dead-ending.
+            NSString *msg = error.localizedDescription ?: @"";
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"TRANSLATION_MODEL_FETCH_FAILED") message:msg preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:LOC(@"TRANSLATION_MODEL_ENTER_MANUALLY") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                [strongSelf showManualModelEntryForKey:modelKey fallback:fallback];
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+            [strongSelf presentViewController:alert animated:YES completion:nil];
+            return;
+        }
+
+        // Build the chooser list: manual-entry sentinel first, then models.
+        NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+        [items addObject:@{@"title": LOC(@"TRANSLATION_MODEL_ENTER_MANUALLY"), @"code": @"__manual__"}];
+        for (NSString *m in models) {
+            [items addObject:@{@"title": m, @"code": m}];
+        }
+        YTMUTranslationLanguageController *picker = [[YTMUTranslationLanguageController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        picker.title = LOC(@"TRANSLATION_SELECT_MODEL");
+        picker.languages = items;
+        picker.selectedCode = [strongSelf stringSetting:modelKey fallback:fallback];
+        picker.selectionHandler = ^(NSString *code) {
+            typeof(self) s = weakSelf;
+            if (!s) return;
+            if ([code isEqualToString:@"__manual__"]) {
+                [s showManualModelEntryForKey:modelKey fallback:fallback];
+                return;
+            }
+            [s setSetting:code forKey:modelKey];
+            [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:4] withRowAnimation:UITableViewRowAnimationAutomatic];
+        };
+        [strongSelf.navigationController pushViewController:picker animated:YES];
+    }];
+}
+
+- (void)showManualModelEntryForKey:(NSString *)modelKey fallback:(NSString *)fallback {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"TRANSLATION_MODEL") message:nil preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.text = [self stringSetting:modelKey fallback:fallback];
+        tf.placeholder = fallback;
+        tf.autocorrectionType = UITextAutocorrectionTypeNo;
+        tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        tf.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DONE") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        typeof(self) s = weakSelf;
+        NSString *value = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        [s setSetting:(value.length ? value : fallback) forKey:modelKey];
+        [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:4] withRowAnimation:UITableViewRowAnimationAutomatic];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+// GET the provider's model list. OpenAI-compatible (incl. new-api and
+// other relays) → {baseURL}/models, Bearer auth, `.data[].id`.
+// Anthropic → {baseURL}/v1/models, x-api-key, `.data[].id`. Gemini →
+// {baseURL}/v1beta/models?key=, `.models[].name` (strip "models/",
+// keep only generateContent-capable). Completion runs on the main queue.
+- (void)fetchModelsForProvider:(NSString *)provider completion:(void (^)(NSArray<NSString *> *models, NSError *error))completion {
+    NSString *key = [self stringSetting:[@"translationApiKey_" stringByAppendingString:provider] fallback:@""];
+    void (^finish)(NSArray *, NSError *) = ^(NSArray *models, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(models, error); });
+    };
+    NSError *(^mkError)(NSString *) = ^NSError *(NSString *msg) {
+        return [NSError errorWithDomain:@"YTMUModelFetch" code:1 userInfo:@{NSLocalizedDescriptionKey: msg ?: @""}];
+    };
+    if (key.length == 0) { finish(nil, mkError(LOC(@"TRANSLATION_MODEL_NEED_KEY"))); return; }
+
+    NSString *base;
+    NSMutableURLRequest *req;
+    BOOL gemini = NO;
+    if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
+        base = [self stringSetting:@"translationBaseUrl" fallback:@"https://api.openai.com/v1"];
+        base = [self trimTrailingSlash:base];
+        req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[base stringByAppendingString:@"/models"]]];
+        [req setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
+    } else if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) {
+        base = [self stringSetting:@"translationBaseUrl_anthropic" fallback:@"https://api.anthropic.com"];
+        base = [self trimTrailingSlash:base];
+        req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[base stringByAppendingString:@"/v1/models"]]];
+        [req setValue:key forHTTPHeaderField:@"x-api-key"];
+        [req setValue:@"2023-06-01" forHTTPHeaderField:@"anthropic-version"];
+    } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
+        gemini = YES;
+        base = [self stringSetting:@"translationBaseUrl_gemini" fallback:@"https://generativelanguage.googleapis.com"];
+        base = [self trimTrailingSlash:base];
+        NSString *enc = [key stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+        NSString *url = [NSString stringWithFormat:@"%@/v1beta/models?key=%@", base, enc ?: @""];
+        req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    } else {
+        finish(nil, mkError(@"")); return;
+    }
+    req.HTTPMethod = @"GET";
+    req.timeoutInterval = 20.0;
+    [req setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+    BOOL isGemini = gemini;
+    [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) { finish(nil, error); return; }
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        id json = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (status < 200 || status >= 300 || ![json isKindOfClass:[NSDictionary class]]) {
+            finish(nil, mkError([NSString stringWithFormat:@"HTTP %ld", (long)status]));
+            return;
+        }
+        NSMutableArray<NSString *> *ids = [NSMutableArray array];
+        if (isGemini) {
+            id arr = json[@"models"];
+            if ([arr isKindOfClass:[NSArray class]]) {
+                for (id m in arr) {
+                    if (![m isKindOfClass:[NSDictionary class]]) continue;
+                    id methods = m[@"supportedGenerationMethods"];
+                    if ([methods isKindOfClass:[NSArray class]] && ![methods containsObject:@"generateContent"]) continue;
+                    NSString *name = [m[@"name"] isKindOfClass:[NSString class]] ? m[@"name"] : nil;
+                    if (!name.length) continue;
+                    if ([name hasPrefix:@"models/"]) name = [name substringFromIndex:7];
+                    [ids addObject:name];
+                }
+            }
+        } else {
+            id arr = json[@"data"];
+            if ([arr isKindOfClass:[NSArray class]]) {
+                for (id m in arr) {
+                    if (![m isKindOfClass:[NSDictionary class]]) continue;
+                    NSString *mid = [m[@"id"] isKindOfClass:[NSString class]] ? m[@"id"] : nil;
+                    if (mid.length) [ids addObject:mid];
+                }
+            }
+        }
+        [ids sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            return [a caseInsensitiveCompare:b];
+        }];
+        finish(ids, nil);
+    }] resume];
+}
+
+- (NSString *)trimTrailingSlash:(NSString *)s {
+    NSString *out = s ?: @"";
+    while ([out hasSuffix:@"/"]) out = [out substringToIndex:out.length - 1];
+    return out;
+}
+
+#pragma mark - Model availability test
+
+// Fire a one-shot completion through the real provider path (same
+// interface the translator uses: Responses / Messages / generateContent)
+// with the user's current key + model + base URL, and report whether
+// the model actually answers. This catches bad keys, wrong base URLs,
+// deprecated/unavailable model names, and relay misconfig before the
+// user discovers them mid-song.
+- (void)runModelTestAtIndexPath:(NSIndexPath *)indexPath {
+    id<YTMULLMCompletionProvider> llm = [[YTMUTranslator sharedTranslator] currentLLMCompletionProvider];
+    if (!llm) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:LOC(@"TRANSLATION_TEST_FAILED") message:LOC(@"TRANSLATION_TEST_NO_PROVIDER") preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DONE") style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    [spinner startAnimating];
+    cell.accessoryView = spinner;
+
+    __weak typeof(self) weakSelf = self;
+    [llm completeWithSystemPrompt:@"You are a connectivity probe. Reply with exactly: OK"
+                       userPrompt:@"ping"
+                   expectJSONMode:NO
+                       completion:^(NSString *text, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) s = weakSelf;
+            if (!s) return;
+            UITableViewCell *live = [s.tableView cellForRowAtIndexPath:indexPath];
+            live.accessoryView = nil;
+
+            NSString *trimmed = [(text ?: @"") stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            BOOL ok = (error == nil) && trimmed.length > 0;
+            NSString *title = ok ? LOC(@"TRANSLATION_TEST_SUCCESS") : LOC(@"TRANSLATION_TEST_FAILED");
+            NSString *msg;
+            if (ok) {
+                NSString *snippet = trimmed.length > 80 ? [trimmed substringToIndex:80] : trimmed;
+                msg = [NSString stringWithFormat:@"%@ → \"%@\"", [[YTMUTranslator sharedTranslator] currentProviderName], snippet];
+            } else {
+                msg = error.localizedDescription ?: @"";
+            }
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:msg preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DONE") style:UIAlertActionStyleDefault handler:nil]];
+            [s presentViewController:alert animated:YES completion:nil];
+        });
+    }];
 }
 
 - (void)clearCaches {
