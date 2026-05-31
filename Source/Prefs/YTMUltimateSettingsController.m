@@ -88,7 +88,7 @@
         case 2:
             return 1;
         case 3:
-            return 1;
+            return 2;
         default:
             return 0;
     }
@@ -172,7 +172,8 @@
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"linkSection"];
 
         NSArray *settingsData = @[
-            @{@"text": LOC(@"SOURCE_CODE"), @"detail": LOC(@"SOURCE_CODE_DESC"), @"image": @"github-24@2x"}
+            @{@"text": LOC(@"SOURCE_CODE"), @"detail": LOC(@"SOURCE_CODE_DESC"), @"image": @"github-24@2x"},
+            @{@"text": @"Telegram", @"detail": @"@YTMEnhanced", @"systemImage": @"paperplane.circle.fill"}
         ];
 
         NSDictionary *settingData = settingsData[indexPath.row];
@@ -183,8 +184,14 @@
         cell.detailTextLabel.text = settingData[@"detail"];
         cell.detailTextLabel.numberOfLines = 0;
 
-        UIImage *image = [UIImage imageWithContentsOfFile:[NSBundle.ytmu_defaultBundle pathForResource:settingData[@"image"] ofType:@"png" inDirectory:@"icons"]];
-        cell.imageView.image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+        if (settingData[@"systemImage"]) {
+            UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:20];
+            cell.imageView.image = [UIImage systemImageNamed:settingData[@"systemImage"] withConfiguration:config];
+            cell.imageView.tintColor = [UIColor systemBlueColor];
+        } else {
+            UIImage *image = [UIImage imageWithContentsOfFile:[NSBundle.ytmu_defaultBundle pathForResource:settingData[@"image"] ofType:@"png" inDirectory:@"icons"]];
+            cell.imageView.image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+        }
         cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
 
         return cell;
@@ -249,7 +256,7 @@
     }
 
     if (indexPath.section == 3) {
-        NSArray *urls = @[@"https://github.com/py233/YTMEnhanced"];
+        NSArray *urls = @[@"https://github.com/py233/YTMEnhanced", @"https://t.me/YTMEnhanced"];
 
         if (indexPath.row >= 0 && indexPath.row < urls.count) {
             NSURL *url = [NSURL URLWithString:urls[indexPath.row]];
