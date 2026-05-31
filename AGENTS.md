@@ -24,7 +24,7 @@
 - Sideloading deb: `make clean package SIDELOADING=1 FINALPACKAGE=1`
 - Local IPA injection: `THEOS=/path/to/theos scripts/build_sideload_ipa.sh <decrypted.ipa> [output.ipa] [display-name] [bundle-id]`
 - `scripts/build_sideload_ipa.sh` requires `cyan`; install with `brew install pipx` then `pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip`.
-- The local IPA script defaults `THEOS` to `/Users/py_23/theos`; pass `THEOS=/path/to/theos` unless that path exists.
+- The local IPA script defaults `THEOS` to `$HOME/theos`; pass `THEOS=/path/to/theos` unless that path exists.
 
 ## Toolchain Notes
 

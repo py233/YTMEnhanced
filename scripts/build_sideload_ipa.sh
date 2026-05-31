@@ -14,7 +14,7 @@ Examples:
     "com.py233.ytmenhanced"
 
 Environment:
-  THEOS defaults to /Users/py_23/theos
+  THEOS defaults to $HOME/theos
   CYAN defaults to cyan
 USAGE
 }
@@ -28,7 +28,7 @@ IPA_INPUT="$1"
 IPA_OUTPUT="${2:-build/ipa/YTMEnhanced.ipa}"
 DISPLAY_NAME="${3:-YTMEnhanced}"
 BUNDLE_ID="${4:-com.py233.ytmenhanced}"
-THEOS="${THEOS:-/Users/py_23/theos}"
+THEOS="${THEOS:-$HOME/theos}"
 CYAN="${CYAN:-cyan}"
 
 if [[ ! -f "$IPA_INPUT" ]]; then
