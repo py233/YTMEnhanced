@@ -1,5 +1,13 @@
 <h1 align="center">YTMEnhanced</h1>
 
+<p align="center">A YouTube Music iOS tweak with bilingual lyrics, romaji, and real-time scrobbling.</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
+  <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License: GPL-3.0">
+  <a href="https://t.me/YTMEnhanced"><img src="https://img.shields.io/badge/Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
+</p>
+
 <p align="center">
   <img src="assets/screenshots/lyrics.jpg" alt="Bilingual lyrics — Japanese with romaji, English, and German, each translated line by line" width="100%">
 </p>
@@ -11,6 +19,7 @@
 
 - **Bilingual lyrics** — original and translation shown line by line, pulled from multiple lyrics sources automatically
 - **Translation** — bring your own LLM key (Anthropic / Gemini / OpenAI-compatible) or use Google Translate
+- **Romanization** — romaji shown under each line for Japanese lyrics
 - **Scrobbling** — real-time Last.fm and ListenBrainz with an offline queue
 - Plus the usual basics — ad removal, background playback, audio downloads, SponsorBlock, seek buttons, playback rate — via [YTMusicUltimate](https://github.com/ginsudev/YTMusicUltimate)
 
