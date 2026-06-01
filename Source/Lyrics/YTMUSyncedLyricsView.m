@@ -603,7 +603,14 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 
 - (void)lineTapped:(YTMULyricLineView *)sender {
     if (!self.playerViewController || sender.timeInMs <= 0) return;
-    [self.playerViewController seekToTime:(sender.timeInMs + 10) / 1000.0];
+    // Display highlights a line when currentTime + offset >= line.timeInMs (see
+    // updatePlaybackTimeMs:animated:, which does timeMs += lyricsTimingOffsetMs).
+    // To land on the tapped line, seek to the moment it becomes current, i.e.
+    // line.timeInMs - offset. Read the offset the same way so they stay in sync.
+    NSTimeInterval offsetMs = (NSTimeInterval)YTMULyricsSettingsInteger(@"lyricsTimingOffsetMs", 0);
+    NSTimeInterval seekMs = sender.timeInMs - offsetMs + 10;
+    if (seekMs < 0) seekMs = 0;
+    [self.playerViewController seekToTime:seekMs / 1000.0];
 }
 
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs {
