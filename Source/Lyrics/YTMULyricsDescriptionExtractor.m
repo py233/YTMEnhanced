@@ -412,14 +412,6 @@ static NSString *const YTMULDESystemPrompt =
         return;
     }
 
-    if ([self isBlacklistedForVideoId:videoId]) {
-        YTMULyricsLog(@"description extract blacklisted videoId=%@ — skipping AI call", videoId);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            completion(nil, YTMULDEError(2, @"videoId blacklisted after repeated failures"));
-        });
-        return;
-    }
-
     // In-flight dedup: same videoId can fire multiple refresh passes
     // (initial raw, then a normalize re-pass, plus YT metadata flickering)
     // — we want exactly one AI call per song.
@@ -479,7 +471,6 @@ static NSString *const YTMULDESystemPrompt =
                 YTMULyricsLog(@"description extract parse/verify failed videoId=%@ raw=%@",
                               videoId,
                               text.length > 200 ? [text substringToIndex:200] : (text ?: @""));
-                [weakSelf recordFailureForVideoId:videoId];
                 fanout(nil, YTMULDEError(3, @"could not parse or verify extract response"));
                 return;
             }
@@ -496,7 +487,6 @@ static NSString *const YTMULDESystemPrompt =
                 @"raw_a":      originalArtist,
             };
             [weakSelf writePlist:plist forVideoId:videoId];
-            [weakSelf clearFailureForVideoId:videoId];
             YTMULyricsLog(@"description extract success videoId=%@ lines=%lu translated=%lu lang=%@ tr_lang=%@ conf=%.2f",
                           videoId,
                           (unsigned long)result.sourceLines.count,
