@@ -361,14 +361,6 @@ static NSString *const YTMULNSystemPrompt =
         return;
     }
 
-    if ([self isBlacklistedForVideoId:videoId]) {
-        YTMULyricsLog(@"normalize blacklisted videoId=%@ — skipping AI call", videoId);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            completion(nil, YTMULNError(2, @"videoId blacklisted after repeated parse failures"));
-        });
-        return;
-    }
-
     // In-flight dedup: if another caller already kicked off an AI request
     // for this videoId, join its completion queue instead of firing a
     // second HTTP request. YouTube Music's player metadata can flicker
@@ -423,12 +415,11 @@ static NSString *const YTMULNSystemPrompt =
             if (!result) {
                 YTMULyricsLog(@"normalize parse failed videoId=%@ raw=%@", videoId,
                               text.length > 200 ? [text substringToIndex:200] : (text ?: @""));
-                [weakSelf recordFailureForVideoId:videoId];
                 fanout(nil, YTMULNError(3, @"could not parse normalize response"));
                 return;
             }
 
-            // Persist on success and clear any prior failure record.
+            // Persist on success.
             NSDictionary *plist = @{
                 @"v":           @(YTMULNSchemaVersion),
                 @"title_p":     result.titleCandidates.firstObject ?: @"",
@@ -441,7 +432,6 @@ static NSString *const YTMULNSystemPrompt =
                 @"raw_a":       info.artist ?: @"",
             };
             [weakSelf writePlist:plist forVideoId:videoId];
-            [weakSelf clearFailureForVideoId:videoId];
             YTMULyricsLog(@"normalize success videoId=%@ titles=%lu artists=%lu lang=%@ conf=%.2f primary=\"%@\" / \"%@\"",
                           videoId,
                           (unsigned long)result.titleCandidates.count,

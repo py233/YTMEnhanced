@@ -325,14 +325,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         return;
     }
 
-    if ([self isBlacklistedForVideoId:videoId]) {
-        YTMULyricsLog(@"innertube blacklisted videoId=%@ — skipping fetch", videoId);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            completion(nil, YTMUInnerTubeError(2, @"videoId blacklisted after repeated failures"));
-        });
-        return;
-    }
-
     YTMUInnerTubeMetadataCompletion completionCopy = [completion copy];
     BOOL alreadyInFlight = NO;
     @synchronized (self.inflight) {
@@ -364,7 +356,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         if (netError) {
             YTMULyricsLog(@"innertube network error videoId=%@ err=%@ (%.2fs)",
                           videoId, netError.localizedDescription, elapsed);
-            [weakSelf recordFailureForVideoId:videoId];
             [weakSelf fanoutForVideoId:videoId result:nil error:netError];
             return;
         }
@@ -377,7 +368,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
                 preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
             }
             YTMULyricsLog(@"innertube HTTP %ld videoId=%@ preview=%@", (long)status, videoId, preview);
-            [weakSelf recordFailureForVideoId:videoId];
             [weakSelf fanoutForVideoId:videoId
                                 result:nil
                                  error:YTMUInnerTubeError(status, [NSString stringWithFormat:@"HTTP %ld", (long)status])];
@@ -388,7 +378,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         if (!json || jsonError) {
             YTMULyricsLog(@"innertube parse failed videoId=%@ err=%@",
                           videoId, jsonError.localizedDescription ?: @"<empty>");
-            [weakSelf recordFailureForVideoId:videoId];
             [weakSelf fanoutForVideoId:videoId result:nil error:jsonError ?: YTMUInnerTubeError(4, @"invalid JSON")];
             return;
         }
@@ -399,7 +388,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
                           videoId,
                           [[json isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)json allKeys] : @[]
                               componentsJoinedByString:@","]);
-            [weakSelf recordFailureForVideoId:videoId];
             [weakSelf fanoutForVideoId:videoId result:nil error:YTMUInnerTubeError(5, @"malformed response")];
             return;
         }
@@ -410,7 +398,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
                       (unsigned long)meta.canonicalTitle.length,
                       elapsed);
         [weakSelf writeCacheMetadata:meta forVideoId:videoId];
-        [weakSelf clearFailureForVideoId:videoId];
         [weakSelf fanoutForVideoId:videoId result:meta error:nil];
     }];
     [task resume];
