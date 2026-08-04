@@ -57,7 +57,8 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
             completion(nil, error);
             return;
         }
-        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]]
+                               ? [(NSHTTPURLResponse *)response statusCode] : 0;
         if (status < 200 || status >= 300) {
             completion(nil, [NSError errorWithDomain:@"YTMULRCLib" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:YTMULocalized(@"LYRICS_ERROR_HTTP_STATUS_FORMAT", @"HTTP %ld"), (long)status]}]);
             return;
@@ -140,7 +141,11 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
 
     for (NSDictionary *item in items) {
         if (![item isKindOfClass:[NSDictionary class]]) continue;
-        if ([item[@"instrumental"] boolValue]) continue;
+        // LRCLIB emits JSON null for fields user submissions left blank — which is
+        // why every string field below is isKindOfClass:-checked. The numeric ones
+        // need the same care: NSNull responds to neither boolValue nor doubleValue,
+        // so a bare send here aborts the process from the URLSession callback.
+        if ([YTMULyricsJSONNumberAtPath(item, @[@"instrumental"]) boolValue]) continue;
 
         NSString *trackName = [item[@"trackName"] isKindOfClass:[NSString class]] ? item[@"trackName"] : @"";
         NSString *artistName = [item[@"artistName"] isKindOfClass:[NSString class]] ? item[@"artistName"] : @"";
@@ -149,7 +154,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
         if (!synced.length && !plain.length) continue;
 
         CGFloat titleScore = [self bestTitleScoreForTrackName:trackName info:info];
-        NSTimeInterval duration = [item[@"duration"] doubleValue];
+        NSTimeInterval duration = [YTMULyricsJSONNumberAtPath(item, @[@"duration"]) doubleValue];
         NSTimeInterval delta = 0;
         CGFloat durationScore = 0.2;
         if (hasDuration && duration > 0) {
@@ -179,7 +184,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
     result.artists = YTMULyricsSplitArtists(artistName, nil);
     result.plainLyrics = plain ?: @"";
     result.lines = synced.length ? [YTMULRCParser parseLRC:synced] : @[];
-    result.duration = [bestItem[@"duration"] doubleValue];
+    result.duration = [YTMULyricsJSONNumberAtPath(bestItem, @[@"duration"]) doubleValue];
     return result.hasText ? result : nil;
 }
 
