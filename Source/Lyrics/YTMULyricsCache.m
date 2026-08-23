@@ -1,6 +1,7 @@
 #import "YTMULyricsCache.h"
 #import <UIKit/UIKit.h>
 #import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPaths.h"
 
 @interface YTMULyricsCache ()
 @property (nonatomic, strong) NSCache<NSString *, YTMULyricsResult *> *memoryCache;
@@ -70,8 +71,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
 }
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"Lyrics"];
+    return YTMUCachesSubdirectory(@"Lyrics");
 }
 
 - (NSString *)filePathForKey:(NSString *)key {

@@ -1,6 +1,7 @@
 #import "YTMULyricsTitleNormalizer.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPaths.h"
 
 // Persistent storage layout:
 //   $CACHES/YTMUltimate/TitleNormalize/<sha1(videoId)>.plist
@@ -89,8 +90,7 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
 #pragma mark - Disk cache
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"TitleNormalize"];
+    return YTMUCachesSubdirectory(@"TitleNormalize");
 }
 
 - (NSString *)filePathForVideoId:(NSString *)videoId {

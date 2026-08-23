@@ -2,6 +2,7 @@
 #import "YTMULyricsTypes.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPaths.h"
 
 // Persistent cache layout (v3 schema):
 //   $CACHES/YTMUltimate/InnerTubeDescription/<sha1(videoId)>.plist
@@ -106,8 +107,7 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
 #pragma mark - Disk cache
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"InnerTubeDescription"];
+    return YTMUCachesSubdirectory(@"InnerTubeDescription");
 }
 
 - (NSString *)filePathForVideoId:(NSString *)videoId {

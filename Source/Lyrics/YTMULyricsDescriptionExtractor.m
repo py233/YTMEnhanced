@@ -1,6 +1,7 @@
 #import "YTMULyricsDescriptionExtractor.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPaths.h"
 
 // Persistent storage layout:
 //   $CACHES/YTMUltimate/DescriptionLyrics/<sha1(videoId)>.plist
@@ -97,8 +98,7 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 #pragma mark - Disk cache
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"DescriptionLyrics"];
+    return YTMUCachesSubdirectory(@"DescriptionLyrics");
 }
 
 - (NSString *)filePathForVideoId:(NSString *)videoId {

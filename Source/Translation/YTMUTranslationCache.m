@@ -2,6 +2,7 @@
 #import "YTMUTranslationTypes.h"
 #import <UIKit/UIKit.h>
 #import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPaths.h"
 
 @implementation YTMUTranslationCacheEntry
 @end
@@ -108,8 +109,7 @@ static NSString *YTMUSHA1ForString(NSString *string) {
 }
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"Translations"];
+    return YTMUCachesSubdirectory(@"Translations");
 }
 
 - (NSString *)filePathForKey:(NSString *)key {
