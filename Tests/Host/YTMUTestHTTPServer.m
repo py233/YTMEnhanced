@@ -127,6 +127,7 @@
         req.body = buf.length > bodyStart ? [buf subdataWithRange:NSMakeRange(bodyStart, MIN(contentLength, buf.length - bodyStart))] : [NSData data];
     }
     @synchronized (self.mutableRequests) { [self.mutableRequests addObject:req]; }
+    if (self.responseDelay > 0) usleep((useconds_t)(self.responseDelay * 1e6));
 
     NSInteger status = self.responseStatus;
     NSMutableDictionary *headers = [self.responseHeaders mutableCopy] ?: [NSMutableDictionary dictionary];

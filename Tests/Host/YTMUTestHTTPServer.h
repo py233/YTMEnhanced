@@ -18,6 +18,7 @@
 // Optional per-request hook; return nil to fall back to the canned response.
 @property (nonatomic, copy) NSData *(^responder)(YTMUTestHTTPRequest *request, NSInteger *status, NSMutableDictionary<NSString *, NSString *> *headers);
 @property (nonatomic, readonly) NSArray<YTMUTestHTTPRequest *> *requests;
+@property (nonatomic) NSTimeInterval responseDelay;   // seconds to hold each response (simulates latency)
 
 + (instancetype)start;           // binds an ephemeral port on 127.0.0.1
 - (void)stop;

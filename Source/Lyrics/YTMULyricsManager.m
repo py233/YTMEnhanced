@@ -12,7 +12,7 @@
 #import "Providers/YTMUGeniusProvider.h"
 #import "Providers/YTMUDescriptionProvider.h"
 #import "../Utils/NSBundle+YTMU.h"
-#import "../Utils/YTMUConcurrencyLimiter.h"
+#import "YTMURomanizationService.h"
 #import <NaturalLanguage/NaturalLanguage.h>
 
 static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
@@ -31,7 +31,6 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 @property (nonatomic, copy, readwrite) NSDictionary<NSString *, NSString *> *sourceAvailability;
 @property (nonatomic) NSUInteger requestGeneration;
 @property (nonatomic, strong, readwrite) YTMULyricsSearchInfo *lastSearchInfo;
-@property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
 // How long one provider may hold up a pass before it is skipped. Every
 // provider bounds its own requests (≈8 s each), but NetEase's
 // candidate-by-candidate lyric fetch and Genius's two legs can stack
@@ -127,8 +126,6 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         _translationAttribution = @"";
         _lastErrorMessage = @"";
         _sourceAvailability = @{};
-        _romanizationMemoryCache = [[NSCache alloc] init];
-        _romanizationMemoryCache.countLimit = 8;
         _providerBudgetSeconds = 20.0;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(settingsDidChange:)
@@ -240,8 +237,7 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
 }
 
 - (void)clearRomanizationCache {
-    [self.romanizationMemoryCache removeAllObjects];
-    YTMULyricsLog(@"romanization memory cache cleared");
+    [[YTMURomanizationService sharedService] clearMemoryCache];
 }
 
 - (NSArray<NSString *> *)displayLineTexts {
@@ -303,176 +299,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
     return YTMULyricsSettingsBool(@"lyricsTranslationEnabled", YTMULyricsSettingsBool(@"bilingualLyrics", NO));
 }
 
-- (NSString *)googleFormEncode:(NSString *)value {
-    static NSCharacterSet *allowed;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSMutableCharacterSet *set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
-        [set removeCharactersInString:@"!*'();:@&=+$,/?%#[]"];
-        allowed = [set copy];
-    });
-    NSString *encoded = [value stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
-    return [encoded stringByReplacingOccurrencesOfString:@"%20" withString:@"+"];
-}
-
-- (NSString *)romanizationCacheKeyForResult:(YTMULyricsResult *)result info:(YTMULyricsSearchInfo *)info lines:(NSArray<NSString *> *)lines {
-    return [NSString stringWithFormat:@"%@::%@::%lu::%@",
-            info.videoId ?: @"",
-            result.sourceName ?: @"",
-            (unsigned long)lines.count,
-            YTMULyricsCompactString([lines componentsJoinedByString:@"|"] ?: @"")];
-}
-
-- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result
-                                                sourceLines:(NSArray<NSString *> *)sourceLines
-                                             sourceLanguage:(NSString *)sourceLanguage {
-    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
-    [sourceLines enumerateObjectsUsingBlock:^(NSString *lineText, NSUInteger idx, BOOL *stop) {
-        NSString *text = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        NSString *existing = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
-        if (!text.length || existing.length) return;
-        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) return;
-        [items addObject:@{@"index": @(idx), @"text": text}];
-    }];
-    return items;
-}
-
-- (NSString *)romanizationSourceLanguageForResult:(YTMULyricsResult *)result {
-    for (NSString *line in result.lineTexts ?: @[]) {
-        if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) return @"ja";
-    }
-    return @"auto";
-}
-
-- (void)fetchGoogleRomanizationForText:(NSString *)text sourceLanguage:(NSString *)sourceLanguage completion:(void(^)(NSString *romanized))completion {
-    if (!text.length) {
-        completion(@"");
-        return;
-    }
-    // The previous implementation hit translate.google.com with
-    // client=at (the internal Android Translator client). That endpoint
-    // expects a device certificate and a com.google.android.apps.translate
-    // user-agent; from a plain iOS NSURLSession it silently returns
-    // either an empty body or a CAPTCHA HTML page, which is why every
-    // line came back as filled=0.
-    //
-    // translate.googleapis.com with client=gtx is the long-stable public
-    // endpoint used by web translate widgets, yt-dlp, and most OSS
-    // translation tools. GET-only, no auth, no cookies. Returns a
-    // proper JSON envelope when dj=1 is set.
-    NSString *source = sourceLanguage.length ? sourceLanguage : @"auto";
-    NSString *encodedText = [self googleFormEncode:text];
-    NSString *encodedSource = [self googleFormEncode:source];
-    NSString *urlString = [NSString stringWithFormat:
-        @"https://translate.googleapis.com/translate_a/single?client=gtx&sl=%@&tl=en&dt=rm&dj=1&q=%@",
-        encodedSource, encodedText];
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (!url) {
-        completion(@"");
-        return;
-    }
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    request.HTTPMethod = @"GET";
-    request.timeoutInterval = 10.0;
-    // Browser UA — googleapis is permissive but a plain CFNetwork ua
-    // occasionally trips its bot heuristics on aggressive workloads.
-    [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
-       forHTTPHeaderField:@"User-Agent"];
-    [request setValue:@"application/json, text/plain, */*" forHTTPHeaderField:@"Accept"];
-
-    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error) {
-            YTMULyricsLog(@"google romanization network error: %@", error.localizedDescription);
-            completion(@"");
-            return;
-        }
-        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
-        if (status < 200 || status >= 300) {
-            NSString *preview = @"";
-            if (data.length) {
-                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
-                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
-                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
-            }
-            YTMULyricsLog(@"google romanization HTTP %ld bodyLen=%lu preview=%@",
-                          (long)status, (unsigned long)data.length, preview);
-            completion(@"");
-            return;
-        }
-        NSError *jsonError = nil;
-        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
-        if (!json || jsonError) {
-            NSString *preview = @"";
-            if (data.length) {
-                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
-                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
-                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
-            }
-            YTMULyricsLog(@"google romanization JSON parse failed err=%@ bodyLen=%lu preview=%@",
-                          jsonError.localizedDescription ?: @"<empty>",
-                          (unsigned long)data.length, preview);
-            completion(@"");
-            return;
-        }
-        NSString *romanized = [YTMULyricsTextProcessor googleTransliterationFromJSON:json];
-        completion(romanized ?: @"");
-    }] resume];
-}
-
-- (void)fetchGoogleRomanizationItems:(NSArray<NSDictionary *> *)items
-                                limit:(NSUInteger)limit
-                       sourceLanguage:(NSString *)sourceLanguage
-                            romanized:(NSMutableArray<NSString *> *)romanized
-                           generation:(NSUInteger)generation
-                           completion:(void(^)(NSArray<NSString *> *romanized))completion {
-    NSUInteger total = MIN(items.count, limit);
-    if (total == 0) {
-        completion([romanized copy]);
-        return;
-    }
-
-    // Google's per-segment endpoint is happy to take parallel requests as
-    // long as we don't pummel it; 6 in flight cuts wall time ~5x over the
-    // old serial chain without tripping rate limits. The limiter starts
-    // each request from the completion of a previous one — nothing blocks
-    // a thread waiting for a slot — and stops starting new requests once
-    // the song has changed (the partial result is then dropped by
-    // applyRomanizedLines' generation check anyway).
-    static const NSUInteger kMaxConcurrent = 6;
-    __weak typeof(self) weakSelf = self;
-    [YTMUConcurrencyLimiter runItems:total
-                         concurrency:kMaxConcurrent
-                         shouldStart:^BOOL{
-        typeof(self) strongSelf = weakSelf;
-        return strongSelf != nil && generation == strongSelf.requestGeneration;
-    } work:^(NSUInteger i, dispatch_block_t done) {
-        NSDictionary *item = items[i];
-        NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
-        NSString *text = item[@"text"] ?: @"";
-        typeof(self) strongSelf = weakSelf;
-        if (!strongSelf) { done(); return; }
-        [strongSelf fetchGoogleRomanizationForText:text sourceLanguage:sourceLanguage completion:^(NSString *value) {
-            if (value.length) {
-                @synchronized (romanized) {
-                    if (lineIndex < romanized.count) romanized[lineIndex] = value;
-                }
-            }
-            done();
-        }];
-    } completion:^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            completion([romanized copy]);
-        });
-    }];
-}
-
 - (void)applyRomanizedLines:(NSArray<NSString *> *)romanized generation:(NSUInteger)generation info:(YTMULyricsSearchInfo *)info cacheKey:(NSString *)cacheKey {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
         YTMULyricsResult *current = [self.currentResult copy];
         if (!current) return;   // nothing to decorate (and never write nil back)
         NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
-        NSString *sourceLanguage = [self romanizationSourceLanguageForResult:current];
+        NSString *sourceLanguage = [[YTMURomanizationService sharedService] sourceLanguageForLines:current.lineTexts];
 
         // Render whatever we got — DON'T gate on every line being filled.
         // Google's per-segment transliteration endpoint occasionally
@@ -513,13 +346,7 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         // the old "complete=NO ⇒ delete cache" behavior so painful.
         // Empty arrays still don't get cached (nothing to remember).
         BOOL anyFilled = filled > 0;
-        if (cacheKey.length) {
-            if (anyFilled) {
-                [self.romanizationMemoryCache setObject:lineTexts forKey:cacheKey];
-            } else {
-                [self.romanizationMemoryCache removeObjectForKey:cacheKey];
-            }
-        }
+        [[YTMURomanizationService sharedService] storeLines:anyFilled ? lineTexts : nil forKey:cacheKey];
         if (current.sourceName.length && anyFilled) {
             NSString *lyricsCacheKey = [YTMULyricsCache cacheKeyForInfo:info source:current.sourceName];
             [[YTMULyricsCache sharedCache] storeResult:current forKey:lyricsCacheKey];
@@ -539,12 +366,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
     NSArray<NSString *> *source = [result lineTexts] ?: @[];
     if (!source.count) return;
 
-    NSString *sourceLanguage = [self romanizationSourceLanguageForResult:result];
-    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result sourceLines:source sourceLanguage:sourceLanguage];
+    YTMURomanizationService *service = [YTMURomanizationService sharedService];
+    NSString *sourceLanguage = [service sourceLanguageForLines:source];
+    NSArray<NSDictionary *> *items = [service romanizableItemsForLines:source existing:result.romanizedLineTexts sourceLanguage:sourceLanguage];
     if (!items.count) return;
 
-    NSString *cacheKey = [self romanizationCacheKeyForResult:result info:info lines:source];
-    NSArray<NSString *> *cached = [self.romanizationMemoryCache objectForKey:cacheKey];
+    NSString *cacheKey = [service cacheKeyForVideoId:info.videoId source:result.sourceName lines:source];
+    NSArray<NSString *> *cached = [service cachedLinesForKey:cacheKey];
     if (cached.count == source.count) {
         [self applyRomanizedLines:cached generation:generation info:info cacheKey:cacheKey];
         return;
@@ -556,8 +384,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         [romanized addObject:existing ?: @""];
     }
 
+    // Stop issuing requests once the song has changed; applyRomanizedLines'
+    // generation check then drops whatever partial result comes back.
+    __weak typeof(self) weakSelf = self;
     NSUInteger limit = MIN(items.count, (NSUInteger)80);
-    [self fetchGoogleRomanizationItems:items limit:limit sourceLanguage:sourceLanguage romanized:romanized generation:generation completion:^(NSArray<NSString *> *values) {
+    [service romanizeItems:items limit:limit sourceLanguage:sourceLanguage into:romanized
+            shouldContinue:^BOOL{ typeof(self) strongSelf = weakSelf; return strongSelf != nil && generation == strongSelf.requestGeneration; }
+                completion:^(NSArray<NSString *> *values) {
         [self applyRomanizedLines:values generation:generation info:info cacheKey:cacheKey];
     }];
 }
