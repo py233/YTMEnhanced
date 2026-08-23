@@ -5,7 +5,14 @@
 #import "../Utils/YTMUPaths.h"
 
 @implementation YTMUTranslationCacheEntry
+- (BOOL)isRememberedFailure {
+    if (self.failedAt <= 0) return NO;
+    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - self.failedAt;
+    return age >= 0 && age < YTMUTranslationFailureTTL;
+}
 @end
+
+const NSTimeInterval YTMUTranslationFailureTTL = 24 * 60 * 60;
 
 @interface YTMUTranslationCache ()
 @property (nonatomic, strong) NSCache<NSString *, YTMUTranslationCacheEntry *> *memoryCache;
@@ -82,6 +89,7 @@ static NSString *YTMUSHA1ForString(NSString *string) {
     copy.sourceLines = @[];
     copy.translatedLines = entry.translatedLines ?: @[];
     copy.createdAt = entry.createdAt;
+    copy.failedAt = entry.failedAt;
     return copy;
 }
 
@@ -150,10 +158,12 @@ static NSString *YTMUSHA1ForString(NSString *string) {
     entry.provider = [dict[@"provider"] isKindOfClass:[NSString class]] ? dict[@"provider"] : @"";
     entry.model = [dict[@"model"] isKindOfClass:[NSString class]] ? dict[@"model"] : @"";
     entry.sourceHash = [dict[@"sourceHash"] isKindOfClass:[NSString class]] ? dict[@"sourceHash"] : @"";
-    entry.lineCount = [dict[@"lineCount"] unsignedIntegerValue] ?: cleanTranslated.count;
+    entry.lineCount = [dict[@"lineCount"] isKindOfClass:[NSNumber class]] && [dict[@"lineCount"] unsignedIntegerValue]
+        ? [dict[@"lineCount"] unsignedIntegerValue] : cleanTranslated.count;
     entry.sourceLines = cleanSource;
     entry.translatedLines = cleanTranslated;
-    entry.createdAt = [dict[@"createdAt"] doubleValue];
+    entry.createdAt = [dict[@"createdAt"] isKindOfClass:[NSNumber class]] ? [dict[@"createdAt"] doubleValue] : 0;
+    entry.failedAt = [dict[@"failedAt"] isKindOfClass:[NSNumber class]] ? [dict[@"failedAt"] doubleValue] : 0;
     return entry;
 }
 
@@ -170,6 +180,7 @@ static NSString *YTMUSHA1ForString(NSString *string) {
         @"sourceLines": entry.sourceLines ?: @[],
         @"translatedLines": entry.translatedLines ?: @[],
         @"createdAt": @(entry.createdAt ?: [[NSDate date] timeIntervalSince1970]),
+        @"failedAt": @(entry.failedAt),
     };
 }
 

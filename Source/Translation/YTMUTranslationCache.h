@@ -14,7 +14,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSArray<NSString *> *sourceLines;
 @property (nonatomic, copy) NSArray<NSString *> *translatedLines;
 @property (nonatomic) NSTimeInterval createdAt;
+// Non-zero marks a remembered failure (translatedLines empty): the
+// provider returned something unparseable / misaligned for this exact
+// source, which tends to repeat. Honoured for YTMUTranslationFailureTTL.
+@property (nonatomic) NSTimeInterval failedAt;
+- (BOOL)isRememberedFailure;
 @end
+
+// How long a parse / line-count failure is remembered before the provider
+// is asked again for the same song + language + provider + model.
+extern const NSTimeInterval YTMUTranslationFailureTTL;
 
 @interface YTMUTranslationCache : NSObject
 

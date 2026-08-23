@@ -172,6 +172,37 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
                                 (unsigned long)expected]);
 }
 
+// Only deterministic-looking failures are remembered: an unparseable or
+// misaligned model output for this exact source usually repeats, whereas
+// network / HTTP / missing-key errors should be retried on the next play.
+- (BOOL)shouldRememberFailure:(NSError *)error {
+    if (![error.domain isEqualToString:YTMUTranslationErrorDomain]) return NO;
+    return error.code == YTMUTranslationErrorParse || error.code == YTMUTranslationErrorLineCount;
+}
+
+- (void)rememberFailure:(NSError *)error
+               cacheKey:(NSString *)cacheKey
+                videoId:(NSString *)videoId
+               language:(NSString *)language
+               provider:(id<YTMUTranslationProvider>)provider
+                  lines:(NSArray<NSString *> *)lines {
+    if (![self shouldRememberFailure:error]) return;
+    YTMUTranslationCacheEntry *entry = [[YTMUTranslationCacheEntry alloc] init];
+    entry.cacheKey = cacheKey;
+    entry.strategyVersion = YTMUTranslationStrategyVersion;
+    entry.videoId = videoId ?: @"";
+    entry.targetLanguage = language ?: @"";
+    entry.provider = [provider providerName] ?: @"";
+    entry.model = [provider modelIdentifier] ?: @"";
+    entry.sourceHash = [YTMUTranslationCache sourceHashForLines:lines];
+    entry.lineCount = lines.count;
+    entry.sourceLines = @[];
+    entry.translatedLines = @[];
+    entry.createdAt = [[NSDate date] timeIntervalSince1970];
+    entry.failedAt = entry.createdAt;
+    [[YTMUTranslationCache sharedCache] storeEntry:entry];
+}
+
 - (void)storeTranslatedLines:(NSArray<NSString *> *)translated
                     cacheKey:(NSString *)cacheKey
                      videoId:(NSString *)videoId
@@ -228,8 +259,10 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
                                videoId.length ? videoId : @"<empty>",
                                [provider providerName],
                                lineError.localizedDescription ?: @"<unknown>");
+            NSError *finalError = firstError ?: lineError;
+            [self rememberFailure:finalError cacheKey:cacheKey videoId:videoId language:language provider:provider lines:request.lines];
             YTMUCompleteOnMain(^{
-                completion(nil, firstError ?: lineError);
+                completion(nil, finalError);
             });
             return;
         }
@@ -286,7 +319,7 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
                                                        lines:lines];
 
     YTMUTranslationCacheEntry *cached = [[YTMUTranslationCache sharedCache] entryForKey:cacheKey];
-    if (cached.translatedLines.count == lines.count) {
+    if (cached.translatedLines.count == lines.count && lines.count) {
         YTMUTranslationLog(@"cache hit videoId=%@ provider=%@ target=%@ lines=%lu",
                            videoId.length ? videoId : @"<empty>",
                            [provider providerName],
@@ -294,6 +327,16 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
                            (unsigned long)lines.count);
         YTMUCompleteOnMain(^{
             completion(cached.translatedLines, nil);
+        });
+        return;
+    }
+    if ([cached isRememberedFailure]) {
+        YTMUTranslationLog(@"cache holds a recent failure videoId=%@ provider=%@ target=%@ — not retrying yet",
+                           videoId.length ? videoId : @"<empty>",
+                           [provider providerName],
+                           language);
+        YTMUCompleteOnMain(^{
+            completion(nil, YTMUTranslatorError(YTMUTranslationErrorParse, @"Translation failed recently for this song; will retry later"));
         });
         return;
     }
@@ -306,6 +349,7 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 
     void (^handleFailure)(NSError *) = ^(NSError *error) {
         if ([self shouldFallbackPerLineForError:error lineCount:lines.count]) {
+            // (the per-line path records the failure itself if it also fails)
             [self fallbackPerLineWithProvider:provider
                                       request:request
                                      cacheKey:cacheKey
@@ -316,6 +360,7 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
             return;
         }
 
+        [self rememberFailure:error cacheKey:cacheKey videoId:videoId language:language provider:provider lines:lines];
         YTMUCompleteOnMain(^{
             completion(nil, error);
         });
