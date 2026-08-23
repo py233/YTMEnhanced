@@ -37,7 +37,7 @@
 ## Runtime Architecture
 
 - Feature hooks live as top-level Logos files in `Source/`; preferences UI lives in `Source/Prefs/`.
-- Bilingual lyrics flow is centered on `Source/Lyrics/YTMULyricsManager.m`; providers live in `Source/Lyrics/Providers/`.
+- Bilingual lyrics flow is centered on `Source/Lyrics/YTMULyricsManager.m`; providers live in `Source/Lyrics/Providers/`; per-line romanization (Google transliteration, batch scheduling, memory cache) is `Source/Lyrics/YTMURomanizationService.m` — its `endpointBaseURL` is how the host tests stand in for Google.
 - Translation flow is centered on `Source/Translation/YTMUTranslator.m`; providers are Google Translate, Anthropic, Gemini, and OpenAI-compatible.
 - Settings are stored in the `NSUserDefaults` dictionary key `YTMUltimate`; translation/lyrics settings changes post `YTMULyricsSettingsDidChangeNotification`.
 - Translation cache keys include `YTMUTranslationStrategyVersion` from `Source/Translation/YTMUTranslationTypes.m`; bump it when changing cache-incompatible translation behavior. The lyrics layer has a parallel `YTMUInnerTubeSchemaVersion` (in `Source/Lyrics/YTMUInnerTubeDescriptionFetcher.m`) for the on-disk InnerTube description / blacklist cache — bump it when changing that plist's shape.

@@ -2,6 +2,16 @@
 #import "../YTMULRCParser.h"
 #import "../../Utils/NSBundle+YTMU.h"
 
+// InnerTube client identities and the one English sentinel string the
+// lyrics browse endpoint returns for tracks without lyrics. These are the
+// values most likely to need touching when YouTube Music changes; keep
+// them together. (The description fetcher's WEB client lives in
+// YTMUInnerTubeDescriptionFetcher.m for the same reason.)
+static NSString *const YTMUYTMusicWebRemixClientVersion = @"1.20240501.01.00";
+static NSString *const YTMUYTMusicIOSClientName = @"26";          // iOS YouTube Music client id
+static NSString *const YTMUYTMusicIOSClientVersion = @"7.01.05";
+static NSString *const YTMUYTMusicNoLyricsSentinel = @"Lyrics not available"; // hl defaults to en, so this is stable
+
 @implementation YTMUYTMusicProvider
 
 - (NSString *)providerName {
@@ -9,11 +19,11 @@
 }
 
 - (NSDictionary *)context {
-    return @{@"client": @{@"clientName": @"WEB_REMIX", @"clientVersion": @"1.20240501.01.00"}};
+    return @{@"client": @{@"clientName": @"WEB_REMIX", @"clientVersion": YTMUYTMusicWebRemixClientVersion}};
 }
 
 - (NSDictionary *)timedLyricsContext {
-    return @{@"client": @{@"clientName": @"26", @"clientVersion": @"7.01.05"}};
+    return @{@"client": @{@"clientName": YTMUYTMusicIOSClientName, @"clientVersion": YTMUYTMusicIOSClientVersion}};
 }
 
 - (void)postPath:(NSString *)path body:(NSDictionary *)body completion:(void(^)(NSDictionary *json, NSError *error))completion {
@@ -162,7 +172,7 @@
     NSMutableArray<NSString *> *plainParts = [NSMutableArray array];
     [self collectPlainLyricsFromNode:json into:plainParts];
     NSString *plain = [[plainParts componentsJoinedByString:@""] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if ([plain isEqualToString:@"Lyrics not available"] || !plain.length) return nil;
+    if ([plain isEqualToString:YTMUYTMusicNoLyricsSentinel] || !plain.length) return nil;
 
     YTMULyricsResult *result = [[YTMULyricsResult alloc] init];
     result.sourceName = [self providerName];

@@ -95,9 +95,10 @@ static NSString *YTMURomanizationFormEncode(NSString *value) {
     // translate.googleapis.com with client=gtx is the long-stable public
     // endpoint used by web translate widgets, yt-dlp, and most OSS
     // translation tools. GET-only, no auth, no cookies. Returns a proper
-    // JSON envelope when dj=1 is set. (translate.google.com with client=at
-    // expects the Android Translator client's device certificate and
-    // silently returned empty bodies / CAPTCHA pages to a plain NSURLSession.)
+    // JSON envelope when dj=1 is set. Note the translation provider
+    // (YTMUGoogleTranslateProvider) POSTs to translate.google.com with
+    // client=at and that works fine; it was this GET transliteration path
+    // that came back empty / CAPTCHA'd from client=at, hence the split.
     NSString *source = sourceLanguage.length ? sourceLanguage : @"auto";
     NSString *base = self.endpointBaseURL.length ? self.endpointBaseURL : @"https://translate.googleapis.com";
     while ([base hasSuffix:@"/"]) base = [base substringToIndex:base.length - 1];
