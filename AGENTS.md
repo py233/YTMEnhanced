@@ -48,8 +48,9 @@
 - `Source/*.x` and `Source/*.xm` are injected app hooks; each file generally owns one tweak feature such as ads, playback, tabs, or settings entry.
 - `Source/Headers/` contains private YouTube Music interface declarations used by hooks; update these when hook signatures drift with app versions.
 - `Source/Prefs/` builds the in-app YTMusicUltimate settings screens; it writes into the shared `YTMUltimate` defaults dictionary.
-- `Source/Lyrics/` owns synced/bilingual lyrics state, caches, parsing, text processing, and provider orchestration.
+- `Source/Lyrics/` owns synced/bilingual lyrics state, caches, parsing, text processing, and provider orchestration — plus the in-app lyrics panel UI (`YTMULyricsTabOverlayView`, `YTMULyricsPanelViewController`, with shared helpers in `YTMULyricsPanelSupport`); `Source/SelectableLyrics.x` contains only the hooks that mount it.
 - `Source/Translation/` owns translation requests, prompt construction, provider adapters, and translation cache behavior.
+- `Source/Utils/` holds small shared helpers: `YTMUPaths` (one cache root for every on-disk cache), `YTMUDigest` (SHA-1), `YTMUPlistStore` (versioned per-key plist cache), `YTMUInflightCoalescer` (collapse concurrent requests per key), `YTMUConcurrencyLimiter` (bounded async fan-out without blocking a thread), `YTMUWeakProxy` (timer / display-link targets). Reach for these before writing another copy.
 - `Source/Utils/lib/` and `Source/Utils/MobileFFmpeg/` are vendored binary/header dependencies used by downloader/FFmpeg code; avoid treating them as normal app source.
 - `layout/Library/Application Support/YTMusicUltimate.bundle/` is the packaged tweak bundle for icons and `.lproj/Localizable.strings` files.
 - `Resources/` is repository/release artwork and depiction metadata, not the runtime localization bundle.
