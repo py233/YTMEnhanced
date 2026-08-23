@@ -1,7 +1,7 @@
 #import "YTMUTranslationCache.h"
 #import "YTMUTranslationTypes.h"
 #import <UIKit/UIKit.h>
-#import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUDigest.h"
 #import "../Utils/YTMUPaths.h"
 
 @implementation YTMUTranslationCacheEntry
@@ -18,22 +18,6 @@ const NSTimeInterval YTMUTranslationFailureTTL = 24 * 60 * 60;
 @property (nonatomic, strong) NSCache<NSString *, YTMUTranslationCacheEntry *> *memoryCache;
 @property (nonatomic, strong) dispatch_queue_t ioQueue;
 @end
-
-static NSString *YTMUSHA1ForData(NSData *data) {
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
-        [output appendFormat:@"%02x", digest[i]];
-    }
-    return output;
-}
-
-static NSString *YTMUSHA1ForString(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    return YTMUSHA1ForData(data);
-}
 
 @implementation YTMUTranslationCache
 
@@ -96,8 +80,8 @@ static NSString *YTMUSHA1ForString(NSString *string) {
 + (NSString *)sourceHashForLines:(NSArray<NSString *> *)lines {
     NSArray *safeLines = lines ?: @[];
     NSData *json = [NSJSONSerialization dataWithJSONObject:safeLines options:0 error:nil];
-    if (json) return YTMUSHA1ForData(json);
-    return YTMUSHA1ForString([safeLines componentsJoinedByString:@"\n"]);
+    if (json) return YTMUSHA1HexForData(json);
+    return YTMUSHA1Hex([safeLines componentsJoinedByString:@"\n"]);
 }
 
 + (NSString *)keyForVideoId:(NSString *)videoId
@@ -121,7 +105,7 @@ static NSString *YTMUSHA1ForString(NSString *string) {
 }
 
 - (NSString *)filePathForKey:(NSString *)key {
-    NSString *fileName = [[YTMUSHA1ForString(key) stringByAppendingString:@".json"] copy];
+    NSString *fileName = [[YTMUSHA1Hex(key) stringByAppendingString:@".json"] copy];
     return [[self cacheDirectory] stringByAppendingPathComponent:fileName];
 }
 

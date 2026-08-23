@@ -1,21 +1,12 @@
 #import "YTMULyricsCache.h"
 #import <UIKit/UIKit.h>
-#import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUDigest.h"
 #import "../Utils/YTMUPaths.h"
 
 @interface YTMULyricsCache ()
 @property (nonatomic, strong) NSCache<NSString *, YTMULyricsResult *> *memoryCache;
 @property (nonatomic, strong) dispatch_queue_t ioQueue;
 @end
-
-static NSString *YTMULyricsSHA1(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [output appendFormat:@"%02x", digest[i]];
-    return output;
-}
 
 @implementation YTMULyricsCache
 
@@ -77,7 +68,7 @@ static NSString *YTMULyricsSHA1(NSString *string) {
 }
 
 - (NSString *)filePathForKey:(NSString *)key {
-    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMULyricsSHA1(key) stringByAppendingString:@".bin"]];
+    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMUSHA1Hex(key) stringByAppendingString:@".bin"]];
 }
 
 - (void)ensureCacheDirectory {

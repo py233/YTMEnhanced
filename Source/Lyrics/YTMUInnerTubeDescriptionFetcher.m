@@ -1,8 +1,8 @@
 #import "YTMUInnerTubeDescriptionFetcher.h"
 #import "YTMULyricsTypes.h"
 #import "../Utils/NSBundle+YTMU.h"
-#import <CommonCrypto/CommonDigest.h>
-#import "../Utils/YTMUPaths.h"
+#import "../Utils/YTMUPlistStore.h"
+#import "../Utils/YTMUInflightCoalescer.h"
 
 // Persistent cache layout (v3 schema):
 //   $CACHES/YTMUltimate/InnerTubeDescription/<sha1(videoId)>.plist
@@ -37,15 +37,6 @@ static NSString *const YTMUInnerTubeClientVersion = @"2.20241010.05.00";
 static NSString *const YTMUInnerTubeUserAgent =
     @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15";
 
-static NSString *YTMUInnerTubeSHA1(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [output appendFormat:@"%02x", digest[i]];
-    return output;
-}
-
 static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMUInnerTubeDescriptionFetcher"
                                code:code
@@ -57,8 +48,8 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
 
 @interface YTMUInnerTubeDescriptionFetcher ()
 @property (nonatomic, strong) NSURLSession *session;
-@property (nonatomic, strong) dispatch_queue_t ioQueue;
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<YTMUInnerTubeMetadataCompletion> *> *inflight;
+@property (nonatomic, strong) YTMUPlistStore *store;
+@property (nonatomic, strong) YTMUInflightCoalescer<YTMUInnerTubeMetadataCompletion> *inflight;
 @end
 
 @implementation YTMUInnerTubeDescriptionFetcher
@@ -85,8 +76,8 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
             @"Accept-Language": @"en-US,en;q=0.9",
         };
         _session = [NSURLSession sessionWithConfiguration:config];
-        _ioQueue = dispatch_queue_create("com.ytmultimate.innertube-fetch", DISPATCH_QUEUE_SERIAL);
-        _inflight = [NSMutableDictionary dictionary];
+        _store = [[YTMUPlistStore alloc] initWithSubdirectory:@"InnerTubeDescription" schemaVersion:YTMUInnerTubeSchemaVersion];
+        _inflight = [[YTMUInflightCoalescer alloc] init];
 
         // Failures are no longer persisted at all (a fetch that fails is
         // simply retried on the next refresh). Drop the bookkeeping older
@@ -100,20 +91,10 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
 
 #pragma mark - Disk cache
 
-- (NSString *)cacheDirectory {
-    return YTMUCachesSubdirectory(@"InnerTubeDescription");
-}
-
-- (NSString *)filePathForVideoId:(NSString *)videoId {
-    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMUInnerTubeSHA1(videoId) stringByAppendingString:@".plist"]];
-}
-
 - (nullable YTMUInnerTubeMetadata *)cachedMetadataForVideoId:(NSString *)videoId {
-    if (!videoId.length) return nil;
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:[self filePathForVideoId:videoId]];
-    if (![dict isKindOfClass:[NSDictionary class]]) return nil;
-    if ([dict[@"v"] integerValue] != YTMUInnerTubeSchemaVersion) return nil;
-    NSTimeInterval ts = [dict[@"ts"] doubleValue];
+    NSDictionary *dict = [self.store plistForKey:videoId];
+    if (!dict) return nil;
+    NSTimeInterval ts = [dict[@"ts"] isKindOfClass:[NSNumber class]] ? [dict[@"ts"] doubleValue] : 0;
     if (ts > 0 && ([[NSDate date] timeIntervalSince1970] - ts) > YTMUInnerTubeCacheTTL) return nil;
     YTMUInnerTubeMetadata *meta = [[YTMUInnerTubeMetadata alloc] init];
     meta.videoDescription = [dict[@"text"] isKindOfClass:[NSString class]] ? dict[@"text"] : @"";
@@ -123,20 +104,12 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
 
 - (void)writeCacheMetadata:(YTMUInnerTubeMetadata *)meta forVideoId:(NSString *)videoId {
     if (!videoId.length || !meta) return;
-    NSDictionary *plist = @{
+    [self.store writePlist:@{
         @"v":     @(YTMUInnerTubeSchemaVersion),
         @"text":  meta.videoDescription ?: @"",
         @"title": meta.canonicalTitle ?: @"",
         @"ts":    @([[NSDate date] timeIntervalSince1970]),
-    };
-    dispatch_async(self.ioQueue, ^{
-        NSString *dir = [self cacheDirectory];
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        [plist writeToFile:[self filePathForVideoId:videoId] atomically:YES];
-    });
+    } forKey:videoId];
 }
 
 #pragma mark - Request building & parsing
@@ -269,18 +242,7 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         return;
     }
 
-    YTMUInnerTubeMetadataCompletion completionCopy = [completion copy];
-    BOOL alreadyInFlight = NO;
-    @synchronized (self.inflight) {
-        NSMutableArray *queue = self.inflight[videoId];
-        if (queue) {
-            [queue addObject:completionCopy];
-            alreadyInFlight = YES;
-        } else {
-            self.inflight[videoId] = [NSMutableArray arrayWithObject:completionCopy];
-        }
-    }
-    if (alreadyInFlight) {
+    if (![self.inflight beginOrJoinKey:videoId completion:completion]) {
         YTMULyricsLog(@"innertube joined in-flight videoId=%@", videoId);
         return;
     }
@@ -348,20 +310,14 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
 }
 
 - (void)fanoutForVideoId:(NSString *)videoId result:(YTMUInnerTubeMetadata *)meta error:(NSError *)error {
-    NSArray<YTMUInnerTubeMetadataCompletion> *callbacks;
-    @synchronized (self.inflight) {
-        callbacks = [self.inflight[videoId] copy];
-        [self.inflight removeObjectForKey:videoId];
-    }
+    NSArray<YTMUInnerTubeMetadataCompletion> *callbacks = [self.inflight takeCompletionsForKey:videoId];
     dispatch_async(dispatch_get_main_queue(), ^{
         for (YTMUInnerTubeMetadataCompletion cb in callbacks) cb(meta, error);
     });
 }
 
 - (void)clearCache {
-    dispatch_async(self.ioQueue, ^{
-        [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
-    });
+    [self.store removeAll];
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMUInnerTubeLegacyFailuresKey];
 }
 

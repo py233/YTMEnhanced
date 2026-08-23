@@ -1,7 +1,7 @@
 #import "YTMULyricsDescriptionExtractor.h"
 #import "../Utils/NSBundle+YTMU.h"
-#import <CommonCrypto/CommonDigest.h>
-#import "../Utils/YTMUPaths.h"
+#import "../Utils/YTMUPlistStore.h"
+#import "../Utils/YTMUInflightCoalescer.h"
 
 // Persistent storage layout:
 //   $CACHES/YTMUltimate/DescriptionLyrics/<sha1(videoId)>.plist
@@ -40,14 +40,6 @@ static const NSUInteger YTMULDEMinDescriptionLength = 200;
 // trust the extraction. Anti-hallucination guard.
 static const double YTMULDEVerifyMinRatio = 0.7;
 
-static NSString *YTMULDESHA1(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [output appendFormat:@"%02x", digest[i]];
-    return output;
-}
 
 static NSError *YTMULDEError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMULyricsDescriptionExtractor"
@@ -76,9 +68,9 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 #pragma mark - YTMULyricsDescriptionExtractor
 
 @interface YTMULyricsDescriptionExtractor ()
-@property (nonatomic, strong) dispatch_queue_t ioQueue;
-// videoId → array of pending completions for that videoId.
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<YTMULyricsDescriptionExtractorCompletion> *> *inflight;
+@property (nonatomic, strong) YTMUPlistStore *store;
+// One AI call per videoId even when several refresh passes overlap.
+@property (nonatomic, strong) YTMUInflightCoalescer<YTMULyricsDescriptionExtractorCompletion> *inflight;
 @end
 
 @implementation YTMULyricsDescriptionExtractor
@@ -95,41 +87,25 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _ioQueue = dispatch_queue_create("com.ytmultimate.description-extract", DISPATCH_QUEUE_SERIAL);
-        _inflight = [NSMutableDictionary dictionary];
+        _store = [[YTMUPlistStore alloc] initWithSubdirectory:@"DescriptionLyrics" schemaVersion:YTMULDESchemaVersion];
+        _inflight = [[YTMUInflightCoalescer alloc] init];
     }
     return self;
 }
 
 #pragma mark - Disk cache
 
-- (NSString *)cacheDirectory {
-    return YTMUCachesSubdirectory(@"DescriptionLyrics");
-}
-
+// Kept as a seam for tests that inspect the on-disk record.
 - (NSString *)filePathForVideoId:(NSString *)videoId {
-    NSString *key = videoId.length ? videoId : @"<empty>";
-    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMULDESHA1(key) stringByAppendingString:@".plist"]];
+    return [self.store pathForKey:videoId];
 }
 
 - (nullable NSDictionary *)readPlistForVideoId:(NSString *)videoId {
-    if (!videoId.length) return nil;
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:[self filePathForVideoId:videoId]];
-    if (![dict isKindOfClass:[NSDictionary class]]) return nil;
-    if ([dict[@"v"] integerValue] != YTMULDESchemaVersion) return nil;
-    return dict;
+    return [self.store plistForKey:videoId];
 }
 
 - (void)writePlist:(NSDictionary *)dict forVideoId:(NSString *)videoId {
-    if (!videoId.length || !dict) return;
-    dispatch_async(self.ioQueue, ^{
-        NSString *dir = [self cacheDirectory];
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        [dict writeToFile:[self filePathForVideoId:videoId] atomically:YES];
-    });
+    [self.store writePlist:dict forKey:videoId];
 }
 
 - (YTMULyricsDescriptionExtraction *)extractionFromPlist:(NSDictionary *)dict {
@@ -404,18 +380,7 @@ static NSString *const YTMULDESystemPrompt =
     // In-flight dedup: same videoId can fire multiple refresh passes
     // (initial raw, then a normalize re-pass, plus YT metadata flickering)
     // — we want exactly one AI call per song.
-    YTMULyricsDescriptionExtractorCompletion completionCopy = [completion copy];
-    BOOL alreadyInFlight = NO;
-    @synchronized (self.inflight) {
-        NSMutableArray *queue = self.inflight[videoId];
-        if (queue) {
-            [queue addObject:completionCopy];
-            alreadyInFlight = YES;
-        } else {
-            self.inflight[videoId] = [NSMutableArray arrayWithObject:completionCopy];
-        }
-    }
-    if (alreadyInFlight) {
+    if (![self.inflight beginOrJoinKey:videoId completion:completion]) {
         YTMULyricsLog(@"description extract joined in-flight videoId=%@", videoId);
         return;
     }
@@ -438,12 +403,7 @@ static NSString *const YTMULDESystemPrompt =
                             completion:^(NSString * _Nullable text, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             void (^fanout)(YTMULyricsDescriptionExtraction *, NSError *) = ^(YTMULyricsDescriptionExtraction *result, NSError *err) {
-                NSArray<YTMULyricsDescriptionExtractorCompletion> *callbacks;
-                @synchronized (weakSelf.inflight) {
-                    callbacks = [weakSelf.inflight[videoId] copy];
-                    [weakSelf.inflight removeObjectForKey:videoId];
-                }
-                for (YTMULyricsDescriptionExtractorCompletion cb in callbacks) cb(result, err);
+                for (YTMULyricsDescriptionExtractorCompletion cb in [weakSelf.inflight takeCompletionsForKey:videoId]) cb(result, err);
             };
 
             if (error) {
@@ -501,9 +461,7 @@ static NSString *const YTMULDESystemPrompt =
 }
 
 - (void)clearCache {
-    dispatch_async(self.ioQueue, ^{
-        [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
-    });
+    [self.store removeAll];
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMULDELegacyFailuresKey];
 }
 
