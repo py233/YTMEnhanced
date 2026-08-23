@@ -12,6 +12,7 @@
 #import "Providers/YTMUGeniusProvider.h"
 #import "Providers/YTMUDescriptionProvider.h"
 #import "../Utils/NSBundle+YTMU.h"
+#import "../Utils/YTMUConcurrencyLimiter.h"
 #import <NaturalLanguage/NaturalLanguage.h>
 
 static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
@@ -392,6 +393,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
                                 limit:(NSUInteger)limit
                        sourceLanguage:(NSString *)sourceLanguage
                             romanized:(NSMutableArray<NSString *> *)romanized
+                           generation:(NSUInteger)generation
                            completion:(void(^)(NSArray<NSString *> *romanized))completion {
     NSUInteger total = MIN(items.count, limit);
     if (total == 0) {
@@ -399,40 +401,39 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         return;
     }
 
-    // Old code fired these requests strictly serially via tail recursion
-    // — for a 28-line song that's 28 × ~1.5s = 30-60s of latency before
-    // we knew whether ANY romanization landed. Google's per-segment
-    // endpoint is happy to take parallel requests as long as we don't
-    // pummel it; 6 in flight cuts wall time ~5x without tripping rate
-    // limits. The semaphore enforces the cap; the dispatch_group lets
-    // us fan-in on the main queue once everyone's done.
-    static const NSInteger kMaxConcurrent = 6;
-    dispatch_queue_t scheduler = dispatch_queue_create("com.ytmultimate.romanization-batch", DISPATCH_QUEUE_SERIAL);
-    dispatch_semaphore_t sem = dispatch_semaphore_create(kMaxConcurrent);
-    dispatch_group_t group = dispatch_group_create();
-
-    for (NSUInteger i = 0; i < total; i++) {
-        dispatch_group_enter(group);
-        dispatch_async(scheduler, ^{
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            NSDictionary *item = items[i];
-            NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
-            NSString *text = item[@"text"] ?: @"";
-            [self fetchGoogleRomanizationForText:text sourceLanguage:sourceLanguage completion:^(NSString *value) {
-                if (value.length) {
-                    @synchronized (romanized) {
-                        if (lineIndex < romanized.count) romanized[lineIndex] = value;
-                    }
+    // Google's per-segment endpoint is happy to take parallel requests as
+    // long as we don't pummel it; 6 in flight cuts wall time ~5x over the
+    // old serial chain without tripping rate limits. The limiter starts
+    // each request from the completion of a previous one — nothing blocks
+    // a thread waiting for a slot — and stops starting new requests once
+    // the song has changed (the partial result is then dropped by
+    // applyRomanizedLines' generation check anyway).
+    static const NSUInteger kMaxConcurrent = 6;
+    __weak typeof(self) weakSelf = self;
+    [YTMUConcurrencyLimiter runItems:total
+                         concurrency:kMaxConcurrent
+                         shouldStart:^BOOL{
+        typeof(self) strongSelf = weakSelf;
+        return strongSelf != nil && generation == strongSelf.requestGeneration;
+    } work:^(NSUInteger i, dispatch_block_t done) {
+        NSDictionary *item = items[i];
+        NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
+        NSString *text = item[@"text"] ?: @"";
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) { done(); return; }
+        [strongSelf fetchGoogleRomanizationForText:text sourceLanguage:sourceLanguage completion:^(NSString *value) {
+            if (value.length) {
+                @synchronized (romanized) {
+                    if (lineIndex < romanized.count) romanized[lineIndex] = value;
                 }
-                dispatch_semaphore_signal(sem);
-                dispatch_group_leave(group);
-            }];
+            }
+            done();
+        }];
+    } completion:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion([romanized copy]);
         });
-    }
-
-    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
-        completion([romanized copy]);
-    });
+    }];
 }
 
 - (void)applyRomanizedLines:(NSArray<NSString *> *)romanized generation:(NSUInteger)generation info:(YTMULyricsSearchInfo *)info cacheKey:(NSString *)cacheKey {
@@ -526,7 +527,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     }
 
     NSUInteger limit = MIN(items.count, (NSUInteger)80);
-    [self fetchGoogleRomanizationItems:items limit:limit sourceLanguage:sourceLanguage romanized:romanized completion:^(NSArray<NSString *> *values) {
+    [self fetchGoogleRomanizationItems:items limit:limit sourceLanguage:sourceLanguage romanized:romanized generation:generation completion:^(NSArray<NSString *> *values) {
         [self applyRomanizedLines:values generation:generation info:info cacheKey:cacheKey];
     }];
 }
