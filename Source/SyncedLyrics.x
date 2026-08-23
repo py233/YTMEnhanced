@@ -328,17 +328,9 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     NSString *title = YTMUStringFromObject(YTMUSafeValueForKey(details, @"title"));
     NSString *artist = YTMUStringFromObject(YTMUSafeValueForKey(details, @"author"));
     NSString *album = YTMUStringFromObject(YTMUSafeValueForKey(details, @"album"));
-    id microformat = YTMUMicroformatRendererFromPlayerResponse(playerResponse);
-    NSString *descriptionLengths = nil;
-    NSString *shortDescription = YTMUDescriptionFromPlayerResponse(playerResponse, details, microformat, &descriptionLengths);
-    NSString *alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
-    NSArray<NSString *> *tags = YTMUTagsFromMicroformat(microformat);
     NSDictionary *nowPlaying = [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo ?: @{};
     if (!title.length) title = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyTitle]);
     if (!artist.length) artist = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyArtist]);
-    if (!album.length) album = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyAlbumTitle]);
-    if (!alternativeTitle.length) alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
-    if (duration <= 0) duration = [nowPlaying[MPMediaItemPropertyPlaybackDuration] doubleValue];
 
     if (!videoId.length && !title.length) {
         static NSMutableSet<NSString *> *missingSources;
@@ -357,6 +349,10 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
         return NO;
     }
 
+    // Dedup first. This function runs from every viewDidLayoutSubviews of
+    // two view controllers, so the common case is "same song as last time"
+    // — decide that from the three cheap fields before touching the
+    // microformat / description / tag extraction below.
     NSString *signature = [NSString stringWithFormat:@"%@|%@|%@", videoId ?: @"", title ?: @"", artist ?: @""];
     static NSString *lastSignature;
     BOOL shouldRefresh = force;
@@ -367,6 +363,15 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
         }
     }
     if (!shouldRefresh) return NO;
+
+    id microformat = YTMUMicroformatRendererFromPlayerResponse(playerResponse);
+    NSString *descriptionLengths = nil;
+    NSString *shortDescription = YTMUDescriptionFromPlayerResponse(playerResponse, details, microformat, &descriptionLengths);
+    NSString *alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
+    NSArray<NSString *> *tags = YTMUTagsFromMicroformat(microformat);
+    if (!album.length) album = YTMUStringFromObject(nowPlaying[MPMediaItemPropertyAlbumTitle]);
+    if (!alternativeTitle.length) alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
+    if (duration <= 0) duration = [nowPlaying[MPMediaItemPropertyPlaybackDuration] doubleValue];
 
     [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId title:title artist:artist];
 
