@@ -319,16 +319,6 @@
     return matches > 0;
 }
 
-+ (NSString *)simplifyUnicode:(NSString *)s {
-    if (!s) return @"";
-    NSString *folded = [s.precomposedStringWithCanonicalMapping lowercaseString];
-    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
-    NSArray *parts = [folded componentsSeparatedByCharactersInSet:ws];
-    NSMutableArray *nonEmpty = [NSMutableArray array];
-    for (NSString *p in parts) if (p.length) [nonEmpty addObject:p];
-    return [nonEmpty componentsJoinedByString:@" "];
-}
-
 + (NSString *)resolveLanguageName:(NSString *)code {
     static NSDictionary *map;
     static dispatch_once_t once;

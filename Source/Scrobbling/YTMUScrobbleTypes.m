@@ -64,10 +64,6 @@ static NSString *YTMUListenFirstNonEmpty(NSString *a, NSString *b, NSString *c) 
     return best.length ? best : nil;
 }
 
-- (nullable NSString *)bestRecordingMBID {
-    return self.recordingMBID.length ? self.recordingMBID : nil;
-}
-
 - (BOOL)hasMinimumMetadata {
     return self.trackName.length > 0 && self.artist.length > 0;
 }

@@ -217,11 +217,6 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     return [self.currentResult lineTexts] ?: @[];
 }
 
-- (NSString *)translationForLineAtIndex:(NSUInteger)index {
-    if (index >= self.translatedLines.count) return @"";
-    return self.translatedLines[index] ?: @"";
-}
-
 - (BOOL)isChineseTarget {
     NSString *target = [YTMUPromptBuilder effectiveTargetCode:YTMULyricsSettingsString(@"translationTargetLang", @"auto")];
     return [target.lowercaseString hasPrefix:@"zh"];

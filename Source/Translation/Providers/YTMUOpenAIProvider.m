@@ -189,25 +189,6 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
     return NO;
 }
 
-- (NSString *)responseTextFromJSON:(NSDictionary *)json {
-    NSString *outputText = [json[@"output_text"] isKindOfClass:[NSString class]] ? json[@"output_text"] : @"";
-    if (outputText.length) return outputText;
-
-    NSArray *output = [json[@"output"] isKindOfClass:[NSArray class]] ? json[@"output"] : @[];
-    NSMutableString *combined = [NSMutableString string];
-    for (id item in output) {
-        NSDictionary *itemDict = [item isKindOfClass:[NSDictionary class]] ? item : nil;
-        NSArray *content = [itemDict[@"content"] isKindOfClass:[NSArray class]] ? itemDict[@"content"] : @[];
-        for (id part in content) {
-            NSDictionary *partDict = [part isKindOfClass:[NSDictionary class]] ? part : nil;
-            NSString *text = [partDict[@"text"] isKindOfClass:[NSString class]] ? partDict[@"text"] : @"";
-            if (!text.length) text = [partDict[@"output_text"] isKindOfClass:[NSString class]] ? partDict[@"output_text"] : @"";
-            if (text.length) [combined appendString:text];
-        }
-    }
-    return combined;
-}
-
 - (void)handleData:(NSData *)data
           response:(NSURLResponse *)response
              error:(NSError *)error

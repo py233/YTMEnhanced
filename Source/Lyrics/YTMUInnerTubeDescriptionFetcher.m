@@ -121,15 +121,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     return meta;
 }
 
-- (nullable NSString *)cachedDescriptionForVideoId:(NSString *)videoId {
-    return [self cachedMetadataForVideoId:videoId].videoDescription;
-}
-
-- (nullable NSString *)cachedCanonicalTitleForVideoId:(NSString *)videoId {
-    NSString *title = [self cachedMetadataForVideoId:videoId].canonicalTitle;
-    return title.length ? title : nil;
-}
-
 - (void)writeCacheMetadata:(YTMUInnerTubeMetadata *)meta forVideoId:(NSString *)videoId {
     if (!videoId.length || !meta) return;
     NSDictionary *plist = @{

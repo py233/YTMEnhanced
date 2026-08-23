@@ -17,8 +17,6 @@ NS_ASSUME_NONNULL_BEGIN
 // True for ♪/dashes/punctuation-only lines, mirroring pear-desktop's skipPattern.
 + (BOOL)isSkippableLine:(NSString *)line;
 
-// Lowercase + Unicode NFC + collapse whitespace. Used to test "translation == source".
-+ (NSString *)simplifyUnicode:(NSString *)s;
 
 // Map a BCP-47-ish language code (e.g. "zh-Hans", "ja", "auto") to a human
 // language name suitable for putting into the LLM prompt.

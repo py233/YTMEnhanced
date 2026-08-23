@@ -82,24 +82,6 @@
     return mutable;
 }
 
-+ (NSString *)romanizeText:(NSString *)text {
-    if (!text.length || ![self hasRomanizableText:text]) return @"";
-    NSMutableString *mutable = [[self canonicalize:text] mutableCopy];
-    if (!mutable.length) return @"";
-
-    if ([self hasChinese:mutable]) {
-        return @"";
-    }
-
-    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformToLatin, NO);
-    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformStripCombiningMarks, NO);
-
-    NSString *out = mutable.lowercaseString;
-    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
-    out = [spaces stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
-    return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-}
-
 + (NSString *)googleTransliterationFromJSON:(id)json {
     NSMutableString *text = [NSMutableString string];
 

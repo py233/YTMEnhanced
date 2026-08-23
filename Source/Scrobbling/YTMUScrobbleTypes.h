@@ -81,9 +81,6 @@ extern NSString *const kYTMUPlaybackUserInfoIsPlaying;
 - (NSString *)bestArtist;
 - (nullable NSString *)bestAlbum;
 
-// Convenience: the resolved recording MBID for LB submissions, or
-// nil when not resolved.
-- (nullable NSString *)bestRecordingMBID;
 
 #pragma mark Threshold / validity
 

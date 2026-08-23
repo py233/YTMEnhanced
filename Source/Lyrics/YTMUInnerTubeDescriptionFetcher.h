@@ -45,10 +45,6 @@ typedef void(^YTMUInnerTubeMetadataCompletion)(YTMUInnerTubeMetadata *_Nullable 
 // Synchronous cache lookup — returns nil if we haven't fetched yet.
 - (nullable YTMUInnerTubeMetadata *)cachedMetadataForVideoId:(NSString *)videoId;
 
-// Convenience accessors (kept for call-sites that only care about
-// description). Both are synchronous cache lookups.
-- (nullable NSString *)cachedDescriptionForVideoId:(NSString *)videoId;
-- (nullable NSString *)cachedCanonicalTitleForVideoId:(NSString *)videoId;
 
 - (void)clearCache;
 
