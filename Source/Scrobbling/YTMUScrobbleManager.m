@@ -63,6 +63,12 @@ static const NSTimeInterval kNowPlayingDelaySeconds = 4.0;
 // (rather than each fresh-track state=YES, which would defeat the
 // track-change deferred throttle).
 @property (nonatomic) NSTimeInterval lastNowPlayingSubmitTime;
+
+// Serialises every read-modify-write of the offline queue. Writers arrive
+// from the main thread (flush, settings UI) and from provider completion
+// queues (enqueue on failure); two overlapping RMWs would otherwise let
+// the later write drop the earlier one's entry.
+@property (nonatomic, strong) dispatch_queue_t pendingQueueAccess;
 @end
 
 // Minimum wall-clock seconds since the last now-playing submit before
@@ -96,6 +102,7 @@ static const NSTimeInterval kNowPlayingResumeMinElapsedSeconds = 4.0;
         _lastfm = [[YTMULastFMScrobbler alloc] init];
         _listenbrainz = [[YTMUListenBrainzScrobbler alloc] init];
         _providers = @[_lastfm, _listenbrainz];
+        _pendingQueueAccess = dispatch_queue_create("com.ytmultimate.scrobble-queue", DISPATCH_QUEUE_SERIAL);
     }
     return self;
 }
@@ -326,16 +333,37 @@ static const NSTimeInterval kNowPlayingResumeMinElapsedSeconds = 4.0;
     YTMUScrobbleSetDefaults([self pendingQueueKey], queue ?: @[]);
 }
 
+// Atomic read-modify-write of the queue. Every mutation goes through here
+// so an enqueue that lands while a flush is in flight can never be lost.
+- (void)mutatePendingQueue:(void (^)(NSMutableArray<NSDictionary *> *queue))mutation {
+    dispatch_sync(self.pendingQueueAccess, ^{
+        NSMutableArray<NSDictionary *> *queue = [[self readPendingQueue] mutableCopy] ?: [NSMutableArray array];
+        mutation(queue);
+        [self writePendingQueue:queue];
+    });
+}
+
 - (void)enqueuePending:(YTMUListen *)listen forProvider:(NSString *)providerId {
-    NSMutableArray *queue = [[self readPendingQueue] mutableCopy] ?: [NSMutableArray array];
-    [queue addObject:@{@"provider": providerId, @"listen": [listen serialize]}];
-    // Cap queue size to avoid runaway defaults growth in pathological
-    // offline scenarios. Oldest entries get dropped first.
-    static const NSUInteger kQueueMax = 500;
-    if (queue.count > kQueueMax) {
-        [queue removeObjectsInRange:NSMakeRange(0, queue.count - kQueueMax)];
-    }
-    [self writePendingQueue:queue];
+    NSDictionary *entry = @{@"provider": providerId, @"listen": [listen serialize]};
+    [self mutatePendingQueue:^(NSMutableArray<NSDictionary *> *queue) {
+        [queue addObject:entry];
+        // Cap queue size to avoid runaway defaults growth in pathological
+        // offline scenarios. Oldest entries get dropped first.
+        static const NSUInteger kQueueMax = 500;
+        if (queue.count > kQueueMax) {
+            [queue removeObjectsInRange:NSMakeRange(0, queue.count - kQueueMax)];
+        }
+    }];
+}
+
+// Removes exactly these entries (by value) from whatever the queue holds
+// *now* — not from the snapshot a flush started with — so entries added
+// during the flush are untouched.
+- (void)removePendingEntries:(NSArray<NSDictionary *> *)entries {
+    if (!entries.count) return;
+    [self mutatePendingQueue:^(NSMutableArray<NSDictionary *> *queue) {
+        [queue removeObjectsInArray:entries];
+    }];
 }
 
 - (void)flushQueueIfPossible {
@@ -343,46 +371,46 @@ static const NSTimeInterval kNowPlayingResumeMinElapsedSeconds = 4.0;
     if (queue.count == 0) return;
     if (![self isMasterEnabled]) return;
 
-    // Split by provider, batch-submit each, remove on success.
-    NSMutableDictionary<NSString *, NSMutableArray<YTMUListen *> *> *byProvider = [NSMutableDictionary dictionary];
+    // Split by provider, batch-submit each, remove on success. Keep the
+    // original entry dictionaries alongside the deserialised listens so a
+    // successful batch can remove precisely what it sent.
+    NSMutableDictionary<NSString *, NSMutableArray<YTMUListen *> *> *listensByProvider = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableArray<NSDictionary *> *> *entriesByProvider = [NSMutableDictionary dictionary];
     NSMutableArray<NSDictionary *> *invalid = [NSMutableArray array];
     for (NSDictionary *entry in queue) {
-        NSString *pid = entry[@"provider"];
+        NSString *pid = [entry[@"provider"] isKindOfClass:[NSString class]] ? entry[@"provider"] : nil;
         YTMUListen *listen = [YTMUListen deserialize:entry[@"listen"]];
-        if (!pid || !listen) {
+        if (!pid.length || !listen) {
             [invalid addObject:entry];
             continue;
         }
-        if (!byProvider[pid]) byProvider[pid] = [NSMutableArray array];
-        [byProvider[pid] addObject:listen];
+        if (!listensByProvider[pid]) {
+            listensByProvider[pid] = [NSMutableArray array];
+            entriesByProvider[pid] = [NSMutableArray array];
+        }
+        [listensByProvider[pid] addObject:listen];
+        [entriesByProvider[pid] addObject:entry];
     }
     YTMUScrobbleLog(@"queue flush start total=%lu", (unsigned long)queue.count);
 
-    __block NSMutableArray<NSDictionary *> *remaining = [queue mutableCopy];
-    // Strip invalid up front so they never recycle.
-    [remaining removeObjectsInArray:invalid];
+    // Strip invalid entries right away so they never recycle.
+    [self removePendingEntries:invalid];
 
-    dispatch_group_t group = dispatch_group_create();
-    for (NSString *pid in byProvider) {
+    __weak typeof(self) weakSelf = self;
+    for (NSString *pid in listensByProvider) {
         id<YTMUScrobbler> provider = [self providerWithIdentifier:pid];
         if (!provider || ![provider isEnabled] || ![provider isConfigured]) continue;
-        NSArray<YTMUListen *> *listens = byProvider[pid];
-        dispatch_group_enter(group);
+        NSArray<YTMUListen *> *listens = listensByProvider[pid];
+        NSArray<NSDictionary *> *entries = [entriesByProvider[pid] copy];
         [provider submitBatch:listens completion:^(BOOL ok, NSError *err) {
             if (ok) {
                 YTMUScrobbleLog(@"queue flush ok provider=%@ count=%lu", pid, (unsigned long)listens.count);
-                [remaining filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *entry, NSDictionary *_) {
-                    return ![entry[@"provider"] isEqualToString:pid];
-                }]];
+                [weakSelf removePendingEntries:entries];
             } else {
                 YTMUScrobbleLog(@"queue flush fail provider=%@ err=%@", pid, err.localizedDescription);
             }
-            dispatch_group_leave(group);
         }];
     }
-    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
-        [self writePendingQueue:remaining];
-    });
 }
 
 - (nullable id<YTMUScrobbler>)providerWithIdentifier:(NSString *)identifier {
