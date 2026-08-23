@@ -1,4 +1,5 @@
 #import "YTMUSyncedLyricsView.h"
+#import "../Utils/YTMUWeakProxy.h"
 #import "YTMULyricsManager.h"
 #import "YTMULyricsPlaybackState.h"
 #import "YTMULyricsTextProcessor.h"
@@ -277,7 +278,12 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadFromManager) name:YTMULyricsDidUpdateNotification object:nil];
 
-        _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkTick:)];
+        // Weak-proxy target: a CADisplayLink retains its target, the run loop
+        // retains the link, so a direct `self` here is a cycle that kept every
+        // instance alive forever (one leak per lyrics-panel open), each one
+        // still rebuilding its line stack on every lyrics update.
+        _displayLink = [CADisplayLink displayLinkWithTarget:[YTMUWeakProxy proxyWithTarget:self]
+                                                   selector:@selector(displayLinkTick:)];
         _displayLink.preferredFramesPerSecond = 30;
         _displayLink.paused = YES;
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
@@ -503,6 +509,10 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 
 - (void)reloadFromManager {
     [self updateDisplayLinkState];
+    // Nothing to show when we are not in a window; -didMoveToWindow reloads
+    // the moment we are. Skipping here is what keeps a hidden-but-retained
+    // instance from rebuilding its whole line stack on every lyrics update.
+    if (!self.window) return;
 
     YTMULyricsManager *manager = [YTMULyricsManager sharedManager];
     self.titleLabel.text = [self nowPlayingTitleForManager:manager];

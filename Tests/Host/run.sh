@@ -28,8 +28,7 @@ SOURCES=(
   Source/Translation/Providers/*.m
   Source/Scrobbling/*.m
   Source/Scrobbling/Providers/*.m
-  Source/Utils/NSBundle+YTMU.m
-  Source/Utils/YTMUPaths.m
+  Source/Utils/*.m
   Tests/Host/*.m
 )
 
@@ -47,11 +46,32 @@ xcrun clang \
   -framework MediaPlayer -framework NaturalLanguage -framework CoreGraphics \
   "${SOURCES[@]}" -o "$OUT/ytmu-host-tests"
 
-if [[ "${1:-}" == "--build" ]]; then echo "built $OUT/ytmu-host-tests"; exit 0; fi
+# UIApplicationMain (which the runner uses so UIKit windows / display links
+# are real) insists on a bundle identifier, so wrap the binary in a minimal
+# Catalyst .app. Nothing is installed or registered anywhere.
+APP="$OUT/YTMUHostTests.app"
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+cp "$OUT/ytmu-host-tests" "$APP/Contents/MacOS/YTMUHostTests"
+cat > "$APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>net.py233.ytmu.host-tests</string>
+  <key>CFBundleName</key><string>YTMUHostTests</string>
+  <key>CFBundleExecutable</key><string>YTMUHostTests</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSUIElement</key><true/>
+</dict></plist>
+PLIST
+
+if [[ "${1:-}" == "--build" ]]; then echo "built $APP"; exit 0; fi
 
 # Every on-disk cache the tweak writes is rooted at YTMU_CACHES_ROOT when set
 # (see Source/Utils/YTMUPaths.m), so the suite can exercise cache code paths
 # without touching ~/Library/Caches. Fresh dir per run; removed afterwards.
 CACHES="$(mktemp -d -t ytmu-host-tests)"
 trap 'rm -rf "$CACHES"' EXIT
-YTMU_CACHES_ROOT="$CACHES" "$OUT/ytmu-host-tests"
+YTMU_CACHES_ROOT="$CACHES" "$APP/Contents/MacOS/YTMUHostTests"
