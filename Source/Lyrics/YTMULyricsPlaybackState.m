@@ -24,6 +24,17 @@
     self.lastPlaybackWallClock = CACurrentMediaTime() * 1000.0;
 }
 
+// YTPlayerViewController reports currentVideoMediaTime /
+// currentVideoTotalMediaTime as seconds, but real devices have also been
+// seen handing back millisecond-scale values for the duration (see commit
+// afd7a9e), so this guesses the unit from magnitude:
+//   - duration > 10000 is taken to be milliseconds; a rawTime that fits
+//     the seconds-scale duration is seconds, one that fits the ms-scale
+//     duration is already ms;
+//   - otherwise a rawTime far above the duration (but not absurdly so) is
+//     already ms; anything else is seconds.
+// Returns -1 for an unusable rawTime. The single implementation for both
+// the hook path (SyncedLyrics.x) and the display-link path.
 - (NSTimeInterval)normalizedPlaybackTimeMsForRawTime:(NSTimeInterval)rawTime duration:(NSTimeInterval)duration {
     if (!isfinite(rawTime) || rawTime < 0) return -1;
     if (isfinite(duration) && duration > 0) {

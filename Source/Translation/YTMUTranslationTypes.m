@@ -9,6 +9,13 @@ NSString *const YTMUTranslationProviderOpenAI    = @"openai-compatible";
 
 NSString *const YTMUTranslationErrorDomain = @"YTMUTranslationErrorDomain";
 
+NSString *YTMUTranslationDefaultModelForProvider(NSString *providerName) {
+    if ([providerName isEqualToString:YTMUTranslationProviderAnthropic]) return @"claude-haiku-4-5-20251001";
+    if ([providerName isEqualToString:YTMUTranslationProviderGemini]) return @"gemini-2.0-flash";
+    if ([providerName isEqualToString:YTMUTranslationProviderOpenAI]) return @"gpt-4o-mini";
+    return @"";
+}
+
 @implementation YTMUTranslationRequest
 @end
 

@@ -32,7 +32,9 @@ static NSString *YTMULyricsSHA1(NSString *string) {
     self = [super init];
     if (self) {
         _memoryCache = [[NSCache alloc] init];
-        _memoryCache.countLimit = 8;
+        // Six providers × a probe round per song writes up to 6 entries;
+        // 8 churned constantly. 32 covers a few songs of back-and-forth.
+        _memoryCache.countLimit = 32;
         _memoryCache.totalCostLimit = 768 * 1024;
         _ioQueue = dispatch_queue_create("com.ytmultimate.lyrics-cache", DISPATCH_QUEUE_SERIAL);
         [[NSNotificationCenter defaultCenter] addObserver:self

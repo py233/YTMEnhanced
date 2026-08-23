@@ -69,3 +69,11 @@ YTMU_TEST(NetEase_candidateRanking_respectsShowInexactSetting) {
     YTMU_ASSERT_EQ_STR(Describe(matches), @"1001*,1008*,1003*,1004*");
     YTMUTestSetSettings(@{@"lyricsShowInexact": @YES});
 }
+
+YTMU_TEST(NetEase_candidateRanking_isIndependentOfInputOrder) {
+    YTMUTestSetSettings(@{@"lyricsShowInexact": @YES});
+    YTMUNetEaseProvider *p = [[YTMUNetEaseProvider alloc] init];
+    NSArray *reversed = [[FixtureSongs() reverseObjectEnumerator] allObjects];
+    YTMU_ASSERT_EQ_STR(Describe([p candidateSongsFromSongs:reversed info:FixtureInfo()]),
+                       Describe([p candidateSongsFromSongs:FixtureSongs() info:FixtureInfo()]));
+}

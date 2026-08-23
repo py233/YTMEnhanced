@@ -44,13 +44,13 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         model = @"google-translate";
     } else if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) {
         name = YTMULyricsManagerLocalized(@"PROVIDER_ANTHROPIC", @"Anthropic");
-        model = YTMULyricsSettingsString(@"translationModel_anthropic", @"claude-haiku-4-5-20251001");
+        model = YTMULyricsSettingsString(@"translationModel_anthropic", YTMUTranslationDefaultModelForProvider(provider));
     } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
         name = YTMULyricsManagerLocalized(@"PROVIDER_GEMINI", @"Gemini");
-        model = YTMULyricsSettingsString(@"translationModel_gemini", @"gemini-2.0-flash");
+        model = YTMULyricsSettingsString(@"translationModel_gemini", YTMUTranslationDefaultModelForProvider(provider));
     } else if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
         name = YTMULyricsManagerLocalized(@"PROVIDER_OPENAI", @"OpenAI-compatible");
-        model = YTMULyricsSettingsString(@"translationModel_openai-compatible", @"gpt-4o-mini");
+        model = YTMULyricsSettingsString(@"translationModel_openai-compatible", YTMUTranslationDefaultModelForProvider(provider));
     }
 
     if (!name.length) name = provider.length ? provider : YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_FALLBACK", @"translator");
@@ -444,6 +444,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
         YTMULyricsResult *current = [self.currentResult copy];
+        if (!current) return;   // nothing to decorate (and never write nil back)
         NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
         NSString *sourceLanguage = [self romanizationSourceLanguageForResult:current];
 

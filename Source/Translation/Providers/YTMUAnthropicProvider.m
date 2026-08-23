@@ -115,7 +115,7 @@ static NSError *YTMUAnthropicError(YTMUTranslationErrorCode code, NSString *mess
 }
 
 - (NSString *)modelIdentifier {
-    return YTMUAnthropicDefaultsString(@"translationModel_anthropic", @"claude-haiku-4-5-20251001");
+    return YTMUAnthropicDefaultsString(@"translationModel_anthropic", YTMUTranslationDefaultModelForProvider(YTMUTranslationProviderAnthropic));
 }
 
 - (void)translateRequest:(YTMUTranslationRequest *)request

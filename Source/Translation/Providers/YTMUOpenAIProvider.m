@@ -33,7 +33,7 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
 }
 
 - (NSString *)modelIdentifier {
-    return YTMUOpenAIDefaultsString(@"translationModel_openai-compatible", @"gpt-4o-mini");
+    return YTMUOpenAIDefaultsString(@"translationModel_openai-compatible", YTMUTranslationDefaultModelForProvider(YTMUTranslationProviderOpenAI));
 }
 
 - (NSDictionary *)requestBodyForRequest:(YTMUTranslationRequest *)request includeJSONMode:(BOOL)includeJSONMode {

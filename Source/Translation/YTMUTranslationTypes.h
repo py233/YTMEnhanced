@@ -11,6 +11,12 @@ extern NSString *const YTMUTranslationProviderOpenAI;
 
 extern NSString *const YTMUTranslationErrorDomain;
 
+// The model each LLM provider uses when the user has not picked one. The
+// provider, the manager's attribution label and the settings picker all
+// read this so they cannot drift apart. Google Translate has no model
+// and returns @"".
+NSString *YTMUTranslationDefaultModelForProvider(NSString *providerName);
+
 BOOL YTMUTranslationDebugLoggingEnabled(void);
 void YTMUTranslationLogImpl(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 // Macro so argument expressions are skipped entirely when logging is off.

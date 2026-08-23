@@ -40,7 +40,7 @@ static NSError *YTMUGeminiError(YTMUTranslationErrorCode code, NSString *message
 }
 
 - (NSString *)modelIdentifier {
-    return YTMUGeminiDefaultsString(@"translationModel_gemini", @"gemini-2.0-flash");
+    return YTMUGeminiDefaultsString(@"translationModel_gemini", YTMUTranslationDefaultModelForProvider(YTMUTranslationProviderGemini));
 }
 
 - (void)translateRequest:(YTMUTranslationRequest *)request

@@ -573,6 +573,14 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     NSArray<YTMULyricLine *> *synced = result.lines;
     NSArray<NSString *> *plain = result.isSynced ? @[] : result.lineTexts;
     NSUInteger count = result.isSynced ? synced.count : plain.count;
+    // Each line is a UIControl with four labels and a dozen constraints,
+    // built synchronously. Providers reject absurd line counts already;
+    // this is the last line of defence for the main thread.
+    static const NSUInteger kMaxRenderedLines = 600;
+    if (count > kMaxRenderedLines) {
+        YTMULyricsLog(@"synced view truncating %lu lines to %lu", (unsigned long)count, (unsigned long)kMaxRenderedLines);
+        count = kMaxRenderedLines;
+    }
     for (NSUInteger i = 0; i < count; i++) {
         YTMULyricLine *line = result.isSynced ? synced[i] : [YTMULyricLine lineWithTime:@"" timeInMs:0 durationMs:0 text:plain[i]];
         NSString *text = line.text ?: @"";

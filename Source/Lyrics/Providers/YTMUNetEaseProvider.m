@@ -711,7 +711,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         NSTimeInterval rightDelta = [right[@"durationDelta"] doubleValue];
         if (leftDelta < rightDelta) return NSOrderedAscending;
         if (leftDelta > rightDelta) return NSOrderedDescending;
-        return NSOrderedSame;
+        // Exact ties: order by song id so the pick is stable across plays
+        // (the input comes from a dictionary's allValues, whose order is
+        // arbitrary, and sortUsingComparator: is not stable).
+        NSNumber *leftId = YTMULyricsJSONNumberAtPath(left[@"song"], @[@"id"]) ?: @0;
+        NSNumber *rightId = YTMULyricsJSONNumberAtPath(right[@"song"], @[@"id"]) ?: @0;
+        return [leftId compare:rightId];
     }];
 
     BOOL hasArtists = scoreArtistNames.count > 0;

@@ -107,3 +107,18 @@ YTMU_TEST(Extractor_verifyFailure_isRememberedThenForgotten) {
     (void)Run(info, llm, &err);
     YTMU_ASSERT_EQ_INT(llm.callCount, 2);
 }
+
+// L12: a damaged plist with non-string line entries must not surface
+// non-strings (the provider appends them to an NSMutableString).
+YTMU_TEST(Extractor_corruptedPlist_nonStringLinesAreDropped) {
+    YTMULyricsSearchInfo *info = Info(@"h-corrupt");
+    NSString *path = [[YTMULyricsDescriptionExtractor sharedExtractor] filePathForVideoId:info.videoId];
+    [[NSFileManager defaultManager] createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+    [@{@"v": @1, @"src_lines": @[@"real line", @42, @{@"x": @1}, @"another real line"], @"tr_lines": @[@7], @"confidence": @"not a number"}
+        writeToFile:path atomically:YES];
+    YTMULyricsDescriptionExtraction *e = [[YTMULyricsDescriptionExtractor sharedExtractor] cachedExtractionForInfo:info];
+    YTMU_ASSERT(e != nil, "cached entry should still load");
+    YTMU_ASSERT_EQ_INT(e.sourceLines.count, 2);
+    YTMU_ASSERT_EQ_INT(e.translatedLines.count, 0);
+    for (id line in e.sourceLines) YTMU_ASSERT([line isKindOfClass:[NSString class]], "non-string leaked");
+}

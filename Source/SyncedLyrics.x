@@ -26,11 +26,10 @@ static NSTimeInterval YTMUNormalizedPlaybackTimeMs(YTPlayerViewController *playe
     @try {
         NSTimeInterval rawTime = player.currentVideoMediaTime;
         NSTimeInterval duration = player.currentVideoTotalMediaTime;
-        if (!isfinite(rawTime) || rawTime < 0) return 0;
-        if (isfinite(duration) && duration > 0 && rawTime > duration * 1.5 && rawTime <= duration * 1500.0) {
-            return rawTime;
-        }
-        return rawTime * 1000.0;
+        // Same unit heuristic as the display-link path; a second copy here
+        // had drifted and handled ms-scale durations differently.
+        NSTimeInterval ms = [[YTMULyricsPlaybackState sharedState] normalizedPlaybackTimeMsForRawTime:rawTime duration:duration];
+        return ms >= 0 ? ms : 0;
     } @catch (__unused NSException *exception) {
         return 0;
     }

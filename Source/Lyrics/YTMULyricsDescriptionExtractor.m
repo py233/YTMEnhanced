@@ -133,12 +133,20 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 }
 
 - (YTMULyricsDescriptionExtraction *)extractionFromPlist:(NSDictionary *)dict {
+    // Check elements, not just containers: a damaged plist must not hand a
+    // non-string to appendString: downstream.
+    NSArray *(^strings)(id) = ^NSArray *(id value) {
+        if (![value isKindOfClass:[NSArray class]]) return @[];
+        NSMutableArray *out = [NSMutableArray array];
+        for (id item in (NSArray *)value) if ([item isKindOfClass:[NSString class]]) [out addObject:item];
+        return out;
+    };
     YTMULyricsDescriptionExtraction *e = [[YTMULyricsDescriptionExtraction alloc] init];
-    e.sourceLines = [dict[@"src_lines"] isKindOfClass:[NSArray class]] ? dict[@"src_lines"] : @[];
+    e.sourceLines = strings(dict[@"src_lines"]);
     e.language = [dict[@"lang"] isKindOfClass:[NSString class]] ? dict[@"lang"] : @"";
-    e.translatedLines = [dict[@"tr_lines"] isKindOfClass:[NSArray class]] ? dict[@"tr_lines"] : @[];
+    e.translatedLines = strings(dict[@"tr_lines"]);
     e.translationLanguage = [dict[@"tr_lang"] isKindOfClass:[NSString class]] ? dict[@"tr_lang"] : @"";
-    e.confidence = [dict[@"confidence"] doubleValue];
+    e.confidence = [dict[@"confidence"] isKindOfClass:[NSNumber class]] ? [dict[@"confidence"] doubleValue] : 0.0;
     return e;
 }
 

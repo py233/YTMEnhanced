@@ -1,5 +1,7 @@
 #import "YTMUGeniusProvider.h"
 
+static const NSUInteger YTMUGeniusMaxUsableLines = 600;
+
 @implementation YTMUGeniusProvider
 
 - (NSString *)providerName {
@@ -133,6 +135,11 @@
         if (line.length) [lines addObject:line];
     }
     if (lines.count < 4) return NO;
+    // A real song page tops out in the low hundreds of lines; thousands
+    // means the container regex over-captured (page chrome, comments).
+    // Rendering that would mean thousands of label stacks on the main
+    // thread, so refuse it here.
+    if (lines.count > YTMUGeniusMaxUsableLines) return NO;
 
     NSUInteger lyricLikeLines = 0;
     NSUInteger boilerplateLines = 0;
