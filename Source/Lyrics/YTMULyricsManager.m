@@ -34,6 +34,29 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 @property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
 @end
 
+// Result of a single provider pass. provider/result are set together
+// — if result is nil the pass exhausted every provider with no match.
+typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable result,
+                                                 id<YTMULyricsProvider> _Nullable provider,
+                                                 NSArray<NSString *> *_Nonnull errors);
+
+// One walk over an ordered provider list for one search. Carries the
+// cursor and the running fallback so the recursion below does not have to
+// thread nine parameters through every step.
+@interface YTMULyricsProviderPass : NSObject
+@property (nonatomic, copy) NSArray<id<YTMULyricsProvider>> *providers;
+@property (nonatomic) NSUInteger index;
+@property (nonatomic, copy) YTMULyricsSearchInfo *info;
+@property (nonatomic) NSUInteger generation;
+@property (nonatomic, strong) NSMutableArray<NSString *> *errors;
+@property (nonatomic, strong, nullable) YTMULyricsResult *fallbackResult;     // best imperfect-but-similar so far
+@property (nonatomic, strong, nullable) id<YTMULyricsProvider> fallbackProvider;
+@property (nonatomic) BOOL updateAvailability;                                  // raw pass drives the status chips; re-pass is silent
+@property (nonatomic, copy) YTMULyricsTryProvidersCompletion completion;
+@end
+@implementation YTMULyricsProviderPass
+@end
+
 @implementation YTMULyricsManager
 
 - (NSString *)translationProviderDisplayName {
@@ -710,11 +733,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     }];
 }
 
-// Result of a single tryProviders pass. provider/result are set together
-// — if result is nil the pass exhausted every provider with no match.
-typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable result,
-                                                 id<YTMULyricsProvider> _Nullable provider,
-                                                 NSArray<NSString *> *_Nonnull errors);
+
 
 // True if the matched track's title and artist look reasonably close to
 // what the caller searched for. Provider-reported `inexact` is unreliable
@@ -792,26 +811,20 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
     }
 }
 
-- (void)tryProviders:(NSArray<id<YTMULyricsProvider>> *)providers
-               index:(NSUInteger)index
-                info:(YTMULyricsSearchInfo *)info
-          generation:(NSUInteger)generation
-          lastErrors:(NSMutableArray<NSString *> *)lastErrors
-      fallbackResult:(YTMULyricsResult *)fallbackResult
-    fallbackProvider:(id<YTMULyricsProvider>)fallbackProvider
-       updateAvailability:(BOOL)updateAvailability
-          completion:(YTMULyricsTryProvidersCompletion)completion {
-    if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
-    if (index >= providers.count) {
-        if (fallbackResult.hasText) {
-            completion(fallbackResult, fallbackProvider, lastErrors);
+- (void)runProviderPass:(YTMULyricsProviderPass *)pass {
+    YTMULyricsSearchInfo *info = pass.info;
+    if (pass.generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+    if (pass.index >= pass.providers.count) {
+        if (pass.fallbackResult.hasText) {
+            pass.completion(pass.fallbackResult, pass.fallbackProvider, pass.errors);
             return;
         }
-        completion(nil, nil, lastErrors);
+        pass.completion(nil, nil, pass.errors);
         return;
     }
 
-    id<YTMULyricsProvider> provider = providers[index];
+    id<YTMULyricsProvider> provider = pass.providers[pass.index];
+    BOOL updateAvailability = pass.updateAvailability;
     if (updateAvailability) [self setAvailability:@"checking" forProvider:provider notify:YES];
     BOOL syncedRequested = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
                            YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
@@ -841,10 +854,10 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         BOOL similar = [self result:result similarToInfo:info];
         BOOL syncedOK = !syncedRequested || result.isSynced || providerIsPinned;
         BOOL isPerfect = similar && syncedOK;
-        BOOL hasMore = (index + 1 < providers.count);
+        BOOL hasMore = (pass.index + 1 < pass.providers.count);
 
         if (isPerfect) {
-            completion(result, provider, lastErrors);
+            pass.completion(result, provider, pass.errors);
             return;
         }
 
@@ -855,8 +868,8 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         // chain (other providers, AI normalizer re-pass) can try. If no
         // provider produces a similar match, we return nil from this pass
         // and the UI shows "no lyrics found" rather than the wrong song.
-        YTMULyricsResult *bestFallback = fallbackResult;
-        id<YTMULyricsProvider> bestProvider = fallbackProvider;
+        YTMULyricsResult *bestFallback = pass.fallbackResult;
+        id<YTMULyricsProvider> bestProvider = pass.fallbackProvider;
         if (similar) {
             [self pickBetterFallback:&bestFallback provider:&bestProvider
                             incoming:result incomingProvider:provider info:info];
@@ -881,18 +894,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
             // Exhausted — return whatever fallback won (may be nil if every
             // provider's match was a wrong-song hit, which is the desired
             // behavior: better to say "not found" than show wrong lyrics).
-            completion(bestFallback, bestProvider, lastErrors);
+            pass.completion(bestFallback, bestProvider, pass.errors);
             return;
         }
-        [self tryProviders:providers
-                     index:index + 1
-                      info:info
-                generation:generation
-                lastErrors:lastErrors
-            fallbackResult:bestFallback
-           fallbackProvider:bestProvider
-        updateAvailability:updateAvailability
-                completion:completion];
+        pass.fallbackResult = bestFallback;
+        pass.fallbackProvider = bestProvider;
+        pass.index += 1;
+        [self runProviderPass:pass];
     };
 
     NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
@@ -910,6 +918,7 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                   info.title,
                   info.artist,
                   info.duration);
+    NSUInteger generation = pass.generation;
     [provider searchWithInfo:info completion:^(YTMULyricsResult *result, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
@@ -921,17 +930,10 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
             }
             NSString *message = error.localizedDescription ?: YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_NO_MATCH", @"no match");
             if (updateAvailability) [self setAvailability:@"miss" forProvider:provider notify:YES];
-            [lastErrors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
+            [pass.errors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
             YTMULyricsLog(@"lyrics source miss videoId=%@ source=%@ reason=%@", info.videoId, [provider providerName], message);
-            [self tryProviders:providers
-                         index:index + 1
-                          info:info
-                    generation:generation
-                    lastErrors:lastErrors
-                fallbackResult:fallbackResult
-               fallbackProvider:fallbackProvider
-            updateAvailability:updateAvailability
-                    completion:completion];
+            pass.index += 1;
+            [self runProviderPass:pass];
         });
     }];
 }
@@ -991,15 +993,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                   YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto"),
                   (unsigned long)providers.count);
     YTMULyricsSearchInfo *infoCopy = [info copy];
-    [self tryProviders:providers
-                 index:0
-                  info:infoCopy
-            generation:generation
-            lastErrors:[NSMutableArray array]
-        fallbackResult:nil
-      fallbackProvider:nil
-    updateAvailability:YES
-            completion:^(YTMULyricsResult *rawResult, id<YTMULyricsProvider> rawProvider, NSArray<NSString *> *errors) {
+    YTMULyricsProviderPass *rawPass = [[YTMULyricsProviderPass alloc] init];
+    rawPass.providers = providers;
+    rawPass.info = infoCopy;
+    rawPass.generation = generation;
+    rawPass.errors = [NSMutableArray array];
+    rawPass.updateAvailability = YES;
+    rawPass.completion = ^(YTMULyricsResult *rawResult, id<YTMULyricsProvider> rawProvider, NSArray<NSString *> *errors) {
         if (generation != self.requestGeneration || ![infoCopy.videoId isEqualToString:self.activeVideoId]) return;
         if (rawResult.hasText) {
             if (rawResult == [self currentResult]) {
@@ -1023,7 +1023,8 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                                   rawResult:rawResult
                                 rawProvider:rawProvider
                                  generation:generation];
-    }];
+    };
+    [self runProviderPass:rawPass];
 }
 
 #pragma mark - AI title normalize re-pass
@@ -1181,15 +1182,13 @@ static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString
                   [self qualityScoreForResult:rawResult forInfo:originalInfo]);
 
     NSArray *providers = [self orderedProviders];
-    [self tryProviders:providers
-                 index:0
-                  info:candidate
-            generation:generation
-            lastErrors:[NSMutableArray array]
-        fallbackResult:nil
-      fallbackProvider:nil
-    updateAvailability:NO
-            completion:^(YTMULyricsResult *normalizedResult, id<YTMULyricsProvider> normalizedProvider, NSArray<NSString *> *errors) {
+    YTMULyricsProviderPass *repass = [[YTMULyricsProviderPass alloc] init];
+    repass.providers = providers;
+    repass.info = candidate;
+    repass.generation = generation;
+    repass.errors = [NSMutableArray array];
+    repass.updateAvailability = NO;
+    repass.completion = ^(YTMULyricsResult *normalizedResult, id<YTMULyricsProvider> normalizedProvider, NSArray<NSString *> *errors) {
         if (generation != self.requestGeneration || ![originalInfo.videoId isEqualToString:self.activeVideoId]) return;
         // Score raw against the original YT metadata, normalized against
         // the AI-cleaned candidate metadata: that way a wrong-song raw
@@ -1212,7 +1211,8 @@ static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString
                       newScore,
                       normalizedResult.title);
         [self finishWithResult:normalizedResult info:originalInfo provider:normalizedProvider generation:generation];
-    }];
+    };
+    [self runProviderPass:repass];
 }
 
 @end
