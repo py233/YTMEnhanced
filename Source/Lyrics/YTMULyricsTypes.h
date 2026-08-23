@@ -76,7 +76,11 @@ typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
 @end
 
 BOOL YTMULyricsDebugLoggingEnabled(void);
-void YTMULyricsLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+void YTMULyricsLogImpl(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+// Macro, not a function, so the argument expressions are only evaluated
+// when logging is actually on — several call sites pass things like
+// `manager.displayLineTexts.count`, which re-splits the whole lyric.
+#define YTMULyricsLog(...) do { if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLogImpl(__VA_ARGS__); } while (0)
 
 NSString *YTMULyricsSettingsString(NSString *key, NSString *fallback);
 BOOL YTMULyricsSettingsBool(NSString *key, BOOL fallback);

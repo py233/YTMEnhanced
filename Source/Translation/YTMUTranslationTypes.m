@@ -18,7 +18,7 @@ BOOL YTMUTranslationDebugLoggingEnabled(void) {
     return value == nil ? NO : [value boolValue];
 }
 
-void YTMUTranslationLog(NSString *format, ...) {
+void YTMUTranslationLogImpl(NSString *format, ...) {
     if (!YTMUTranslationDebugLoggingEnabled() || !format.length) return;
 
     va_list args;

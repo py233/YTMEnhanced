@@ -12,7 +12,9 @@ extern NSString *const YTMUTranslationProviderOpenAI;
 extern NSString *const YTMUTranslationErrorDomain;
 
 BOOL YTMUTranslationDebugLoggingEnabled(void);
-void YTMUTranslationLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+void YTMUTranslationLogImpl(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+// Macro so argument expressions are skipped entirely when logging is off.
+#define YTMUTranslationLog(...) do { if (YTMUTranslationDebugLoggingEnabled()) YTMUTranslationLogImpl(__VA_ARGS__); } while (0)
 
 typedef NS_ENUM(NSInteger, YTMUTranslationErrorCode) {
     YTMUTranslationErrorUnknown        = 1,

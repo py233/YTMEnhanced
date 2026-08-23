@@ -207,7 +207,7 @@ BOOL YTMULyricsDebugLoggingEnabled(void) {
     return value == nil ? NO : [value boolValue];
 }
 
-void YTMULyricsLog(NSString *format, ...) {
+void YTMULyricsLogImpl(NSString *format, ...) {
     if (!YTMULyricsDebugLoggingEnabled() || !format.length) return;
 
     va_list args;
