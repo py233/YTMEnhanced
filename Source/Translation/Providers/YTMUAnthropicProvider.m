@@ -66,11 +66,17 @@ static NSString *YTMUAnthropicAccumulateSSE(NSData *data, NSError **outError) {
             ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil]
             : nil;
         if (![json isKindOfClass:[NSDictionary class]]) continue;
-        NSString *type = json[@"type"];
+        // Every field below comes off the wire (possibly via a user-configured
+        // proxy), so JSON null / wrong-typed values are real inputs. NSNull
+        // does not respond to isEqualToString: / length — type-check before
+        // touching anything.
+        id typeValue = json[@"type"];
+        NSString *type = [typeValue isKindOfClass:[NSString class]] ? typeValue : @"";
         if ([type isEqualToString:@"content_block_delta"]) {
             NSDictionary *delta = json[@"delta"];
             if ([delta isKindOfClass:[NSDictionary class]]) {
-                NSString *deltaType = delta[@"type"];
+                id deltaTypeValue = delta[@"type"];
+                NSString *deltaType = [deltaTypeValue isKindOfClass:[NSString class]] ? deltaTypeValue : @"";
                 NSString *text = delta[@"text"];
                 if ([deltaType isEqualToString:@"text_delta"] &&
                     [text isKindOfClass:[NSString class]]) {
@@ -79,8 +85,12 @@ static NSString *YTMUAnthropicAccumulateSSE(NSData *data, NSError **outError) {
             }
         } else if ([type isEqualToString:@"error"]) {
             NSDictionary *err = json[@"error"];
-            NSString *msg = [err isKindOfClass:[NSDictionary class]]
-                ? err[@"message"] ?: @"Anthropic stream error"
+            // `?:` is not enough here: JSON null arrives as NSNull, which is
+            // non-nil, and an NSNull inside NSError's userInfo surfaces as a
+            // non-string localizedDescription downstream.
+            id rawMessage = [err isKindOfClass:[NSDictionary class]] ? err[@"message"] : nil;
+            NSString *msg = ([rawMessage isKindOfClass:[NSString class]] && [rawMessage length])
+                ? rawMessage
                 : @"Anthropic stream error";
             if (outError) {
                 *outError = [NSError errorWithDomain:YTMUTranslationErrorDomain

@@ -94,7 +94,11 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
             ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil]
             : nil;
         if (![json isKindOfClass:[NSDictionary class]]) continue;
-        NSString *type = json[@"type"];
+        // Wire data (possibly via a user-configured gateway): JSON null and
+        // wrong-typed values are real inputs, and NSNull does not respond to
+        // isEqualToString: / length. Type-check before touching anything.
+        id typeValue = json[@"type"];
+        NSString *type = [typeValue isKindOfClass:[NSString class]] ? typeValue : @"";
         if ([type isEqualToString:@"response.output_text.delta"]) {
             NSString *delta = json[@"delta"];
             if ([delta isKindOfClass:[NSString class]]) {
@@ -102,9 +106,18 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
             }
         } else if ([type isEqualToString:@"error"] ||
                    [type isEqualToString:@"response.failed"]) {
-            NSDictionary *err = json[@"error"] ?: json[@"response"];
-            NSString *msg = [err isKindOfClass:[NSDictionary class]]
-                ? err[@"message"] ?: @"OpenAI stream error"
+            // Prefer a dictionary-shaped `error`; fall back to `response`
+            // (response.failed nests the error there). `?:` alone would
+            // happily pick an NSNull `error`.
+            NSDictionary *err = [json[@"error"] isKindOfClass:[NSDictionary class]] ? json[@"error"] : json[@"response"];
+            id rawMessage = [err isKindOfClass:[NSDictionary class]] ? err[@"message"] : nil;
+            if (![rawMessage isKindOfClass:[NSString class]] && [err isKindOfClass:[NSDictionary class]]) {
+                // response.failed: {"response":{"error":{"message":...}}}
+                NSDictionary *nested = err[@"error"];
+                if ([nested isKindOfClass:[NSDictionary class]]) rawMessage = nested[@"message"];
+            }
+            NSString *msg = ([rawMessage isKindOfClass:[NSString class]] && [rawMessage length])
+                ? rawMessage
                 : @"OpenAI stream error";
             if (outError) {
                 *outError = [NSError errorWithDomain:YTMUTranslationErrorDomain

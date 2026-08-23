@@ -343,7 +343,16 @@ static NSString *const YTMULDESystemPrompt =
 - (nullable YTMULyricsDescriptionExtraction *)extractionFromResponseDict:(NSDictionary *)dict
                                                               description:(NSString *)description {
     if (!dict) return nil;
-    BOOL hasLyrics = [dict[@"has_lyrics"] boolValue];
+    // `has_lyrics` is model output: it can be missing, JSON null (NSNull,
+    // which does not respond to boolValue), or the wrong type. Only an
+    // explicit false is a negative verdict; anything else means "let the
+    // verified source_lyrics decide" so a malformed field can neither
+    // crash us nor cache a bogus 30-day negative for a song whose
+    // description really does carry the lyrics.
+    id hasLyricsValue = dict[@"has_lyrics"];
+    BOOL hasLyricsKnown = [hasLyricsValue isKindOfClass:[NSNumber class]] ||
+                          [hasLyricsValue isKindOfClass:[NSString class]];
+    BOOL hasLyrics = hasLyricsKnown ? [hasLyricsValue boolValue] : YES;
     if (!hasLyrics) {
         // Valid "no lyrics" verdict — return an empty extraction so we
         // can cache the negative result.

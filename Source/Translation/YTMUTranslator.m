@@ -95,7 +95,11 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 
 - (BOOL)shouldFallbackPerLineForError:(NSError *)error lineCount:(NSUInteger)lineCount {
     if (lineCount > 8) return NO;
-    NSString *message = error.localizedDescription ?: @"";
+    // localizedDescription is whatever the provider put into userInfo. The
+    // providers now guarantee a string, but keep this boundary defensive: a
+    // non-string here used to reach rangeOfString: and abort the process.
+    id description = error.localizedDescription;
+    NSString *message = [description isKindOfClass:[NSString class]] ? description : @"";
     NSRange range = [message rangeOfString:@"parse|json|line|length|number of lines"
                                    options:NSRegularExpressionSearch | NSCaseInsensitiveSearch];
     return range.location != NSNotFound ||
