@@ -219,7 +219,13 @@ static NSString *const YTMULNSystemPrompt =
         // almost always live at the top; the rest is credits/links/CC
         // notices that just inflate token count.
         NSString *desc = info.shortDescription;
-        if (desc.length > 600) desc = [desc substringToIndex:600];
+        if (desc.length > 600) {
+            // Cut on a composed-character boundary: a raw UTF-16 index can
+            // land inside an emoji's surrogate pair, and a lone surrogate
+            // makes the whole request body unserialisable.
+            NSRange last = [desc rangeOfComposedCharacterSequenceAtIndex:600];
+            desc = [desc substringToIndex:last.location];
+        }
         [out appendFormat:@"description (truncated): %@\n", desc];
     }
     // OpenAI's Responses API rejects requests with `text.format=json_object`
