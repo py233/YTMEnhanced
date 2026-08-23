@@ -1120,10 +1120,6 @@ static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString
 
     NSString *providerName = [[YTMUTranslator sharedTranslator] currentProviderName];
     YTMULyricsTitleNormalizer *normalizer = [YTMULyricsTitleNormalizer sharedNormalizer];
-    if ([normalizer isBlacklistedForVideoId:info.videoId]) {
-        YTMULyricsLog(@"normalize blacklisted videoId=%@ — skipping", info.videoId);
-        return;
-    }
 
     void (^fire)(void) = ^{
         [normalizer normalizeForInfo:info

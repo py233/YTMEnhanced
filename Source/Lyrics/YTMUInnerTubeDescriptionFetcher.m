@@ -14,16 +14,16 @@
 //
 // Schema bumps:
 //   v=1: only `text` (description string)
-//   v=2: same; failure-blacklist semantics fixed
+//   v=2: same (a since-removed failure blacklist was reset here)
 //   v=3: added `title` so we can override YT Music's simplified
 //        song-title with the full video title
 
 static const NSInteger YTMUInnerTubeSchemaVersion = 3;
 static const NSTimeInterval YTMUInnerTubeCacheTTL = 30 * 24 * 60 * 60; // 30 days
-static const NSInteger YTMUInnerTubeFailureThreshold = 3;
-static const NSTimeInterval YTMUInnerTubeBlacklistDuration = 6 * 60 * 60;
 static const NSTimeInterval YTMUInnerTubeRequestTimeout = 8.0;
-static NSString *const YTMUInnerTubeFailuresKey = @"YTMUInnerTubeFetchFailures";
+// Legacy NSUserDefaults key of a failure blacklist that no longer exists;
+// only referenced so -init / -clearCache can delete stale state.
+static NSString *const YTMUInnerTubeLegacyFailuresKey = @"YTMUInnerTubeFetchFailures";
 
 // We use the WEB InnerTube client. WEB has a stable public API key
 // and consistently returns full videoDetails + microformat blocks
@@ -88,18 +88,12 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
         _ioQueue = dispatch_queue_create("com.ytmultimate.innertube-fetch", DISPATCH_QUEUE_SERIAL);
         _inflight = [NSMutableDictionary dictionary];
 
-        // One-shot wipe of stale failure bookkeeping. Older builds:
-        // (a) recorded "valid response with no description fields" as
-        // failure → permanent music-video blacklist after 3 plays;
-        // (b) was on IOS client which sometimes returned stripped
-        // responses for music content. Both are fixed now, so wipe
-        // the poisoned NSUserDefaults state on first launch of the
-        // new logic.
+        // Failures are no longer persisted at all (a fetch that fails is
+        // simply retried on the next refresh). Drop the bookkeeping older
+        // builds left in NSUserDefaults.
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        if ([defaults integerForKey:@"YTMUInnerTubeFailureSchema"] < 3) {
-            [defaults removeObjectForKey:YTMUInnerTubeFailuresKey];
-            [defaults setInteger:3 forKey:@"YTMUInnerTubeFailureSchema"];
-        }
+        [defaults removeObjectForKey:YTMUInnerTubeLegacyFailuresKey];
+        [defaults removeObjectForKey:@"YTMUInnerTubeFailureSchema"];
     }
     return self;
 }
@@ -152,47 +146,6 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
                                                         error:nil];
         [plist writeToFile:[self filePathForVideoId:videoId] atomically:YES];
     });
-}
-
-#pragma mark - Failure blacklist
-
-- (NSDictionary *)allFailures {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:YTMUInnerTubeFailuresKey];
-    return [dict isKindOfClass:[NSDictionary class]] ? dict : @{};
-}
-
-- (void)setAllFailures:(NSDictionary *)failures {
-    [[NSUserDefaults standardUserDefaults] setObject:(failures ?: @{}) forKey:YTMUInnerTubeFailuresKey];
-}
-
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId {
-    if (!videoId.length) return NO;
-    NSDictionary *entry = [self allFailures][videoId];
-    if (![entry isKindOfClass:[NSDictionary class]]) return NO;
-    NSInteger count = [entry[@"count"] integerValue];
-    NSTimeInterval ts = [entry[@"ts"] doubleValue];
-    if (count < YTMUInnerTubeFailureThreshold) return NO;
-    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - ts;
-    return age >= 0 && age < YTMUInnerTubeBlacklistDuration;
-}
-
-- (void)recordFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    NSMutableDictionary *entry = [[all[videoId] isKindOfClass:[NSDictionary class]] ? all[videoId] : @{} mutableCopy];
-    entry[@"count"] = @([entry[@"count"] integerValue] + 1);
-    entry[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
-    all[videoId] = entry;
-    [self setAllFailures:all];
-}
-
-- (void)clearFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    if (all[videoId]) {
-        [all removeObjectForKey:videoId];
-        [self setAllFailures:all];
-    }
 }
 
 #pragma mark - Request building & parsing
@@ -418,7 +371,7 @@ static NSError *YTMUInnerTubeError(NSInteger code, NSString *message) {
     dispatch_async(self.ioQueue, ^{
         [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
     });
-    [self setAllFailures:@{}];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMUInnerTubeLegacyFailuresKey];
 }
 
 @end

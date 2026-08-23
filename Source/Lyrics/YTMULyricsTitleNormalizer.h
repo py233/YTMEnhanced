@@ -26,23 +26,18 @@ typedef void (^YTMULyricsTitleNormalizerCompletion)(YTMULyricsTitleNormalization
 // the AI re-pass.
 - (nullable YTMULyricsTitleNormalization *)cachedNormalizationForInfo:(YTMULyricsSearchInfo *)info;
 
-// videoIds that have failed to parse repeatedly are temporarily blacklisted
-// (24h). Manager checks this to skip the network call entirely when a song
-// is known to be hopeless.
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId;
-
 // Hits the LLM and persists the result on success. provider must conform to
 // YTMULLMCompletionProvider; providerName is used purely for logging. The
-// completion runs on the main queue. On any failure (network, HTTP, parse,
-// blacklist) the error is non-nil and result is nil — the caller should
-// fall back to raw title/artist.
+// completion runs on the main queue. On any failure (network, HTTP, parse)
+// the error is non-nil and result is nil — the caller should fall back to
+// raw title/artist.
 - (void)normalizeForInfo:(YTMULyricsSearchInfo *)info
                 provider:(id<YTMULLMCompletionProvider>)provider
             providerName:(NSString *)providerName
               completion:(YTMULyricsTitleNormalizerCompletion)completion;
 
-// Wipe both the persisted normalizations and the blacklist. Hooked into
-// the existing "Clear lyrics and translation cache" button.
+// Wipe the persisted normalizations. Hooked into the existing "Clear
+// lyrics and translation cache" button.
 - (void)clearCache;
 
 @end

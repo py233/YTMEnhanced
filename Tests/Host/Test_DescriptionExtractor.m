@@ -77,3 +77,33 @@ YTMU_TEST(Extractor_hallucinatedLines_rejected) {
     YTMU_ASSERT(e == nil, "anti-hallucination verify should reject");
     YTMU_ASSERT(err != nil, "expected verify error");
 }
+
+// M1: a parse/verify failure is remembered (TTL) so the LLM is not
+// re-asked on every play, and is forgotten once the TTL passes.
+@interface YTMULyricsDescriptionExtractor (YTMUTesting)
+- (NSString *)filePathForVideoId:(NSString *)videoId;
+@end
+
+YTMU_TEST(Extractor_verifyFailure_isRememberedThenForgotten) {
+    YTMUTestFakeLLM *llm = [[YTMUTestFakeLLM alloc] init];
+    llm.responseText = @"{\"has_lyrics\":true,\"source_lyrics\":\"made up line one\\nmade up line two\\nmade up line three\",\"confidence\":0.9}";
+    NSError *err = nil;
+    YTMULyricsSearchInfo *info = Info(@"h-neg-ttl");
+    YTMU_ASSERT(Run(info, llm, &err) == nil && err != nil, "first call should fail verification");
+    YTMU_ASSERT_EQ_INT(llm.callCount, 1);
+    // the failure record must reach disk
+    NSString *path = [[YTMULyricsDescriptionExtractor sharedExtractor] filePathForVideoId:info.videoId];
+    YTMU_ASSERT(YTMUTestWaitUntil(3, ^BOOL{ return [[NSFileManager defaultManager] fileExistsAtPath:path]; }), "failure not persisted");
+
+    // Second call: served as a miss from the failure record, LLM untouched.
+    YTMULyricsDescriptionExtraction *e = Run(info, llm, &err);
+    YTMU_ASSERT(e != nil && e.sourceLines.count == 0 && err == nil, "expected a cached negative, got e=%@ err=%@", e, err);
+    YTMU_ASSERT_EQ_INT(llm.callCount, 1);
+
+    // Age the record past the TTL: next call must ask the LLM again.
+    NSMutableDictionary *plist = [[NSDictionary dictionaryWithContentsOfFile:path] mutableCopy];
+    plist[@"failed_at"] = @([[NSDate date] timeIntervalSince1970] - 7 * 60 * 60);
+    [plist writeToFile:path atomically:YES];
+    (void)Run(info, llm, &err);
+    YTMU_ASSERT_EQ_INT(llm.callCount, 2);
+}

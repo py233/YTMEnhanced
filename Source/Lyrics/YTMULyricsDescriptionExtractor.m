@@ -14,15 +14,21 @@
 //   confidence    : double
 //   raw_t         : raw input title (sanity-check on read)
 //   raw_a         : raw input artist
+//   failed_at     : (optional) epoch seconds of a parse/verify failure.
+//                   Such an entry has empty src_lines and is honoured as
+//                   a miss for YTMULDEFailureTTL, then retried.
 //
-// Failure blacklist lives in NSUserDefaults under
-//   YTMULDescriptionExtractFailures = { videoId: { count: int, ts: epoch } }
-// videoIds with count >= 3 are skipped for 24h after the last failure.
+// (An earlier failure blacklist in NSUserDefaults was removed;
+// -clearCache still deletes its legacy key.)
 
 static const NSInteger YTMULDESchemaVersion = 1;
-static const NSInteger YTMULDEFailureThreshold = 3;
-static const NSTimeInterval YTMULDEBlacklistDuration = 24 * 60 * 60;
-static NSString *const YTMULDEFailuresKey = @"YTMULDescriptionExtractFailures";
+static NSString *const YTMULDELegacyFailuresKey = @"YTMULDescriptionExtractFailures";
+
+// How long a parse/verify failure is remembered before the LLM is asked
+// again. Failures here are usually deterministic (the model keeps
+// normalising punctuation the verifier rejects), so without this every
+// play of such a song re-spent an LLM call.
+static const NSTimeInterval YTMULDEFailureTTL = 6 * 60 * 60;
 
 // Description blocks under this length almost never contain a real lyric
 // section — typically uploader handle + one-liner + URL. Skip the AI call
@@ -139,54 +145,20 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 - (nullable YTMULyricsDescriptionExtraction *)cachedExtractionForInfo:(YTMULyricsSearchInfo *)info {
     NSDictionary *dict = [self readPlistForVideoId:info.videoId];
     if (!dict) return nil;
+    // A remembered parse/verify failure is honoured as a miss until its TTL
+    // runs out, then forgotten so the model gets another chance.
+    id failedAt = dict[@"failed_at"];
+    if ([failedAt isKindOfClass:[NSNumber class]]) {
+        NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - [failedAt doubleValue];
+        if (age < 0 || age >= YTMULDEFailureTTL) return nil;
+        return [[YTMULyricsDescriptionExtraction alloc] init];
+    }
     YTMULyricsDescriptionExtraction *e = [self extractionFromPlist:dict];
     // Empty/null cache hits ARE meaningful — they record "we already
     // checked this videoId and there were no lyrics in the description".
     // We still return them so callers don't re-fire the AI request. The
     // provider treats empty sourceLines as a miss.
     return e;
-}
-
-#pragma mark - Failure blacklist
-
-- (NSDictionary *)allFailures {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:YTMULDEFailuresKey];
-    return [dict isKindOfClass:[NSDictionary class]] ? dict : @{};
-}
-
-- (void)setAllFailures:(NSDictionary *)failures {
-    [[NSUserDefaults standardUserDefaults] setObject:(failures ?: @{}) forKey:YTMULDEFailuresKey];
-}
-
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId {
-    if (!videoId.length) return NO;
-    NSDictionary *entry = [self allFailures][videoId];
-    if (![entry isKindOfClass:[NSDictionary class]]) return NO;
-    NSInteger count = [entry[@"count"] integerValue];
-    NSTimeInterval ts = [entry[@"ts"] doubleValue];
-    if (count < YTMULDEFailureThreshold) return NO;
-    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - ts;
-    return age >= 0 && age < YTMULDEBlacklistDuration;
-}
-
-- (void)recordFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    NSMutableDictionary *entry = [[all[videoId] isKindOfClass:[NSDictionary class]] ? all[videoId] : @{} mutableCopy];
-    NSInteger count = [entry[@"count"] integerValue] + 1;
-    entry[@"count"] = @(count);
-    entry[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
-    all[videoId] = entry;
-    [self setAllFailures:all];
-}
-
-- (void)clearFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    if (all[videoId]) {
-        [all removeObjectForKey:videoId];
-        [self setAllFailures:all];
-    }
 }
 
 #pragma mark - Prompts
@@ -480,6 +452,18 @@ static NSString *const YTMULDESystemPrompt =
                 YTMULyricsLog(@"description extract parse/verify failed videoId=%@ raw=%@",
                               videoId,
                               text.length > 200 ? [text substringToIndex:200] : (text ?: @""));
+                // Remember the failure for a while: the next refresh of this
+                // song (and the normalize re-pass right behind it) must not
+                // spend another LLM call on what is almost always the same
+                // deterministic verify miss.
+                [weakSelf writePlist:@{
+                    @"v":          @(YTMULDESchemaVersion),
+                    @"src_lines":  @[],
+                    @"tr_lines":   @[],
+                    @"failed_at":  @([[NSDate date] timeIntervalSince1970]),
+                    @"raw_t":      originalTitle,
+                    @"raw_a":      originalArtist,
+                } forVideoId:videoId];
                 fanout(nil, YTMULDEError(3, @"could not parse or verify extract response"));
                 return;
             }
@@ -512,7 +496,7 @@ static NSString *const YTMULDESystemPrompt =
     dispatch_async(self.ioQueue, ^{
         [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
     });
-    [self setAllFailures:@{}];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMULDELegacyFailuresKey];
 }
 
 @end

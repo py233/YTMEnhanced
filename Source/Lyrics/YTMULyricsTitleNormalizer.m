@@ -16,14 +16,12 @@
 //   raw_t      : raw input title (sanity-check on read)
 //   raw_a      : raw input artist
 //
-// Failure blacklist lives in NSUserDefaults under
-//   YTMULTitleNormalizeFailures = { videoId: { count: int, ts: epoch } }
-// videoIds with count >= 3 are skipped for 24h after the last failure.
+// Failures are not persisted: a parse failure is retried on the next
+// refresh. (An earlier failure blacklist in NSUserDefaults was removed;
+// -clearCache still deletes its legacy key.)
 
 static const NSInteger YTMULNSchemaVersion = 1;
-static const NSInteger YTMULNFailureThreshold = 3;
-static const NSTimeInterval YTMULNBlacklistDuration = 24 * 60 * 60;
-static NSString *const YTMULNFailuresKey = @"YTMULTitleNormalizeFailures";
+static NSString *const YTMULNLegacyFailuresKey = @"YTMULTitleNormalizeFailures";
 
 static NSString *YTMULNSHA1(NSString *string) {
     NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
@@ -147,48 +145,6 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
     YTMULyricsTitleNormalization *n = [self normalizationFromPlist:dict];
     if (!n.titleCandidates.count || !n.artistCandidates.count) return nil;
     return n;
-}
-
-#pragma mark - Failure blacklist
-
-- (NSDictionary *)allFailures {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:YTMULNFailuresKey];
-    return [dict isKindOfClass:[NSDictionary class]] ? dict : @{};
-}
-
-- (void)setAllFailures:(NSDictionary *)failures {
-    [[NSUserDefaults standardUserDefaults] setObject:(failures ?: @{}) forKey:YTMULNFailuresKey];
-}
-
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId {
-    if (!videoId.length) return NO;
-    NSDictionary *entry = [self allFailures][videoId];
-    if (![entry isKindOfClass:[NSDictionary class]]) return NO;
-    NSInteger count = [entry[@"count"] integerValue];
-    NSTimeInterval ts = [entry[@"ts"] doubleValue];
-    if (count < YTMULNFailureThreshold) return NO;
-    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - ts;
-    return age >= 0 && age < YTMULNBlacklistDuration;
-}
-
-- (void)recordFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    NSMutableDictionary *entry = [[all[videoId] isKindOfClass:[NSDictionary class]] ? all[videoId] : @{} mutableCopy];
-    NSInteger count = [entry[@"count"] integerValue] + 1;
-    entry[@"count"] = @(count);
-    entry[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
-    all[videoId] = entry;
-    [self setAllFailures:all];
-}
-
-- (void)clearFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    if (all[videoId]) {
-        [all removeObjectForKey:videoId];
-        [self setAllFailures:all];
-    }
 }
 
 #pragma mark - Prompts
@@ -455,7 +411,7 @@ static NSString *const YTMULNSystemPrompt =
     dispatch_async(self.ioQueue, ^{
         [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
     });
-    [self setAllFailures:@{}];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMULNLegacyFailuresKey];
 }
 
 @end

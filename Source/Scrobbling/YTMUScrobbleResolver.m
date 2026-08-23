@@ -744,10 +744,6 @@ static NSInteger const kLastFMCacheSchemaVersion = 8;
         return;
     }
     YTMULyricsTitleNormalizer *normalizer = [YTMULyricsTitleNormalizer sharedNormalizer];
-    if ([normalizer isBlacklistedForVideoId:videoId]) {
-        YTMUScrobbleLog(@"[resolver] tier3 skipped: videoId %@ on blacklist", videoId);
-        return;
-    }
 
     @synchronized (self.inflightLLMVideoIds) {
         if ([self.inflightLLMVideoIds containsObject:videoId]) return;
