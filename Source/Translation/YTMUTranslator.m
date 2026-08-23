@@ -153,9 +153,8 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
             if (srcBlank == isBlank(dropTrailing[i])) scoreTrailing++;
         }
 
-        if (scoreLeading > scoreTrailing) return dropLeading;
-        if (scoreTrailing >= scoreLeading) return dropTrailing;
-        return dropTrailing;
+        // Ties go to drop-trailing (see above).
+        return scoreLeading > scoreTrailing ? dropLeading : dropTrailing;
     }
     if (translated.count + 1 == source.count) {
         NSMutableArray *padded = [translated mutableCopy];
@@ -366,68 +365,49 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
         });
     };
 
-    [provider translateRequest:request completion:^(NSArray<NSString *> *translated, NSError *error) {
-        NSArray *aligned = nil;
+    // One attempt = ask the provider, accept an exact or ±1-aligned result.
+    // Returns the aligned lines or nil (with `errorOut` filled).
+    NSArray *(^alignedOrNil)(NSArray *, NSError *, NSError **, NSString *) = ^NSArray *(NSArray *translated, NSError *error, NSError **errorOut, NSString *attempt) {
         if (!error) {
-            if (translated.count == lines.count) {
-                aligned = translated;
-            } else {
-                NSArray *candidate = [self alignedTranslation:translated toSourceLines:lines];
-                if (candidate.count == lines.count) {
-                    YTMUTranslationLog(@"aligned line-count drift videoId=%@ provider=%@ raw=%lu → %lu",
-                                       videoId.length ? videoId : @"<empty>",
-                                       [provider providerName],
-                                       (unsigned long)translated.count,
-                                       (unsigned long)candidate.count);
-                    aligned = candidate;
-                }
+            if (translated.count == lines.count) return translated;
+            NSArray *candidate = [self alignedTranslation:translated toSourceLines:lines];
+            if (candidate.count == lines.count) {
+                YTMUTranslationLog(@"aligned line-count drift%@ videoId=%@ provider=%@ raw=%lu → %lu",
+                                   attempt,
+                                   videoId.length ? videoId : @"<empty>",
+                                   [provider providerName],
+                                   (unsigned long)translated.count,
+                                   (unsigned long)candidate.count);
+                return candidate;
             }
         }
+        if (errorOut) *errorOut = error ?: [self lineCountErrorForTranslated:translated ?: @[] expected:lines.count];
+        return nil;
+    };
+    void (^succeed)(NSArray *, NSString *) = ^(NSArray *aligned, NSString *attempt) {
+        YTMUTranslationLog(@"provider%@ success videoId=%@ provider=%@ lines=%lu",
+                           attempt,
+                           videoId.length ? videoId : @"<empty>",
+                           [provider providerName],
+                           (unsigned long)aligned.count);
+        [self storeTranslatedLines:aligned cacheKey:cacheKey videoId:videoId language:language provider:provider lines:lines];
+        YTMUCompleteOnMain(^{ completion(aligned, nil); });
+    };
 
-        if (aligned) {
-            YTMUTranslationLog(@"provider success videoId=%@ provider=%@ lines=%lu",
-                               videoId.length ? videoId : @"<empty>",
-                               [provider providerName],
-                               (unsigned long)aligned.count);
-            [self storeTranslatedLines:aligned cacheKey:cacheKey videoId:videoId language:language provider:provider lines:lines];
-            YTMUCompleteOnMain(^{ completion(aligned, nil); });
-            return;
-        }
+    [provider translateRequest:request completion:^(NSArray<NSString *> *translated, NSError *error) {
+        NSError *firstError = nil;
+        NSArray *aligned = alignedOrNil(translated, error, &firstError, @"");
+        if (aligned) { succeed(aligned, @""); return; }
 
-        NSError *firstError = error ?: [self lineCountErrorForTranslated:translated ?: @[] expected:lines.count];
         YTMUTranslationLog(@"provider first attempt failed videoId=%@ provider=%@ error=%@",
                            videoId.length ? videoId : @"<empty>",
                            [provider providerName],
                            firstError.localizedDescription ?: @"<unknown>");
         [provider translateRequest:request completion:^(NSArray<NSString *> *retryTranslated, NSError *retryError) {
-            NSArray *retryAligned = nil;
-            if (!retryError) {
-                if (retryTranslated.count == lines.count) {
-                    retryAligned = retryTranslated;
-                } else {
-                    NSArray *candidate = [self alignedTranslation:retryTranslated toSourceLines:lines];
-                    if (candidate.count == lines.count) {
-                        YTMUTranslationLog(@"aligned line-count drift on retry videoId=%@ provider=%@ raw=%lu → %lu",
-                                           videoId.length ? videoId : @"<empty>",
-                                           [provider providerName],
-                                           (unsigned long)retryTranslated.count,
-                                           (unsigned long)candidate.count);
-                        retryAligned = candidate;
-                    }
-                }
-            }
+            NSError *finalError = nil;
+            NSArray *retryAligned = alignedOrNil(retryTranslated, retryError, &finalError, @" on retry");
+            if (retryAligned) { succeed(retryAligned, @" retry"); return; }
 
-            if (retryAligned) {
-                YTMUTranslationLog(@"provider retry success videoId=%@ provider=%@ lines=%lu",
-                                   videoId.length ? videoId : @"<empty>",
-                                   [provider providerName],
-                                   (unsigned long)retryAligned.count);
-                [self storeTranslatedLines:retryAligned cacheKey:cacheKey videoId:videoId language:language provider:provider lines:lines];
-                YTMUCompleteOnMain(^{ completion(retryAligned, nil); });
-                return;
-            }
-
-            NSError *finalError = retryError ?: [self lineCountErrorForTranslated:retryTranslated ?: @[] expected:lines.count];
             YTMUTranslationLog(@"provider retry failed videoId=%@ provider=%@ error=%@",
                                videoId.length ? videoId : @"<empty>",
                                [provider providerName],
