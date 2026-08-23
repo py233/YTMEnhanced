@@ -25,6 +25,44 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return YTMULyricsRegexMatches(value, pattern, NSRegularExpressionCaseInsensitive);
 }
 
+// --- Candidate scoring -------------------------------------------------
+// Each NetEase search hit is scored against the search info and then has to
+// clear one of two gates: "strict" (confident, surfaced as an exact match)
+// or "inexact" (surfaced only when the user allows inexact lyrics). These
+// were tuned by hand against real doujin / vocaloid / K-pop collisions; the
+// fixture in Tests/Host/Test_NetEaseRanking.m pins the resulting order, so
+// change a number here and that test will tell you what moved.
+//
+// Combined score = title·W_TITLE + artist·W_ARTIST + duration·W_DURATION,
+// where each component is 0…1 and duration decays linearly to 0 over
+// kDurationDecaySeconds of mismatch (a flat kDurationScoreWhenUnknown when
+// the player gave us no duration).
+static const CGFloat YTMUNetEaseWeightTitle = 1.65;
+static const CGFloat YTMUNetEaseWeightArtist = 0.7;
+static const CGFloat YTMUNetEaseWeightDuration = 0.4;
+static const NSTimeInterval YTMUNetEaseDurationDecaySeconds = 25.0;
+static const CGFloat YTMUNetEaseDurationScoreWhenUnknown = 0.2;
+// Ranking: scores closer than this are considered tied on score and fall
+// back to duration delta, then song id.
+static const CGFloat YTMUNetEaseScoreTieWindow = 0.08;
+// Strict gate.
+static const CGFloat YTMUNetEaseStrictMinTitle = 0.72;
+static const NSTimeInterval YTMUNetEaseStrictMaxDurationDelta = 25;          // hard cut
+static const NSTimeInterval YTMUNetEaseStrictSoftDurationDelta = 15;         // beyond this the title must be near-exact…
+static const CGFloat YTMUNetEaseStrictTitleForSoftDuration = 0.90;          // …this good
+static const CGFloat YTMUNetEaseStrictMinArtist = 0.35;                       // unless the title is essentially exact…
+static const CGFloat YTMUNetEaseStrictTitleOverridesArtist = 0.92;           // …this good
+static const CGFloat YTMUNetEaseStrictMinArtistAmbiguousLatin = 0.55;        // short Latin titles ("Terminal") need the artist
+static const CGFloat YTMUNetEaseStrictMinScore = 1.55;
+// Inexact gate (looser copy of the above).
+static const CGFloat YTMUNetEaseInexactMinTitle = 0.62;
+static const NSTimeInterval YTMUNetEaseInexactMaxDurationDelta = 45;
+static const CGFloat YTMUNetEaseInexactTitleNeedsArtistBelow = 0.80;
+static const CGFloat YTMUNetEaseInexactMinArtist = 0.25;
+static const CGFloat YTMUNetEaseInexactLatinTitleOverride = 0.90;
+static const CGFloat YTMUNetEaseInexactMinArtistAmbiguousLatin = 0.45;
+static const CGFloat YTMUNetEaseInexactMinScore = 1.25;
+
 @interface YTMUNetEaseProvider ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *cookies;
 @property (nonatomic) BOOL initialized;
@@ -632,13 +670,13 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     BOOL latinOnlyTitle = [item[@"latinOnlyTitle"] boolValue];
     BOOL ambiguousLatinTitle = [item[@"ambiguousLatinTitle"] boolValue];
 
-    if (titleScore < 0.72) return NO;
-    if (hasDuration && durationDelta > 25) return NO;
-    if (hasDuration && durationDelta > 15 && titleScore < 0.90) return NO;
-    if (artistScore < 0.35 && titleScore < 0.92) return NO;
-    if (latinOnlyTitle && hasArtists && artistScore < 0.35) return NO;
-    if (ambiguousLatinTitle && artistScore < 0.55) return NO;
-    return score >= 1.55;
+    if (titleScore < YTMUNetEaseStrictMinTitle) return NO;
+    if (hasDuration && durationDelta > YTMUNetEaseStrictMaxDurationDelta) return NO;
+    if (hasDuration && durationDelta > YTMUNetEaseStrictSoftDurationDelta && titleScore < YTMUNetEaseStrictTitleForSoftDuration) return NO;
+    if (artistScore < YTMUNetEaseStrictMinArtist && titleScore < YTMUNetEaseStrictTitleOverridesArtist) return NO;
+    if (latinOnlyTitle && hasArtists && artistScore < YTMUNetEaseStrictMinArtist) return NO;
+    if (ambiguousLatinTitle && artistScore < YTMUNetEaseStrictMinArtistAmbiguousLatin) return NO;
+    return score >= YTMUNetEaseStrictMinScore;
 }
 
 - (BOOL)isAllowedInexactRankedSong:(NSDictionary *)item hasComparableDuration:(BOOL)hasDuration hasArtistNames:(BOOL)hasArtists {
@@ -651,12 +689,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     BOOL latinOnlyTitle = [item[@"latinOnlyTitle"] boolValue];
     BOOL ambiguousLatinTitle = [item[@"ambiguousLatinTitle"] boolValue];
 
-    if (titleScore < 0.62) return NO;
-    if (hasDuration && durationDelta > 45) return NO;
-    if (titleScore < 0.80 && artistScore < 0.25) return NO;
-    if (latinOnlyTitle && hasArtists && artistScore < 0.25 && titleScore < 0.90) return NO;
-    if (ambiguousLatinTitle && artistScore < 0.45) return NO;
-    return score >= 1.25;
+    if (titleScore < YTMUNetEaseInexactMinTitle) return NO;
+    if (hasDuration && durationDelta > YTMUNetEaseInexactMaxDurationDelta) return NO;
+    if (titleScore < YTMUNetEaseInexactTitleNeedsArtistBelow && artistScore < YTMUNetEaseInexactMinArtist) return NO;
+    if (latinOnlyTitle && hasArtists && artistScore < YTMUNetEaseInexactMinArtist && titleScore < YTMUNetEaseInexactLatinTitleOverride) return NO;
+    if (ambiguousLatinTitle && artistScore < YTMUNetEaseInexactMinArtistAmbiguousLatin) return NO;
+    return score >= YTMUNetEaseInexactMinScore;
 }
 
 - (NSArray<NSDictionary *> *)candidateSongsFromSongs:(NSArray<NSDictionary *> *)songs info:(YTMULyricsSearchInfo *)info {
@@ -687,8 +725,8 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         NSTimeInterval delta = hasDuration ? fabs(duration - info.duration) : 0;
         BOOL latinOnlyTitle = YTMUNetEaseHasLatin(bestTitle.length ? bestTitle : info.title) && !YTMUNetEaseHasJapaneseOrCJK(bestTitle.length ? bestTitle : info.title);
         BOOL ambiguousLatinTitle = latinOnlyTitle && YTMULyricsCompactString(bestTitle.length ? bestTitle : info.title).length <= 6;
-        CGFloat durationScore = hasDuration ? MAX(0, 1 - delta / 25.0) : 0.2;
-        CGFloat score = titleScore * 1.65 + artistScore * 0.7 + durationScore * 0.4;
+        CGFloat durationScore = hasDuration ? MAX(0, 1 - delta / YTMUNetEaseDurationDecaySeconds) : YTMUNetEaseDurationScoreWhenUnknown;
+        CGFloat score = titleScore * YTMUNetEaseWeightTitle + artistScore * YTMUNetEaseWeightArtist + durationScore * YTMUNetEaseWeightDuration;
         [ranked addObject:@{
             @"song": song,
             @"titleScore": @(titleScore),
@@ -703,7 +741,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     [ranked sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
         CGFloat a = [left[@"score"] doubleValue];
         CGFloat b = [right[@"score"] doubleValue];
-        if (fabs(b - a) > 0.08) {
+        if (fabs(b - a) > YTMUNetEaseScoreTieWindow) {
             if (a > b) return NSOrderedAscending;
             if (a < b) return NSOrderedDescending;
         }
