@@ -10,6 +10,7 @@
 #import "Lyrics/YTMUSyncedLyricsView.h"
 #import "Lyrics/YTMUInnerTubeDescriptionFetcher.h"
 #import "Translation/YTMUTranslationContext.h"
+#import "Utils/YTMUKVC.h"
 
 static BOOL YTMUSyncedLyricsEnabled(void) {
     NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
@@ -66,15 +67,6 @@ static void YTMULogOfficialLyricsProbe(id object, NSString *event, NSString *sou
 - (void)ytmu_attachSyncedLyricsViewIfNeeded;
 - (void)ytmu_layoutSyncedLyricsView;
 @end
-
-static id YTMUSafeValueForKey(id object, NSString *key) {
-    if (!object || !key.length) return nil;
-    @try {
-        return [object valueForKey:key];
-    } @catch (__unused NSException *exception) {
-        return nil;
-    }
-}
 
 static NSString *YTMUStringFromObject(id object) {
     if ([object isKindOfClass:[NSString class]]) return object;
