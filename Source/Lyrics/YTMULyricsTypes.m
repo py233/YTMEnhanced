@@ -207,7 +207,7 @@ BOOL YTMULyricsDebugLoggingEnabled(void) {
     return value == nil ? NO : [value boolValue];
 }
 
-void YTMULyricsLog(NSString *format, ...) {
+void YTMULyricsLogImpl(NSString *format, ...) {
     if (!YTMULyricsDebugLoggingEnabled() || !format.length) return;
 
     va_list args;
@@ -331,6 +331,28 @@ void YTMULyricsSetTimingOffsetForKey(NSString *key, NSInteger value, BOOL notify
     YTMULyricsSaveSettings(settings, notify, @"lyricsTimingOffsetMs");
 }
 
+NSRegularExpression *YTMULyricsCachedRegex(NSString *pattern, NSRegularExpressionOptions options) {
+    static NSCache<NSString *, NSRegularExpression *> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ cache = [[NSCache alloc] init]; });
+    NSString *key = [NSString stringWithFormat:@"%lu|%@", (unsigned long)options, pattern];
+    NSRegularExpression *regex = [cache objectForKey:key];
+    if (regex) return regex;
+    regex = [NSRegularExpression regularExpressionWithPattern:pattern options:options error:nil];
+    if (regex) [cache setObject:regex forKey:key];
+    return regex;
+}
+
+BOOL YTMULyricsRegexMatches(NSString *value, NSString *pattern, NSRegularExpressionOptions options) {
+    if (!value.length) return NO;
+    NSRegularExpression *regex = YTMULyricsCachedRegex(pattern, options);
+    return [regex firstMatchInString:value options:0 range:NSMakeRange(0, value.length)] != nil;
+}
+
+static NSString *YTMULyricsCollapseWhitespace(NSString *value) {
+    return [YTMULyricsCachedRegex(@"\\s+", 0) stringByReplacingMatchesInString:value options:0 range:NSMakeRange(0, value.length) withTemplate:@" "];
+}
+
 NSString *YTMULyricsNormalizeLoose(NSString *value) {
     if (!value.length) return @"";
     NSMutableString *mutable = [[value stringByFoldingWithOptions:NSWidthInsensitiveSearch | NSCaseInsensitiveSearch
@@ -338,15 +360,23 @@ NSString *YTMULyricsNormalizeLoose(NSString *value) {
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformStripCombiningMarks, NO);
     NSString *lower = [mutable.lowercaseString stringByReplacingOccurrencesOfString:@"_" withString:@" "];
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
-    NSString *collapsed = [spaces stringByReplacingMatchesInString:lower options:0 range:NSMakeRange(0, lower.length) withTemplate:@" "];
+    NSString *collapsed = YTMULyricsCollapseWhitespace(lower);
     return [collapsed stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
 NSString *YTMULyricsCompactString(NSString *value) {
+    // Memoised: the similarity helpers call this in O(candidates × titles)
+    // loops with the same few strings on one side of every comparison.
+    static NSCache<NSString *, NSString *> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ cache = [[NSCache alloc] init]; cache.countLimit = 2048; });
+    if (!value.length) return @"";
+    NSString *cached = [cache objectForKey:value];
+    if (cached) return cached;
     NSString *normalized = YTMULyricsNormalizeLoose(value);
-    NSRegularExpression *nonAlnum = [NSRegularExpression regularExpressionWithPattern:@"[^\\p{L}\\p{N}]+" options:0 error:nil];
-    return [nonAlnum stringByReplacingMatchesInString:normalized options:0 range:NSMakeRange(0, normalized.length) withTemplate:@""];
+    NSString *compact = [YTMULyricsCachedRegex(@"[^\\p{L}\\p{N}]+", 0) stringByReplacingMatchesInString:normalized options:0 range:NSMakeRange(0, normalized.length) withTemplate:@""];
+    [cache setObject:compact forKey:[value copy]];
+    return compact;
 }
 
 static NSUInteger YTMULevenshtein(NSString *a, NSString *b) {
@@ -355,27 +385,32 @@ static NSUInteger YTMULevenshtein(NSString *a, NSString *b) {
     if (m == 0) return n;
     if (n == 0) return m;
 
-    NSMutableArray<NSNumber *> *prev = [NSMutableArray arrayWithCapacity:n + 1];
-    NSMutableArray<NSNumber *> *cur = [NSMutableArray arrayWithCapacity:n + 1];
-    for (NSUInteger j = 0; j <= n; j++) [prev addObject:@(j)];
-    for (NSUInteger j = 0; j <= n; j++) [cur addObject:@0];
+    // Plain C buffers: the boxed-NSNumber version allocated O(m·n) objects
+    // and this runs thousands of times per NetEase search.
+    unichar *ca = malloc(m * sizeof(unichar));
+    unichar *cb = malloc(n * sizeof(unichar));
+    NSUInteger *prev = malloc((n + 1) * sizeof(NSUInteger));
+    NSUInteger *cur = malloc((n + 1) * sizeof(NSUInteger));
+    [a getCharacters:ca range:NSMakeRange(0, m)];
+    [b getCharacters:cb range:NSMakeRange(0, n)];
+    for (NSUInteger j = 0; j <= n; j++) prev[j] = j;
 
     for (NSUInteger i = 1; i <= m; i++) {
-        cur[0] = @(i);
-        unichar ca = [a characterAtIndex:i - 1];
+        cur[0] = i;
         for (NSUInteger j = 1; j <= n; j++) {
-            unichar cb = [b characterAtIndex:j - 1];
-            NSUInteger cost = ca == cb ? 0 : 1;
-            NSUInteger del = prev[j].unsignedIntegerValue + 1;
-            NSUInteger ins = cur[j - 1].unsignedIntegerValue + 1;
-            NSUInteger sub = prev[j - 1].unsignedIntegerValue + cost;
-            cur[j] = @(MIN(MIN(del, ins), sub));
+            NSUInteger cost = ca[i - 1] == cb[j - 1] ? 0 : 1;
+            NSUInteger del = prev[j] + 1;
+            NSUInteger ins = cur[j - 1] + 1;
+            NSUInteger sub = prev[j - 1] + cost;
+            cur[j] = MIN(MIN(del, ins), sub);
         }
-        NSMutableArray *tmp = prev;
+        NSUInteger *tmp = prev;
         prev = cur;
         cur = tmp;
     }
-    return prev[n].unsignedIntegerValue;
+    NSUInteger distance = prev[n];
+    free(ca); free(cb); free(prev); free(cur);
+    return distance;
 }
 
 CGFloat YTMULyricsSimilarity(NSString *left, NSString *right) {
@@ -400,13 +435,10 @@ NSString *YTMULyricsStripSearchNoise(NSString *value) {
         @"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+.+$"
     ];
     for (NSString *pattern in patterns) {
-        NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern
-                                                                            options:NSRegularExpressionCaseInsensitive
-                                                                              error:nil];
+        NSRegularExpression *re = YTMULyricsCachedRegex(pattern, NSRegularExpressionCaseInsensitive);
         out = [re stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
     }
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
-    out = [spaces stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
+    out = YTMULyricsCollapseWhitespace(out);
     return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
@@ -416,9 +448,8 @@ NSArray<NSString *> *YTMULyricsSplitArtists(NSString *artist, NSArray<NSString *
     if (artist.length) [sources addObject:artist];
     for (NSString *tag in tags ?: @[]) if (tag.length) [sources addObject:tag];
 
-    NSRegularExpression *splitter = [NSRegularExpression regularExpressionWithPattern:@"\\s*(?:[&,、，/／|｜;；]|\\band\\b|\\bfeat\\.?\\b|\\bft\\.?\\b)\\s*"
-                                                                              options:NSRegularExpressionCaseInsensitive
-                                                                                error:nil];
+    NSRegularExpression *splitter = YTMULyricsCachedRegex(@"\\s*(?:[&,、，/／|｜;；]|\\band\\b|\\bfeat\\.?\\b|\\bft\\.?\\b)\\s*",
+                                                        NSRegularExpressionCaseInsensitive);
     NSMutableSet<NSString *> *seen = [NSMutableSet set];
     for (NSString *source in sources) {
         NSString *split = [splitter stringByReplacingMatchesInString:source options:0 range:NSMakeRange(0, source.length) withTemplate:@"\n"];

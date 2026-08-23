@@ -1,6 +1,7 @@
 #import "YTMULyricsTitleNormalizer.h"
 #import "../Utils/NSBundle+YTMU.h"
-#import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPlistStore.h"
+#import "../Utils/YTMUInflightCoalescer.h"
 
 // Persistent storage layout:
 //   $CACHES/YTMUltimate/TitleNormalize/<sha1(videoId)>.plist
@@ -15,23 +16,12 @@
 //   raw_t      : raw input title (sanity-check on read)
 //   raw_a      : raw input artist
 //
-// Failure blacklist lives in NSUserDefaults under
-//   YTMULTitleNormalizeFailures = { videoId: { count: int, ts: epoch } }
-// videoIds with count >= 3 are skipped for 24h after the last failure.
+// Failures are not persisted: a parse failure is retried on the next
+// refresh. (An earlier failure blacklist in NSUserDefaults was removed;
+// -clearCache still deletes its legacy key.)
 
 static const NSInteger YTMULNSchemaVersion = 1;
-static const NSInteger YTMULNFailureThreshold = 3;
-static const NSTimeInterval YTMULNBlacklistDuration = 24 * 60 * 60;
-static NSString *const YTMULNFailuresKey = @"YTMULTitleNormalizeFailures";
-
-static NSString *YTMULNSHA1(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [output appendFormat:@"%02x", digest[i]];
-    return output;
-}
+static NSString *const YTMULNLegacyFailuresKey = @"YTMULTitleNormalizeFailures";
 
 static NSError *YTMULNError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMULyricsTitleNormalizer"
@@ -59,11 +49,10 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
 #pragma mark - YTMULyricsTitleNormalizer
 
 @interface YTMULyricsTitleNormalizer ()
-@property (nonatomic, strong) dispatch_queue_t ioQueue;
-// videoId → array of pending completions for that videoId. While a request
-// is in flight, follow-on calls join the queue and the AI is hit just once.
-// Guarded by @synchronized(self.inflight).
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<YTMULyricsTitleNormalizerCompletion> *> *inflight;
+@property (nonatomic, strong) YTMUPlistStore *store;
+// While a request for a videoId is in flight, follow-on calls join its
+// completion queue and the AI is hit just once.
+@property (nonatomic, strong) YTMUInflightCoalescer<YTMULyricsTitleNormalizerCompletion> *inflight;
 @end
 
 @implementation YTMULyricsTitleNormalizer
@@ -80,43 +69,20 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _ioQueue = dispatch_queue_create("com.ytmultimate.title-normalize", DISPATCH_QUEUE_SERIAL);
-        _inflight = [NSMutableDictionary dictionary];
+        _store = [[YTMUPlistStore alloc] initWithSubdirectory:@"TitleNormalize" schemaVersion:YTMULNSchemaVersion];
+        _inflight = [[YTMUInflightCoalescer alloc] init];
     }
     return self;
 }
 
 #pragma mark - Disk cache
 
-- (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"TitleNormalize"];
-}
-
-- (NSString *)filePathForVideoId:(NSString *)videoId {
-    NSString *key = videoId.length ? videoId : @"<empty>";
-    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMULNSHA1(key) stringByAppendingString:@".plist"]];
-}
-
 - (nullable NSDictionary *)readPlistForVideoId:(NSString *)videoId {
-    if (!videoId.length) return nil;
-    NSString *path = [self filePathForVideoId:videoId];
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
-    if (![dict isKindOfClass:[NSDictionary class]]) return nil;
-    if ([dict[@"v"] integerValue] != YTMULNSchemaVersion) return nil;
-    return dict;
+    return [self.store plistForKey:videoId];
 }
 
 - (void)writePlist:(NSDictionary *)dict forVideoId:(NSString *)videoId {
-    if (!videoId.length || !dict) return;
-    dispatch_async(self.ioQueue, ^{
-        NSString *dir = [self cacheDirectory];
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        [dict writeToFile:[self filePathForVideoId:videoId] atomically:YES];
-    });
+    [self.store writePlist:dict forKey:videoId];
 }
 
 - (YTMULyricsTitleNormalization *)normalizationFromPlist:(NSDictionary *)dict {
@@ -149,48 +115,6 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
     return n;
 }
 
-#pragma mark - Failure blacklist
-
-- (NSDictionary *)allFailures {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:YTMULNFailuresKey];
-    return [dict isKindOfClass:[NSDictionary class]] ? dict : @{};
-}
-
-- (void)setAllFailures:(NSDictionary *)failures {
-    [[NSUserDefaults standardUserDefaults] setObject:(failures ?: @{}) forKey:YTMULNFailuresKey];
-}
-
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId {
-    if (!videoId.length) return NO;
-    NSDictionary *entry = [self allFailures][videoId];
-    if (![entry isKindOfClass:[NSDictionary class]]) return NO;
-    NSInteger count = [entry[@"count"] integerValue];
-    NSTimeInterval ts = [entry[@"ts"] doubleValue];
-    if (count < YTMULNFailureThreshold) return NO;
-    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - ts;
-    return age >= 0 && age < YTMULNBlacklistDuration;
-}
-
-- (void)recordFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    NSMutableDictionary *entry = [[all[videoId] isKindOfClass:[NSDictionary class]] ? all[videoId] : @{} mutableCopy];
-    NSInteger count = [entry[@"count"] integerValue] + 1;
-    entry[@"count"] = @(count);
-    entry[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
-    all[videoId] = entry;
-    [self setAllFailures:all];
-}
-
-- (void)clearFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    if (all[videoId]) {
-        [all removeObjectForKey:videoId];
-        [self setAllFailures:all];
-    }
-}
-
 #pragma mark - Prompts
 
 static NSString *const YTMULNSystemPrompt =
@@ -219,7 +143,13 @@ static NSString *const YTMULNSystemPrompt =
         // almost always live at the top; the rest is credits/links/CC
         // notices that just inflate token count.
         NSString *desc = info.shortDescription;
-        if (desc.length > 600) desc = [desc substringToIndex:600];
+        if (desc.length > 600) {
+            // Cut on a composed-character boundary: a raw UTF-16 index can
+            // land inside an emoji's surrogate pair, and a lone surrogate
+            // makes the whole request body unserialisable.
+            NSRange last = [desc rangeOfComposedCharacterSequenceAtIndex:600];
+            desc = [desc substringToIndex:last.location];
+        }
         [out appendFormat:@"description (truncated): %@\n", desc];
     }
     // OpenAI's Responses API rejects requests with `text.format=json_object`
@@ -367,18 +297,7 @@ static NSString *const YTMULNSystemPrompt =
     // for ~2s after a song change (we get the previous song's title with
     // the new videoId, then the correct title), and without this we'd
     // burn 2-3 AI calls per song change.
-    YTMULyricsTitleNormalizerCompletion completionCopy = [completion copy];
-    BOOL alreadyInFlight = NO;
-    @synchronized (self.inflight) {
-        NSMutableArray *queue = self.inflight[videoId];
-        if (queue) {
-            [queue addObject:completionCopy];
-            alreadyInFlight = YES;
-        } else {
-            self.inflight[videoId] = [NSMutableArray arrayWithObject:completionCopy];
-        }
-    }
-    if (alreadyInFlight) {
+    if (![self.inflight beginOrJoinKey:videoId completion:completion]) {
         YTMULyricsLog(@"normalize joined in-flight videoId=%@", videoId);
         return;
     }
@@ -396,12 +315,7 @@ static NSString *const YTMULNSystemPrompt =
         dispatch_async(dispatch_get_main_queue(), ^{
             // Fan out the result to every queued caller.
             void (^fanout)(YTMULyricsTitleNormalization *, NSError *) = ^(YTMULyricsTitleNormalization *result, NSError *err) {
-                NSArray<YTMULyricsTitleNormalizerCompletion> *callbacks;
-                @synchronized (weakSelf.inflight) {
-                    callbacks = [weakSelf.inflight[videoId] copy];
-                    [weakSelf.inflight removeObjectForKey:videoId];
-                }
-                for (YTMULyricsTitleNormalizerCompletion cb in callbacks) cb(result, err);
+                for (YTMULyricsTitleNormalizerCompletion cb in [weakSelf.inflight takeCompletionsForKey:videoId]) cb(result, err);
             };
 
             if (error) {
@@ -446,10 +360,8 @@ static NSString *const YTMULNSystemPrompt =
 }
 
 - (void)clearCache {
-    dispatch_async(self.ioQueue, ^{
-        [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
-    });
-    [self setAllFailures:@{}];
+    [self.store removeAll];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMULNLegacyFailuresKey];
 }
 
 @end

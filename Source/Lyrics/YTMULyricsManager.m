@@ -12,10 +12,11 @@
 #import "Providers/YTMUGeniusProvider.h"
 #import "Providers/YTMUDescriptionProvider.h"
 #import "../Utils/NSBundle+YTMU.h"
+#import "YTMURomanizationService.h"
 #import <NaturalLanguage/NaturalLanguage.h>
 
 static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
-    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil] ?: (fallback ?: key);
 }
 
 @interface YTMULyricsManager ()
@@ -30,7 +31,35 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 @property (nonatomic, copy, readwrite) NSDictionary<NSString *, NSString *> *sourceAvailability;
 @property (nonatomic) NSUInteger requestGeneration;
 @property (nonatomic, strong, readwrite) YTMULyricsSearchInfo *lastSearchInfo;
-@property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
+// How long one provider may hold up a pass before it is skipped. Every
+// provider bounds its own requests (≈8 s each), but NetEase's
+// candidate-by-candidate lyric fetch and Genius's two legs can stack
+// several of those; this keeps the chain moving regardless. A late answer
+// is still cached and still updates the availability chip.
+@property (nonatomic) NSTimeInterval providerBudgetSeconds;
+@end
+
+// Result of a single provider pass. provider/result are set together
+// — if result is nil the pass exhausted every provider with no match.
+typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable result,
+                                                 id<YTMULyricsProvider> _Nullable provider,
+                                                 NSArray<NSString *> *_Nonnull errors);
+
+// One walk over an ordered provider list for one search. Carries the
+// cursor and the running fallback so the recursion below does not have to
+// thread nine parameters through every step.
+@interface YTMULyricsProviderPass : NSObject
+@property (nonatomic, copy) NSArray<id<YTMULyricsProvider>> *providers;
+@property (nonatomic) NSUInteger index;
+@property (nonatomic, copy) YTMULyricsSearchInfo *info;
+@property (nonatomic) NSUInteger generation;
+@property (nonatomic, strong) NSMutableArray<NSString *> *errors;
+@property (nonatomic, strong, nullable) YTMULyricsResult *fallbackResult;     // best imperfect-but-similar so far
+@property (nonatomic, strong, nullable) id<YTMULyricsProvider> fallbackProvider;
+@property (nonatomic) BOOL updateAvailability;                                  // raw pass drives the status chips; re-pass is silent
+@property (nonatomic, copy) YTMULyricsTryProvidersCompletion completion;
+@end
+@implementation YTMULyricsProviderPass
 @end
 
 @implementation YTMULyricsManager
@@ -44,13 +73,13 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         model = @"google-translate";
     } else if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) {
         name = YTMULyricsManagerLocalized(@"PROVIDER_ANTHROPIC", @"Anthropic");
-        model = YTMULyricsSettingsString(@"translationModel_anthropic", @"claude-haiku-4-5-20251001");
+        model = YTMULyricsSettingsString(@"translationModel_anthropic", YTMUTranslationDefaultModelForProvider(provider));
     } else if ([provider isEqualToString:YTMUTranslationProviderGemini]) {
         name = YTMULyricsManagerLocalized(@"PROVIDER_GEMINI", @"Gemini");
-        model = YTMULyricsSettingsString(@"translationModel_gemini", @"gemini-2.0-flash");
+        model = YTMULyricsSettingsString(@"translationModel_gemini", YTMUTranslationDefaultModelForProvider(provider));
     } else if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) {
         name = YTMULyricsManagerLocalized(@"PROVIDER_OPENAI", @"OpenAI-compatible");
-        model = YTMULyricsSettingsString(@"translationModel_openai-compatible", @"gpt-4o-mini");
+        model = YTMULyricsSettingsString(@"translationModel_openai-compatible", YTMUTranslationDefaultModelForProvider(provider));
     }
 
     if (!name.length) name = provider.length ? provider : YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_FALLBACK", @"translator");
@@ -97,8 +126,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         _translationAttribution = @"";
         _lastErrorMessage = @"";
         _sourceAvailability = @{};
-        _romanizationMemoryCache = [[NSCache alloc] init];
-        _romanizationMemoryCache.countLimit = 8;
+        _providerBudgetSeconds = 20.0;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(settingsDidChange:)
                                                      name:YTMULyricsSettingsDidChangeNotification
@@ -209,17 +237,11 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 }
 
 - (void)clearRomanizationCache {
-    [self.romanizationMemoryCache removeAllObjects];
-    YTMULyricsLog(@"romanization memory cache cleared");
+    [[YTMURomanizationService sharedService] clearMemoryCache];
 }
 
 - (NSArray<NSString *> *)displayLineTexts {
     return [self.currentResult lineTexts] ?: @[];
-}
-
-- (NSString *)translationForLineAtIndex:(NSUInteger)index {
-    if (index >= self.translatedLines.count) return @"";
-    return self.translatedLines[index] ?: @"";
 }
 
 - (BOOL)isChineseTarget {
@@ -277,175 +299,13 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     return YTMULyricsSettingsBool(@"lyricsTranslationEnabled", YTMULyricsSettingsBool(@"bilingualLyrics", NO));
 }
 
-- (NSString *)googleFormEncode:(NSString *)value {
-    static NSCharacterSet *allowed;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSMutableCharacterSet *set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
-        [set removeCharactersInString:@"!*'();:@&=+$,/?%#[]"];
-        allowed = [set copy];
-    });
-    NSString *encoded = [value stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
-    return [encoded stringByReplacingOccurrencesOfString:@"%20" withString:@"+"];
-}
-
-- (NSString *)romanizationCacheKeyForResult:(YTMULyricsResult *)result info:(YTMULyricsSearchInfo *)info lines:(NSArray<NSString *> *)lines {
-    return [NSString stringWithFormat:@"%@::%@::%lu::%@",
-            info.videoId ?: @"",
-            result.sourceName ?: @"",
-            (unsigned long)lines.count,
-            YTMULyricsCompactString([lines componentsJoinedByString:@"|"] ?: @"")];
-}
-
-- (NSArray<NSDictionary *> *)romanizableLineItemsForResult:(YTMULyricsResult *)result
-                                                sourceLines:(NSArray<NSString *> *)sourceLines
-                                             sourceLanguage:(NSString *)sourceLanguage {
-    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
-    [sourceLines enumerateObjectsUsingBlock:^(NSString *lineText, NSUInteger idx, BOOL *stop) {
-        NSString *text = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        NSString *existing = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
-        if (!text.length || existing.length) return;
-        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) return;
-        [items addObject:@{@"index": @(idx), @"text": text}];
-    }];
-    return items;
-}
-
-- (NSString *)romanizationSourceLanguageForResult:(YTMULyricsResult *)result {
-    for (NSString *line in result.lineTexts ?: @[]) {
-        if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) return @"ja";
-    }
-    return @"auto";
-}
-
-- (void)fetchGoogleRomanizationForText:(NSString *)text sourceLanguage:(NSString *)sourceLanguage completion:(void(^)(NSString *romanized))completion {
-    if (!text.length) {
-        completion(@"");
-        return;
-    }
-    // The previous implementation hit translate.google.com with
-    // client=at (the internal Android Translator client). That endpoint
-    // expects a device certificate and a com.google.android.apps.translate
-    // user-agent; from a plain iOS NSURLSession it silently returns
-    // either an empty body or a CAPTCHA HTML page, which is why every
-    // line came back as filled=0.
-    //
-    // translate.googleapis.com with client=gtx is the long-stable public
-    // endpoint used by web translate widgets, yt-dlp, and most OSS
-    // translation tools. GET-only, no auth, no cookies. Returns a
-    // proper JSON envelope when dj=1 is set.
-    NSString *source = sourceLanguage.length ? sourceLanguage : @"auto";
-    NSString *encodedText = [self googleFormEncode:text];
-    NSString *encodedSource = [self googleFormEncode:source];
-    NSString *urlString = [NSString stringWithFormat:
-        @"https://translate.googleapis.com/translate_a/single?client=gtx&sl=%@&tl=en&dt=rm&dj=1&q=%@",
-        encodedSource, encodedText];
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (!url) {
-        completion(@"");
-        return;
-    }
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    request.HTTPMethod = @"GET";
-    request.timeoutInterval = 10.0;
-    // Browser UA — googleapis is permissive but a plain CFNetwork ua
-    // occasionally trips its bot heuristics on aggressive workloads.
-    [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
-       forHTTPHeaderField:@"User-Agent"];
-    [request setValue:@"application/json, text/plain, */*" forHTTPHeaderField:@"Accept"];
-
-    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error) {
-            YTMULyricsLog(@"google romanization network error: %@", error.localizedDescription);
-            completion(@"");
-            return;
-        }
-        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
-        if (status < 200 || status >= 300) {
-            NSString *preview = @"";
-            if (data.length) {
-                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
-                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
-                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
-            }
-            YTMULyricsLog(@"google romanization HTTP %ld bodyLen=%lu preview=%@",
-                          (long)status, (unsigned long)data.length, preview);
-            completion(@"");
-            return;
-        }
-        NSError *jsonError = nil;
-        id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError] : nil;
-        if (!json || jsonError) {
-            NSString *preview = @"";
-            if (data.length) {
-                NSUInteger headLen = MIN(data.length, (NSUInteger)160);
-                NSData *head = [data subdataWithRange:NSMakeRange(0, headLen)];
-                preview = [[NSString alloc] initWithData:head encoding:NSUTF8StringEncoding] ?: @"<non-utf8>";
-            }
-            YTMULyricsLog(@"google romanization JSON parse failed err=%@ bodyLen=%lu preview=%@",
-                          jsonError.localizedDescription ?: @"<empty>",
-                          (unsigned long)data.length, preview);
-            completion(@"");
-            return;
-        }
-        NSString *romanized = [YTMULyricsTextProcessor googleTransliterationFromJSON:json];
-        completion(romanized ?: @"");
-    }] resume];
-}
-
-- (void)fetchGoogleRomanizationItems:(NSArray<NSDictionary *> *)items
-                                limit:(NSUInteger)limit
-                       sourceLanguage:(NSString *)sourceLanguage
-                            romanized:(NSMutableArray<NSString *> *)romanized
-                           completion:(void(^)(NSArray<NSString *> *romanized))completion {
-    NSUInteger total = MIN(items.count, limit);
-    if (total == 0) {
-        completion([romanized copy]);
-        return;
-    }
-
-    // Old code fired these requests strictly serially via tail recursion
-    // — for a 28-line song that's 28 × ~1.5s = 30-60s of latency before
-    // we knew whether ANY romanization landed. Google's per-segment
-    // endpoint is happy to take parallel requests as long as we don't
-    // pummel it; 6 in flight cuts wall time ~5x without tripping rate
-    // limits. The semaphore enforces the cap; the dispatch_group lets
-    // us fan-in on the main queue once everyone's done.
-    static const NSInteger kMaxConcurrent = 6;
-    dispatch_queue_t scheduler = dispatch_queue_create("com.ytmultimate.romanization-batch", DISPATCH_QUEUE_SERIAL);
-    dispatch_semaphore_t sem = dispatch_semaphore_create(kMaxConcurrent);
-    dispatch_group_t group = dispatch_group_create();
-
-    for (NSUInteger i = 0; i < total; i++) {
-        dispatch_group_enter(group);
-        dispatch_async(scheduler, ^{
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            NSDictionary *item = items[i];
-            NSUInteger lineIndex = [item[@"index"] unsignedIntegerValue];
-            NSString *text = item[@"text"] ?: @"";
-            [self fetchGoogleRomanizationForText:text sourceLanguage:sourceLanguage completion:^(NSString *value) {
-                if (value.length) {
-                    @synchronized (romanized) {
-                        if (lineIndex < romanized.count) romanized[lineIndex] = value;
-                    }
-                }
-                dispatch_semaphore_signal(sem);
-                dispatch_group_leave(group);
-            }];
-        });
-    }
-
-    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
-        completion([romanized copy]);
-    });
-}
-
 - (void)applyRomanizedLines:(NSArray<NSString *> *)romanized generation:(NSUInteger)generation info:(YTMULyricsSearchInfo *)info cacheKey:(NSString *)cacheKey {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
         YTMULyricsResult *current = [self.currentResult copy];
+        if (!current) return;   // nothing to decorate (and never write nil back)
         NSArray<NSString *> *sourceLines = [current lineTexts] ?: @[];
-        NSString *sourceLanguage = [self romanizationSourceLanguageForResult:current];
+        NSString *sourceLanguage = [[YTMURomanizationService sharedService] sourceLanguageForLines:current.lineTexts];
 
         // Render whatever we got — DON'T gate on every line being filled.
         // Google's per-segment transliteration endpoint occasionally
@@ -486,13 +346,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         // the old "complete=NO ⇒ delete cache" behavior so painful.
         // Empty arrays still don't get cached (nothing to remember).
         BOOL anyFilled = filled > 0;
-        if (cacheKey.length) {
-            if (anyFilled) {
-                [self.romanizationMemoryCache setObject:lineTexts forKey:cacheKey];
-            } else {
-                [self.romanizationMemoryCache removeObjectForKey:cacheKey];
-            }
-        }
+        [[YTMURomanizationService sharedService] storeLines:anyFilled ? lineTexts : nil forKey:cacheKey];
         if (current.sourceName.length && anyFilled) {
             NSString *lyricsCacheKey = [YTMULyricsCache cacheKeyForInfo:info source:current.sourceName];
             [[YTMULyricsCache sharedCache] storeResult:current forKey:lyricsCacheKey];
@@ -512,12 +366,13 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     NSArray<NSString *> *source = [result lineTexts] ?: @[];
     if (!source.count) return;
 
-    NSString *sourceLanguage = [self romanizationSourceLanguageForResult:result];
-    NSArray<NSDictionary *> *items = [self romanizableLineItemsForResult:result sourceLines:source sourceLanguage:sourceLanguage];
+    YTMURomanizationService *service = [YTMURomanizationService sharedService];
+    NSString *sourceLanguage = [service sourceLanguageForLines:source];
+    NSArray<NSDictionary *> *items = [service romanizableItemsForLines:source existing:result.romanizedLineTexts sourceLanguage:sourceLanguage];
     if (!items.count) return;
 
-    NSString *cacheKey = [self romanizationCacheKeyForResult:result info:info lines:source];
-    NSArray<NSString *> *cached = [self.romanizationMemoryCache objectForKey:cacheKey];
+    NSString *cacheKey = [service cacheKeyForVideoId:info.videoId source:result.sourceName lines:source];
+    NSArray<NSString *> *cached = [service cachedLinesForKey:cacheKey];
     if (cached.count == source.count) {
         [self applyRomanizedLines:cached generation:generation info:info cacheKey:cacheKey];
         return;
@@ -529,8 +384,13 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
         [romanized addObject:existing ?: @""];
     }
 
+    // Stop issuing requests once the song has changed; applyRomanizedLines'
+    // generation check then drops whatever partial result comes back.
+    __weak typeof(self) weakSelf = self;
     NSUInteger limit = MIN(items.count, (NSUInteger)80);
-    [self fetchGoogleRomanizationItems:items limit:limit sourceLanguage:sourceLanguage romanized:romanized completion:^(NSArray<NSString *> *values) {
+    [service romanizeItems:items limit:limit sourceLanguage:sourceLanguage into:romanized
+            shouldContinue:^BOOL{ typeof(self) strongSelf = weakSelf; return strongSelf != nil && generation == strongSelf.requestGeneration; }
+                completion:^(NSArray<NSString *> *values) {
         [self applyRomanizedLines:values generation:generation info:info cacheKey:cacheKey];
     }];
 }
@@ -713,11 +573,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
     }];
 }
 
-// Result of a single tryProviders pass. provider/result are set together
-// — if result is nil the pass exhausted every provider with no match.
-typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable result,
-                                                 id<YTMULyricsProvider> _Nullable provider,
-                                                 NSArray<NSString *> *_Nonnull errors);
+
 
 // True if the matched track's title and artist look reasonably close to
 // what the caller searched for. Provider-reported `inexact` is unreliable
@@ -795,26 +651,20 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
     }
 }
 
-- (void)tryProviders:(NSArray<id<YTMULyricsProvider>> *)providers
-               index:(NSUInteger)index
-                info:(YTMULyricsSearchInfo *)info
-          generation:(NSUInteger)generation
-          lastErrors:(NSMutableArray<NSString *> *)lastErrors
-      fallbackResult:(YTMULyricsResult *)fallbackResult
-    fallbackProvider:(id<YTMULyricsProvider>)fallbackProvider
-       updateAvailability:(BOOL)updateAvailability
-          completion:(YTMULyricsTryProvidersCompletion)completion {
-    if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
-    if (index >= providers.count) {
-        if (fallbackResult.hasText) {
-            completion(fallbackResult, fallbackProvider, lastErrors);
+- (void)runProviderPass:(YTMULyricsProviderPass *)pass {
+    YTMULyricsSearchInfo *info = pass.info;
+    if (pass.generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+    if (pass.index >= pass.providers.count) {
+        if (pass.fallbackResult.hasText) {
+            pass.completion(pass.fallbackResult, pass.fallbackProvider, pass.errors);
             return;
         }
-        completion(nil, nil, lastErrors);
+        pass.completion(nil, nil, pass.errors);
         return;
     }
 
-    id<YTMULyricsProvider> provider = providers[index];
+    id<YTMULyricsProvider> provider = pass.providers[pass.index];
+    BOOL updateAvailability = pass.updateAvailability;
     if (updateAvailability) [self setAvailability:@"checking" forProvider:provider notify:YES];
     BOOL syncedRequested = YTMULyricsSettingsBool(@"syncedLyricsEnabled", NO) ||
                            YTMULyricsSettingsBool(@"bilingualLyrics", NO) ||
@@ -844,10 +694,10 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         BOOL similar = [self result:result similarToInfo:info];
         BOOL syncedOK = !syncedRequested || result.isSynced || providerIsPinned;
         BOOL isPerfect = similar && syncedOK;
-        BOOL hasMore = (index + 1 < providers.count);
+        BOOL hasMore = (pass.index + 1 < pass.providers.count);
 
         if (isPerfect) {
-            completion(result, provider, lastErrors);
+            pass.completion(result, provider, pass.errors);
             return;
         }
 
@@ -858,8 +708,8 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         // chain (other providers, AI normalizer re-pass) can try. If no
         // provider produces a similar match, we return nil from this pass
         // and the UI shows "no lyrics found" rather than the wrong song.
-        YTMULyricsResult *bestFallback = fallbackResult;
-        id<YTMULyricsProvider> bestProvider = fallbackProvider;
+        YTMULyricsResult *bestFallback = pass.fallbackResult;
+        id<YTMULyricsProvider> bestProvider = pass.fallbackProvider;
         if (similar) {
             [self pickBetterFallback:&bestFallback provider:&bestProvider
                             incoming:result incomingProvider:provider info:info];
@@ -884,18 +734,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
             // Exhausted — return whatever fallback won (may be nil if every
             // provider's match was a wrong-song hit, which is the desired
             // behavior: better to say "not found" than show wrong lyrics).
-            completion(bestFallback, bestProvider, lastErrors);
+            pass.completion(bestFallback, bestProvider, pass.errors);
             return;
         }
-        [self tryProviders:providers
-                     index:index + 1
-                      info:info
-                generation:generation
-                lastErrors:lastErrors
-            fallbackResult:bestFallback
-           fallbackProvider:bestProvider
-        updateAvailability:updateAvailability
-                completion:completion];
+        pass.fallbackResult = bestFallback;
+        pass.fallbackProvider = bestProvider;
+        pass.index += 1;
+        [self runProviderPass:pass];
     };
 
     NSString *cacheKey = [YTMULyricsCache cacheKeyForInfo:info source:[provider providerName]];
@@ -913,28 +758,42 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                   info.title,
                   info.artist,
                   info.duration);
+    NSUInteger generation = pass.generation;
+    // `settled` (main-thread only) makes sure exactly one of {answer, budget
+    // timeout} advances the pass; the other just records what it learned.
+    __block BOOL settled = NO;
+    NSTimeInterval budget = self.providerBudgetSeconds;
+    if (budget > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(budget * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (settled) return;
+            if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+            settled = YES;
+            YTMULyricsLog(@"lyrics source budget exceeded videoId=%@ source=%@ after %.0fs — moving on", info.videoId, [provider providerName], budget);
+            [pass.errors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName],
+                                    YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_TIMEOUT", @"timed out")]];
+            pass.index += 1;
+            [self runProviderPass:pass];
+        });
+    }
     [provider searchWithInfo:info completion:^(YTMULyricsResult *result, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
             if (result.hasText) {
                 if (updateAvailability) [self setAvailability:@"hit" forProvider:provider notify:NO];
                 [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
+                if (settled) return;          // answered after the budget: cached for next time
+                settled = YES;
                 acceptOrContinue(result, NO);
                 return;
             }
+            if (settled) return;
+            settled = YES;
             NSString *message = error.localizedDescription ?: YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_NO_MATCH", @"no match");
             if (updateAvailability) [self setAvailability:@"miss" forProvider:provider notify:YES];
-            [lastErrors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
+            [pass.errors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];
             YTMULyricsLog(@"lyrics source miss videoId=%@ source=%@ reason=%@", info.videoId, [provider providerName], message);
-            [self tryProviders:providers
-                         index:index + 1
-                          info:info
-                    generation:generation
-                    lastErrors:lastErrors
-                fallbackResult:fallbackResult
-               fallbackProvider:fallbackProvider
-            updateAvailability:updateAvailability
-                    completion:completion];
+            pass.index += 1;
+            [self runProviderPass:pass];
         });
     }];
 }
@@ -994,15 +853,13 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                   YTMULyricsSettingsString(@"lyricsPreferredSource", @"auto"),
                   (unsigned long)providers.count);
     YTMULyricsSearchInfo *infoCopy = [info copy];
-    [self tryProviders:providers
-                 index:0
-                  info:infoCopy
-            generation:generation
-            lastErrors:[NSMutableArray array]
-        fallbackResult:nil
-      fallbackProvider:nil
-    updateAvailability:YES
-            completion:^(YTMULyricsResult *rawResult, id<YTMULyricsProvider> rawProvider, NSArray<NSString *> *errors) {
+    YTMULyricsProviderPass *rawPass = [[YTMULyricsProviderPass alloc] init];
+    rawPass.providers = providers;
+    rawPass.info = infoCopy;
+    rawPass.generation = generation;
+    rawPass.errors = [NSMutableArray array];
+    rawPass.updateAvailability = YES;
+    rawPass.completion = ^(YTMULyricsResult *rawResult, id<YTMULyricsProvider> rawProvider, NSArray<NSString *> *errors) {
         if (generation != self.requestGeneration || ![infoCopy.videoId isEqualToString:self.activeVideoId]) return;
         if (rawResult.hasText) {
             if (rawResult == [self currentResult]) {
@@ -1026,7 +883,8 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                                   rawResult:rawResult
                                 rawProvider:rawProvider
                                  generation:generation];
-    }];
+    };
+    [self runProviderPass:rawPass];
 }
 
 #pragma mark - AI title normalize re-pass
@@ -1120,10 +978,6 @@ static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString
 
     NSString *providerName = [[YTMUTranslator sharedTranslator] currentProviderName];
     YTMULyricsTitleNormalizer *normalizer = [YTMULyricsTitleNormalizer sharedNormalizer];
-    if ([normalizer isBlacklistedForVideoId:info.videoId]) {
-        YTMULyricsLog(@"normalize blacklisted videoId=%@ — skipping", info.videoId);
-        return;
-    }
 
     void (^fire)(void) = ^{
         [normalizer normalizeForInfo:info
@@ -1188,15 +1042,13 @@ static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString
                   [self qualityScoreForResult:rawResult forInfo:originalInfo]);
 
     NSArray *providers = [self orderedProviders];
-    [self tryProviders:providers
-                 index:0
-                  info:candidate
-            generation:generation
-            lastErrors:[NSMutableArray array]
-        fallbackResult:nil
-      fallbackProvider:nil
-    updateAvailability:NO
-            completion:^(YTMULyricsResult *normalizedResult, id<YTMULyricsProvider> normalizedProvider, NSArray<NSString *> *errors) {
+    YTMULyricsProviderPass *repass = [[YTMULyricsProviderPass alloc] init];
+    repass.providers = providers;
+    repass.info = candidate;
+    repass.generation = generation;
+    repass.errors = [NSMutableArray array];
+    repass.updateAvailability = NO;
+    repass.completion = ^(YTMULyricsResult *normalizedResult, id<YTMULyricsProvider> normalizedProvider, NSArray<NSString *> *errors) {
         if (generation != self.requestGeneration || ![originalInfo.videoId isEqualToString:self.activeVideoId]) return;
         // Score raw against the original YT metadata, normalized against
         // the AI-cleaned candidate metadata: that way a wrong-song raw
@@ -1219,7 +1071,8 @@ static CGFloat YTMULMBestArtistSimilarity(NSArray<NSString *> *artists, NSString
                       newScore,
                       normalizedResult.title);
         [self finishWithResult:normalizedResult info:originalInfo provider:normalizedProvider generation:generation];
-    }];
+    };
+    [self runProviderPass:repass];
 }
 
 @end

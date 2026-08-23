@@ -1,11 +1,12 @@
 #import "YTMULyricsTextProcessor.h"
+#import "YTMULyricsTypes.h"
 
 @implementation YTMULyricsTextProcessor
 
 + (NSString *)canonicalize:(NSString *)text {
     if (!text.length) return @"";
     NSString *out = text;
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     out = [spaces stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
 
     NSArray<NSArray<NSString *> *> *replacements = @[
@@ -15,7 +16,7 @@
         @[@"([^ ]) (-) ([^ ])", @"$1$2$3"],
     ];
     for (NSArray<NSString *> *pair in replacements) {
-        NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pair[0] options:0 error:nil];
+        NSRegularExpression *re = YTMULyricsCachedRegex(pair[0], 0);
         out = [re stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:pair[1]];
     }
     return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -24,33 +25,32 @@
 + (NSString *)simplifyUnicode:(NSString *)text {
     if (!text.length) return @"";
     NSString *folded = [text stringByReplacingOccurrencesOfString:@"\u00a0" withString:@" "];
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     folded = [spaces stringByReplacingMatchesInString:folded options:0 range:NSMakeRange(0, folded.length) withTemplate:@" "];
     return [[folded.precomposedStringWithCanonicalMapping lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
 + (BOOL)hasChinese:(NSString *)text {
-    return [text rangeOfString:@"[\\u4E00-\\u9FFF]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(text, @"[\\u4E00-\\u9FFF]", 0);
 }
 
 + (BOOL)hasJapaneseKana:(NSString *)text {
-    return [text rangeOfString:@"[\\u3040-\\u30ff]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(text, @"[\\u3040-\\u30ff]", 0);
 }
 
 + (BOOL)hasCJKIdeograph:(NSString *)text {
-    return [text rangeOfString:@"[\\u3400-\\u9fff]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(text, @"[\\u3400-\\u9fff]", 0);
 }
 
 + (BOOL)hasRomanizableText:(NSString *)text {
-    return [text rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]"
-                      options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(text, @"[\\u3040-\\u30ff\\u3400-\\u9fff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]", 0);
 }
 
 + (BOOL)looksLikeLyricsHeader:(NSString *)text {
     NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (!trimmed.length) return YES;
-    if ([trimmed rangeOfString:@"^\\[[^\\]]+\\]$" options:NSRegularExpressionSearch].location != NSNotFound) return YES;
-    if ([trimmed rangeOfString:@"^\\([^\\)]+\\)$" options:NSRegularExpressionSearch].location != NSNotFound) return YES;
+    if (YTMULyricsRegexMatches(trimmed, @"^\\[[^\\]]+\\]$", 0)) return YES;
+    if (YTMULyricsRegexMatches(trimmed, @"^\\([^\\)]+\\)$", 0)) return YES;
     return NO;
 }
 
@@ -64,8 +64,7 @@
     }
 
     if ([self hasJapaneseKana:trimmed]) return YES;
-    if ([trimmed rangeOfString:@"[\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]"
-                       options:NSRegularExpressionSearch].location != NSNotFound) {
+    if (YTMULyricsRegexMatches(trimmed, @"[\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0900-\\u097f\\u0980-\\u09ff]", 0)) {
         return YES;
     }
     return NO;
@@ -81,24 +80,6 @@
         : CFSTR("Traditional-Simplified");
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, transform, NO);
     return mutable;
-}
-
-+ (NSString *)romanizeText:(NSString *)text {
-    if (!text.length || ![self hasRomanizableText:text]) return @"";
-    NSMutableString *mutable = [[self canonicalize:text] mutableCopy];
-    if (!mutable.length) return @"";
-
-    if ([self hasChinese:mutable]) {
-        return @"";
-    }
-
-    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformToLatin, NO);
-    CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformStripCombiningMarks, NO);
-
-    NSString *out = mutable.lowercaseString;
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
-    out = [spaces stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@" "];
-    return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
 + (NSString *)googleTransliterationFromJSON:(id)json {

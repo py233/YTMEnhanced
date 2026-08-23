@@ -19,7 +19,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)clearCurrent;
 - (void)clearRomanizationCache;
 - (NSArray<NSString *> *)displayLineTexts;
-- (NSString *)translationForLineAtIndex:(NSUInteger)index;
 
 @end
 

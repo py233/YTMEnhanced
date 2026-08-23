@@ -81,9 +81,6 @@ extern NSString *const kYTMUPlaybackUserInfoIsPlaying;
 - (NSString *)bestArtist;
 - (nullable NSString *)bestAlbum;
 
-// Convenience: the resolved recording MBID for LB submissions, or
-// nil when not resolved.
-- (nullable NSString *)bestRecordingMBID;
 
 #pragma mark Threshold / validity
 
@@ -154,6 +151,9 @@ void YTMUScrobbleSetDefaults(NSString *key, id _Nullable value);
 // Same shape as YTMULyricsLog / YTMUTranslationLog. Gated on the
 // `scrobbleDebugLogs` defaults key (default NO — users opt in from
 // the Scrobbling settings when diagnosing). Format string is required.
-void YTMUScrobbleLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+BOOL YTMUScrobbleDebugLoggingEnabled(void);
+void YTMUScrobbleLogImpl(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+// Macro so argument expressions are skipped entirely when logging is off.
+#define YTMUScrobbleLog(...) do { if (YTMUScrobbleDebugLoggingEnabled()) YTMUScrobbleLogImpl(__VA_ARGS__); } while (0)
 
 NS_ASSUME_NONNULL_END

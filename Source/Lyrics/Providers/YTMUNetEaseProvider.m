@@ -10,25 +10,75 @@ static NSString *const YTMUNetEaseEncodeKey = @"3go8&$8*3*3h0k(2)2";
 static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85dba908ca4d74da9ac8ea2d44e938f9eadc66da5a8979af572a5a9b68ac12af0feaec3b92aa69af9b1d372f6b8adccb35e968b9bb6c14f908d0099fb6ff48efdacd361f5b6ee9e";
 
 static BOOL YTMUNetEaseHasJapaneseOrCJK(NSString *value) {
-    return [value rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[\\u3040-\\u30ff\\u3400-\\u9fff]", 0);
 }
 
 static BOOL YTMUNetEaseHasLatin(NSString *value) {
-    return [value rangeOfString:@"[A-Za-z]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[A-Za-z]", 0);
 }
 
 static BOOL YTMUNetEaseHasNonLatinRomanizableText(NSString *value) {
-    return [value rangeOfString:@"[\\u3040-\\u30ff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0980-\\u09ff\\u0900-\\u097f]"
-                        options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[\\u3040-\\u30ff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0980-\\u09ff\\u0900-\\u097f]", 0);
 }
 
 static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
-    return [value rangeOfString:pattern options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, pattern, NSRegularExpressionCaseInsensitive);
 }
+
+// --- Candidate scoring -------------------------------------------------
+// Each NetEase search hit is scored against the search info and then has to
+// clear one of two gates: "strict" (confident, surfaced as an exact match)
+// or "inexact" (surfaced only when the user allows inexact lyrics). These
+// were tuned by hand against real doujin / vocaloid / K-pop collisions; the
+// fixture in Tests/Host/Test_NetEaseRanking.m pins the resulting order, so
+// change a number here and that test will tell you what moved.
+//
+// Combined score = title·W_TITLE + artist·W_ARTIST + duration·W_DURATION,
+// where each component is 0…1 and duration decays linearly to 0 over
+// kDurationDecaySeconds of mismatch (a flat kDurationScoreWhenUnknown when
+// the player gave us no duration).
+static const CGFloat YTMUNetEaseWeightTitle = 1.65;
+static const CGFloat YTMUNetEaseWeightArtist = 0.7;
+static const CGFloat YTMUNetEaseWeightDuration = 0.4;
+static const NSTimeInterval YTMUNetEaseDurationDecaySeconds = 25.0;
+static const CGFloat YTMUNetEaseDurationScoreWhenUnknown = 0.2;
+// Ranking: scores closer than this are considered tied on score and fall
+// back to duration delta, then song id.
+static const CGFloat YTMUNetEaseScoreTieWindow = 0.08;
+// Strict gate.
+static const CGFloat YTMUNetEaseStrictMinTitle = 0.72;
+static const NSTimeInterval YTMUNetEaseStrictMaxDurationDelta = 25;          // hard cut
+static const NSTimeInterval YTMUNetEaseStrictSoftDurationDelta = 15;         // beyond this the title must be near-exact…
+static const CGFloat YTMUNetEaseStrictTitleForSoftDuration = 0.90;          // …this good
+static const CGFloat YTMUNetEaseStrictMinArtist = 0.35;                       // unless the title is essentially exact…
+static const CGFloat YTMUNetEaseStrictTitleOverridesArtist = 0.92;           // …this good
+static const CGFloat YTMUNetEaseStrictMinArtistAmbiguousLatin = 0.55;        // short Latin titles ("Terminal") need the artist
+static const CGFloat YTMUNetEaseStrictMinScore = 1.55;
+// Inexact gate (looser copy of the above).
+static const CGFloat YTMUNetEaseInexactMinTitle = 0.62;
+static const NSTimeInterval YTMUNetEaseInexactMaxDurationDelta = 45;
+static const CGFloat YTMUNetEaseInexactTitleNeedsArtistBelow = 0.80;
+static const CGFloat YTMUNetEaseInexactMinArtist = 0.25;
+static const CGFloat YTMUNetEaseInexactLatinTitleOverride = 0.90;
+static const CGFloat YTMUNetEaseInexactMinArtistAmbiguousLatin = 0.45;
+static const CGFloat YTMUNetEaseInexactMinScore = 1.25;
 
 @interface YTMUNetEaseProvider ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *cookies;
 @property (nonatomic) BOOL initialized;
+@end
+
+// Everything derived from the search info that both the keyword pass and
+// the candidate-scoring pass need. Built once per search (it is the
+// expensive part — tag filtering, title splitting, dozens of similarity
+// calls) instead of once per pass.
+@interface YTMUNetEaseSearchContext : NSObject
+@property (nonatomic, copy) NSArray<NSString *> *artists;          // split primary artist + artist-like tags
+@property (nonatomic, copy) NSArray<NSString *> *featured;         // feat./ft. names pulled from the titles
+@property (nonatomic, copy) NSArray<NSString *> *titleTags;
+@property (nonatomic, copy) NSArray<NSDictionary *> *titleCandidates;
+@end
+@implementation YTMUNetEaseSearchContext
 @end
 
 @implementation YTMUNetEaseProvider
@@ -96,11 +146,16 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return hex;
 }
 
+// `cookies` is read while building a request (whichever thread searches)
+// and written from NSURLSession's completion queue; both sides take the
+// same lock so an enumeration never races a set.
 - (NSString *)cookieHeader {
     NSMutableArray *parts = [NSMutableArray array];
-    [self.cookies enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
-        [parts addObject:[NSString stringWithFormat:@"%@=%@", key, obj]];
-    }];
+    @synchronized (self.cookies) {
+        [self.cookies enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
+            [parts addObject:[NSString stringWithFormat:@"%@=%@", key, obj]];
+        }];
+    }
     return [parts componentsJoinedByString:@"; "];
 }
 
@@ -114,7 +169,9 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         if (kv.count < 2) continue;
         NSString *name = [kv[0] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         NSString *value = [[kv subarrayWithRange:NSMakeRange(1, kv.count - 1)] componentsJoinedByString:@"="];
-        if (name.length && value.length) self.cookies[name] = value;
+        if (name.length && value.length) {
+            @synchronized (self.cookies) { self.cookies[name] = value; }
+        }
     }
 }
 
@@ -161,7 +218,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
             completion(nil, error);
             return;
         }
-        NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+        NSHTTPURLResponse *http = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *)response : nil;
         [self captureCookiesFromResponse:http];
         NSInteger status = http.statusCode;
         if (status < 200 || status >= 300) {
@@ -276,14 +333,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     NSMutableString *mutable = [[value stringByFoldingWithOptions:NSWidthInsensitiveSearch
                                                            locale:[NSLocale currentLocale]] mutableCopy];
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
-    NSRegularExpression *punctuation = [NSRegularExpression regularExpressionWithPattern:@"[^\\p{L}\\p{N}\\s]+"
-                                                                                 options:0
-                                                                                   error:nil];
+    NSRegularExpression *punctuation = YTMULyricsCachedRegex(@"[^\\p{L}\\p{N}\\s]+", 0);
     NSString *stripped = [punctuation stringByReplacingMatchesInString:mutable
                                                                options:0
                                                                  range:NSMakeRange(0, mutable.length)
                                                           withTemplate:@" "];
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     NSString *collapsed = [spaces stringByReplacingMatchesInString:stripped
                                                            options:0
                                                              range:NSMakeRange(0, stripped.length)
@@ -367,12 +422,8 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
 
 - (NSArray<NSString *> *)featuredArtistNamesFromTitles:(NSArray<NSString *> *)titles {
     NSMutableArray<NSString *> *featured = [NSMutableArray array];
-    NSRegularExpression *block = [NSRegularExpression regularExpressionWithPattern:@"[\\(\\[\\{（【［][^\\)\\]\\}】］）]*(?:feat|ft|featuring)\\.?\\s+([^\\)\\]\\}】］）]+)[\\)\\]\\}】］）]"
-                                                                           options:NSRegularExpressionCaseInsensitive
-                                                                             error:nil];
-    NSRegularExpression *tail = [NSRegularExpression regularExpressionWithPattern:@"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+(.+)$"
-                                                                          options:NSRegularExpressionCaseInsensitive
-                                                                            error:nil];
+    NSRegularExpression *block = YTMULyricsCachedRegex(@"[\\(\\[\\{（【［][^\\)\\]\\}】］）]*(?:feat|ft|featuring)\\.?\\s+([^\\)\\]\\}】］）]+)[\\)\\]\\}】］）]", NSRegularExpressionCaseInsensitive);
+    NSRegularExpression *tail = YTMULyricsCachedRegex(@"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+(.+)$", NSRegularExpressionCaseInsensitive);
     for (NSString *title in titles ?: @[]) {
         if (!title.length) continue;
         NSArray<NSTextCheckingResult *> *matches = [block matchesInString:title options:0 range:NSMakeRange(0, title.length)];
@@ -430,9 +481,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     NSString *clean = YTMULyricsStripSearchNoise(fragment ?: @"");
     if (!clean.length) return @"";
 
-    NSRegularExpression *brackets = [NSRegularExpression regularExpressionWithPattern:@"[\\(\\[\\{（【［]([^\\)\\]\\}）】］]+)[\\)\\]\\}）】］]"
-                                                                              options:0
-                                                                                error:nil];
+    NSRegularExpression *brackets = YTMULyricsCachedRegex(@"[\\(\\[\\{（【［]([^\\)\\]\\}）】］]+)[\\)\\]\\}）】］]", 0);
     NSMutableString *mutable = [clean mutableCopy];
     NSArray<NSTextCheckingResult *> *matches = [brackets matchesInString:clean options:0 range:NSMakeRange(0, clean.length)];
     for (NSTextCheckingResult *match in [matches reverseObjectEnumerator]) {
@@ -443,7 +492,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
     }
 
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     NSString *out = [spaces stringByReplacingMatchesInString:mutable options:0 range:NSMakeRange(0, mutable.length) withTemplate:@" "];
     return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
@@ -453,9 +502,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     if (!cleaned.length) return @[];
 
     NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObject:cleaned];
-    NSRegularExpression *quoted = [NSRegularExpression regularExpressionWithPattern:@"[「『](.+?)[」』]"
-                                                                            options:0
-                                                                              error:nil];
+    NSRegularExpression *quoted = YTMULyricsCachedRegex(@"[「『](.+?)[」』]", 0);
     NSArray<NSTextCheckingResult *> *quoteMatches = [quoted matchesInString:cleaned options:0 range:NSMakeRange(0, cleaned.length)];
     for (NSTextCheckingResult *match in quoteMatches) {
         if (match.numberOfRanges < 2) continue;
@@ -463,9 +510,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         if (part.length) [parts addObject:part];
     }
 
-    NSRegularExpression *delimiter = [NSRegularExpression regularExpressionWithPattern:@"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]"
-                                                                              options:0
-                                                                                error:nil];
+    NSRegularExpression *delimiter = YTMULyricsCachedRegex(@"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]", 0);
     NSString *split = [delimiter stringByReplacingMatchesInString:cleaned options:0 range:NSMakeRange(0, cleaned.length) withTemplate:@"\n"];
     for (NSString *raw in [split componentsSeparatedByString:@"\n"]) {
         NSString *part = [self cleanTitleFragment:raw artistNames:artistNames];
@@ -536,17 +581,30 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return unique;
 }
 
-- (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info {
+- (YTMUNetEaseSearchContext *)searchContextForInfo:(YTMULyricsSearchInfo *)info {
     NSDictionary *tagGroups = [self filterArtistTagValuesForTitle:info.title
                                                  alternativeTitle:info.alternativeTitle
                                                             album:info.album
                                                            artist:info.artist
                                                              tags:info.tags];
     NSArray *artistTags = tagGroups[@"artistTags"] ?: @[];
-    NSArray *titleTags = tagGroups[@"titleTags"] ?: @[];
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, artistTags);
-    NSArray *featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
-    NSArray<NSDictionary *> *titles = [self titleCandidatesForInfo:info artistNames:artists titleTags:titleTags];
+    YTMUNetEaseSearchContext *context = [[YTMUNetEaseSearchContext alloc] init];
+    context.titleTags = tagGroups[@"titleTags"] ?: @[];
+    context.artists = YTMULyricsSplitArtists(info.artist, artistTags);
+    context.featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
+    context.titleCandidates = [self titleCandidatesForInfo:info artistNames:context.artists titleTags:context.titleTags];
+    return context;
+}
+
+- (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info {
+    return [self keywordsForInfo:info context:[self searchContextForInfo:info]];
+}
+
+- (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info context:(YTMUNetEaseSearchContext *)context {
+    NSArray *artists = context.artists;
+    NSArray *featured = context.featured;
+    NSArray *titleTags = context.titleTags;
+    NSArray<NSDictionary *> *titles = context.titleCandidates;
     NSArray<NSString *> *searchArtists = [self searchArtistNamesForArtistNames:artists featuredArtistNames:featured];
     NSMutableArray *keywords = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
@@ -568,10 +626,10 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
         if (keywords.count >= 16) break;
     }
-    YTMULyricsLog(@"NetEase prepared search candidates=%lu keywords=%@ artistTags=%@ titleTags=%@ featured=%@",
+    YTMULyricsLog(@"NetEase prepared search candidates=%lu keywords=%@ artists=%@ titleTags=%@ featured=%@",
                   (unsigned long)titles.count,
                   keywords,
-                  artistTags,
+                  artists,
                   titleTags,
                   featured);
     return keywords;
@@ -612,13 +670,13 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     BOOL latinOnlyTitle = [item[@"latinOnlyTitle"] boolValue];
     BOOL ambiguousLatinTitle = [item[@"ambiguousLatinTitle"] boolValue];
 
-    if (titleScore < 0.72) return NO;
-    if (hasDuration && durationDelta > 25) return NO;
-    if (hasDuration && durationDelta > 15 && titleScore < 0.90) return NO;
-    if (artistScore < 0.35 && titleScore < 0.92) return NO;
-    if (latinOnlyTitle && hasArtists && artistScore < 0.35) return NO;
-    if (ambiguousLatinTitle && artistScore < 0.55) return NO;
-    return score >= 1.55;
+    if (titleScore < YTMUNetEaseStrictMinTitle) return NO;
+    if (hasDuration && durationDelta > YTMUNetEaseStrictMaxDurationDelta) return NO;
+    if (hasDuration && durationDelta > YTMUNetEaseStrictSoftDurationDelta && titleScore < YTMUNetEaseStrictTitleForSoftDuration) return NO;
+    if (artistScore < YTMUNetEaseStrictMinArtist && titleScore < YTMUNetEaseStrictTitleOverridesArtist) return NO;
+    if (latinOnlyTitle && hasArtists && artistScore < YTMUNetEaseStrictMinArtist) return NO;
+    if (ambiguousLatinTitle && artistScore < YTMUNetEaseStrictMinArtistAmbiguousLatin) return NO;
+    return score >= YTMUNetEaseStrictMinScore;
 }
 
 - (BOOL)isAllowedInexactRankedSong:(NSDictionary *)item hasComparableDuration:(BOOL)hasDuration hasArtistNames:(BOOL)hasArtists {
@@ -631,28 +689,27 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     BOOL latinOnlyTitle = [item[@"latinOnlyTitle"] boolValue];
     BOOL ambiguousLatinTitle = [item[@"ambiguousLatinTitle"] boolValue];
 
-    if (titleScore < 0.62) return NO;
-    if (hasDuration && durationDelta > 45) return NO;
-    if (titleScore < 0.80 && artistScore < 0.25) return NO;
-    if (latinOnlyTitle && hasArtists && artistScore < 0.25 && titleScore < 0.90) return NO;
-    if (ambiguousLatinTitle && artistScore < 0.45) return NO;
-    return score >= 1.25;
+    if (titleScore < YTMUNetEaseInexactMinTitle) return NO;
+    if (hasDuration && durationDelta > YTMUNetEaseInexactMaxDurationDelta) return NO;
+    if (titleScore < YTMUNetEaseInexactTitleNeedsArtistBelow && artistScore < YTMUNetEaseInexactMinArtist) return NO;
+    if (latinOnlyTitle && hasArtists && artistScore < YTMUNetEaseInexactMinArtist && titleScore < YTMUNetEaseInexactLatinTitleOverride) return NO;
+    if (ambiguousLatinTitle && artistScore < YTMUNetEaseInexactMinArtistAmbiguousLatin) return NO;
+    return score >= YTMUNetEaseInexactMinScore;
 }
 
 - (NSArray<NSDictionary *> *)candidateSongsFromSongs:(NSArray<NSDictionary *> *)songs info:(YTMULyricsSearchInfo *)info {
-    NSDictionary *tagGroups = [self filterArtistTagValuesForTitle:info.title
-                                                 alternativeTitle:info.alternativeTitle
-                                                            album:info.album
-                                                           artist:info.artist
-                                                             tags:info.tags];
-    NSArray *artistTags = tagGroups[@"artistTags"] ?: @[];
-    NSArray *titleTags = tagGroups[@"titleTags"] ?: @[];
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, artistTags);
-    NSArray *featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
+    return [self candidateSongsFromSongs:songs info:info context:[self searchContextForInfo:info]];
+}
+
+- (NSArray<NSDictionary *> *)candidateSongsFromSongs:(NSArray<NSDictionary *> *)songs
+                                                info:(YTMULyricsSearchInfo *)info
+                                             context:(YTMUNetEaseSearchContext *)context {
+    NSArray *artists = context.artists;
+    NSArray *featured = context.featured;
     NSMutableArray<NSString *> *scoreArtistValues = [NSMutableArray arrayWithArray:artists ?: @[]];
     [scoreArtistValues addObjectsFromArray:featured ?: @[]];
     NSArray *scoreArtistNames = [self uniqueStringsBySearchText:scoreArtistValues];
-    NSArray *titleCandidates = [self titleCandidatesForInfo:info artistNames:artists titleTags:titleTags];
+    NSArray *titleCandidates = context.titleCandidates;
     NSMutableArray<NSDictionary *> *ranked = [NSMutableArray array];
     BOOL hasDuration = isfinite(info.duration) && info.duration > 0;
     for (id candidate in songs) {
@@ -668,8 +725,8 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         NSTimeInterval delta = hasDuration ? fabs(duration - info.duration) : 0;
         BOOL latinOnlyTitle = YTMUNetEaseHasLatin(bestTitle.length ? bestTitle : info.title) && !YTMUNetEaseHasJapaneseOrCJK(bestTitle.length ? bestTitle : info.title);
         BOOL ambiguousLatinTitle = latinOnlyTitle && YTMULyricsCompactString(bestTitle.length ? bestTitle : info.title).length <= 6;
-        CGFloat durationScore = hasDuration ? MAX(0, 1 - delta / 25.0) : 0.2;
-        CGFloat score = titleScore * 1.65 + artistScore * 0.7 + durationScore * 0.4;
+        CGFloat durationScore = hasDuration ? MAX(0, 1 - delta / YTMUNetEaseDurationDecaySeconds) : YTMUNetEaseDurationScoreWhenUnknown;
+        CGFloat score = titleScore * YTMUNetEaseWeightTitle + artistScore * YTMUNetEaseWeightArtist + durationScore * YTMUNetEaseWeightDuration;
         [ranked addObject:@{
             @"song": song,
             @"titleScore": @(titleScore),
@@ -684,7 +741,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     [ranked sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
         CGFloat a = [left[@"score"] doubleValue];
         CGFloat b = [right[@"score"] doubleValue];
-        if (fabs(b - a) > 0.08) {
+        if (fabs(b - a) > YTMUNetEaseScoreTieWindow) {
             if (a > b) return NSOrderedAscending;
             if (a < b) return NSOrderedDescending;
         }
@@ -692,7 +749,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         NSTimeInterval rightDelta = [right[@"durationDelta"] doubleValue];
         if (leftDelta < rightDelta) return NSOrderedAscending;
         if (leftDelta > rightDelta) return NSOrderedDescending;
-        return NSOrderedSame;
+        // Exact ties: order by song id so the pick is stable across plays
+        // (the input comes from a dictionary's allValues, whose order is
+        // arbitrary, and sortUsingComparator: is not stable).
+        NSNumber *leftId = YTMULyricsJSONNumberAtPath(left[@"song"], @[@"id"]) ?: @0;
+        NSNumber *rightId = YTMULyricsJSONNumberAtPath(right[@"song"], @[@"id"]) ?: @0;
+        return [leftId compare:rightId];
     }];
 
     BOOL hasArtists = scoreArtistNames.count > 0;
@@ -976,8 +1038,15 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
 }
 
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
+    // Keyword generation and candidate scoring are regex / similarity
+    // heavy. registerIfNeeded: calls `ready` synchronously once the session
+    // is registered, i.e. on the caller's (main) thread — hop off it first.
+    // Every completion path below already runs on a background queue, so
+    // callers see no difference.
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     [self registerIfNeeded:^{
-        NSArray *keywords = [self keywordsForInfo:info];
+        YTMUNetEaseSearchContext *context = [self searchContextForInfo:info];
+        NSArray *keywords = [self keywordsForInfo:info context:context];
         if (!keywords.count) {
             completion(nil, nil);
             return;
@@ -1000,7 +1069,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                 NSNumber *songId = YTMULyricsJSONNumberAtPath(song, @[@"id"]);
                 if (songId) unique[songId] = song;
             }
-            NSArray<NSDictionary *> *matches = [self candidateSongsFromSongs:unique.allValues info:info];
+            NSArray<NSDictionary *> *matches = [self candidateSongsFromSongs:unique.allValues info:info context:context];
             if (!matches.count) {
                 completion(nil, nil);
                 return;
@@ -1010,6 +1079,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     } failure:^(NSError *error) {
         completion(nil, error);
     }];
+    });
 }
 
 @end

@@ -1,31 +1,23 @@
 #import "YTMUTranslationCache.h"
 #import "YTMUTranslationTypes.h"
 #import <UIKit/UIKit.h>
-#import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUDigest.h"
+#import "../Utils/YTMUPaths.h"
 
 @implementation YTMUTranslationCacheEntry
+- (BOOL)isRememberedFailure {
+    if (self.failedAt <= 0) return NO;
+    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - self.failedAt;
+    return age >= 0 && age < YTMUTranslationFailureTTL;
+}
 @end
+
+const NSTimeInterval YTMUTranslationFailureTTL = 24 * 60 * 60;
 
 @interface YTMUTranslationCache ()
 @property (nonatomic, strong) NSCache<NSString *, YTMUTranslationCacheEntry *> *memoryCache;
 @property (nonatomic, strong) dispatch_queue_t ioQueue;
 @end
-
-static NSString *YTMUSHA1ForData(NSData *data) {
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
-        [output appendFormat:@"%02x", digest[i]];
-    }
-    return output;
-}
-
-static NSString *YTMUSHA1ForString(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    return YTMUSHA1ForData(data);
-}
 
 @implementation YTMUTranslationCache
 
@@ -81,14 +73,15 @@ static NSString *YTMUSHA1ForString(NSString *string) {
     copy.sourceLines = @[];
     copy.translatedLines = entry.translatedLines ?: @[];
     copy.createdAt = entry.createdAt;
+    copy.failedAt = entry.failedAt;
     return copy;
 }
 
 + (NSString *)sourceHashForLines:(NSArray<NSString *> *)lines {
     NSArray *safeLines = lines ?: @[];
     NSData *json = [NSJSONSerialization dataWithJSONObject:safeLines options:0 error:nil];
-    if (json) return YTMUSHA1ForData(json);
-    return YTMUSHA1ForString([safeLines componentsJoinedByString:@"\n"]);
+    if (json) return YTMUSHA1HexForData(json);
+    return YTMUSHA1Hex([safeLines componentsJoinedByString:@"\n"]);
 }
 
 + (NSString *)keyForVideoId:(NSString *)videoId
@@ -108,12 +101,11 @@ static NSString *YTMUSHA1ForString(NSString *string) {
 }
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"Translations"];
+    return YTMUCachesSubdirectory(@"Translations");
 }
 
 - (NSString *)filePathForKey:(NSString *)key {
-    NSString *fileName = [[YTMUSHA1ForString(key) stringByAppendingString:@".json"] copy];
+    NSString *fileName = [[YTMUSHA1Hex(key) stringByAppendingString:@".json"] copy];
     return [[self cacheDirectory] stringByAppendingPathComponent:fileName];
 }
 
@@ -150,10 +142,12 @@ static NSString *YTMUSHA1ForString(NSString *string) {
     entry.provider = [dict[@"provider"] isKindOfClass:[NSString class]] ? dict[@"provider"] : @"";
     entry.model = [dict[@"model"] isKindOfClass:[NSString class]] ? dict[@"model"] : @"";
     entry.sourceHash = [dict[@"sourceHash"] isKindOfClass:[NSString class]] ? dict[@"sourceHash"] : @"";
-    entry.lineCount = [dict[@"lineCount"] unsignedIntegerValue] ?: cleanTranslated.count;
+    entry.lineCount = [dict[@"lineCount"] isKindOfClass:[NSNumber class]] && [dict[@"lineCount"] unsignedIntegerValue]
+        ? [dict[@"lineCount"] unsignedIntegerValue] : cleanTranslated.count;
     entry.sourceLines = cleanSource;
     entry.translatedLines = cleanTranslated;
-    entry.createdAt = [dict[@"createdAt"] doubleValue];
+    entry.createdAt = [dict[@"createdAt"] isKindOfClass:[NSNumber class]] ? [dict[@"createdAt"] doubleValue] : 0;
+    entry.failedAt = [dict[@"failedAt"] isKindOfClass:[NSNumber class]] ? [dict[@"failedAt"] doubleValue] : 0;
     return entry;
 }
 
@@ -170,6 +164,7 @@ static NSString *YTMUSHA1ForString(NSString *string) {
         @"sourceLines": entry.sourceLines ?: @[],
         @"translatedLines": entry.translatedLines ?: @[],
         @"createdAt": @(entry.createdAt ?: [[NSDate date] timeIntervalSince1970]),
+        @"failedAt": @(entry.failedAt),
     };
 }
 

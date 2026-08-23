@@ -197,7 +197,7 @@ static NSString *YTMUGoogleTranslatedTextFromJSON(id json) {
             return;
         }
 
-        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
         if ([response isKindOfClass:[NSHTTPURLResponse class]] && (status < 200 || status >= 300)) {
             completion(nil, YTMUGoogleError(YTMUTranslationErrorHTTPStatus, [NSString stringWithFormat:@"Google Translate HTTP %ld", (long)status]));
             return;

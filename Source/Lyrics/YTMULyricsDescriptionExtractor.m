@@ -1,6 +1,7 @@
 #import "YTMULyricsDescriptionExtractor.h"
 #import "../Utils/NSBundle+YTMU.h"
-#import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUPlistStore.h"
+#import "../Utils/YTMUInflightCoalescer.h"
 
 // Persistent storage layout:
 //   $CACHES/YTMUltimate/DescriptionLyrics/<sha1(videoId)>.plist
@@ -13,15 +14,21 @@
 //   confidence    : double
 //   raw_t         : raw input title (sanity-check on read)
 //   raw_a         : raw input artist
+//   failed_at     : (optional) epoch seconds of a parse/verify failure.
+//                   Such an entry has empty src_lines and is honoured as
+//                   a miss for YTMULDEFailureTTL, then retried.
 //
-// Failure blacklist lives in NSUserDefaults under
-//   YTMULDescriptionExtractFailures = { videoId: { count: int, ts: epoch } }
-// videoIds with count >= 3 are skipped for 24h after the last failure.
+// (An earlier failure blacklist in NSUserDefaults was removed;
+// -clearCache still deletes its legacy key.)
 
 static const NSInteger YTMULDESchemaVersion = 1;
-static const NSInteger YTMULDEFailureThreshold = 3;
-static const NSTimeInterval YTMULDEBlacklistDuration = 24 * 60 * 60;
-static NSString *const YTMULDEFailuresKey = @"YTMULDescriptionExtractFailures";
+static NSString *const YTMULDELegacyFailuresKey = @"YTMULDescriptionExtractFailures";
+
+// How long a parse/verify failure is remembered before the LLM is asked
+// again. Failures here are usually deterministic (the model keeps
+// normalising punctuation the verifier rejects), so without this every
+// play of such a song re-spent an LLM call.
+static const NSTimeInterval YTMULDEFailureTTL = 6 * 60 * 60;
 
 // Description blocks under this length almost never contain a real lyric
 // section — typically uploader handle + one-liner + URL. Skip the AI call
@@ -33,14 +40,6 @@ static const NSUInteger YTMULDEMinDescriptionLength = 200;
 // trust the extraction. Anti-hallucination guard.
 static const double YTMULDEVerifyMinRatio = 0.7;
 
-static NSString *YTMULDESHA1(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [output appendFormat:@"%02x", digest[i]];
-    return output;
-}
 
 static NSError *YTMULDEError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"YTMULyricsDescriptionExtractor"
@@ -69,9 +68,9 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 #pragma mark - YTMULyricsDescriptionExtractor
 
 @interface YTMULyricsDescriptionExtractor ()
-@property (nonatomic, strong) dispatch_queue_t ioQueue;
-// videoId → array of pending completions for that videoId.
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<YTMULyricsDescriptionExtractorCompletion> *> *inflight;
+@property (nonatomic, strong) YTMUPlistStore *store;
+// One AI call per videoId even when several refresh passes overlap.
+@property (nonatomic, strong) YTMUInflightCoalescer<YTMULyricsDescriptionExtractorCompletion> *inflight;
 @end
 
 @implementation YTMULyricsDescriptionExtractor
@@ -88,105 +87,62 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _ioQueue = dispatch_queue_create("com.ytmultimate.description-extract", DISPATCH_QUEUE_SERIAL);
-        _inflight = [NSMutableDictionary dictionary];
+        _store = [[YTMUPlistStore alloc] initWithSubdirectory:@"DescriptionLyrics" schemaVersion:YTMULDESchemaVersion];
+        _inflight = [[YTMUInflightCoalescer alloc] init];
     }
     return self;
 }
 
 #pragma mark - Disk cache
 
-- (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"DescriptionLyrics"];
-}
-
+// Kept as a seam for tests that inspect the on-disk record.
 - (NSString *)filePathForVideoId:(NSString *)videoId {
-    NSString *key = videoId.length ? videoId : @"<empty>";
-    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMULDESHA1(key) stringByAppendingString:@".plist"]];
+    return [self.store pathForKey:videoId];
 }
 
 - (nullable NSDictionary *)readPlistForVideoId:(NSString *)videoId {
-    if (!videoId.length) return nil;
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:[self filePathForVideoId:videoId]];
-    if (![dict isKindOfClass:[NSDictionary class]]) return nil;
-    if ([dict[@"v"] integerValue] != YTMULDESchemaVersion) return nil;
-    return dict;
+    return [self.store plistForKey:videoId];
 }
 
 - (void)writePlist:(NSDictionary *)dict forVideoId:(NSString *)videoId {
-    if (!videoId.length || !dict) return;
-    dispatch_async(self.ioQueue, ^{
-        NSString *dir = [self cacheDirectory];
-        [[NSFileManager defaultManager] createDirectoryAtPath:dir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:nil];
-        [dict writeToFile:[self filePathForVideoId:videoId] atomically:YES];
-    });
+    [self.store writePlist:dict forKey:videoId];
 }
 
 - (YTMULyricsDescriptionExtraction *)extractionFromPlist:(NSDictionary *)dict {
+    // Check elements, not just containers: a damaged plist must not hand a
+    // non-string to appendString: downstream.
+    NSArray *(^strings)(id) = ^NSArray *(id value) {
+        if (![value isKindOfClass:[NSArray class]]) return @[];
+        NSMutableArray *out = [NSMutableArray array];
+        for (id item in (NSArray *)value) if ([item isKindOfClass:[NSString class]]) [out addObject:item];
+        return out;
+    };
     YTMULyricsDescriptionExtraction *e = [[YTMULyricsDescriptionExtraction alloc] init];
-    e.sourceLines = [dict[@"src_lines"] isKindOfClass:[NSArray class]] ? dict[@"src_lines"] : @[];
+    e.sourceLines = strings(dict[@"src_lines"]);
     e.language = [dict[@"lang"] isKindOfClass:[NSString class]] ? dict[@"lang"] : @"";
-    e.translatedLines = [dict[@"tr_lines"] isKindOfClass:[NSArray class]] ? dict[@"tr_lines"] : @[];
+    e.translatedLines = strings(dict[@"tr_lines"]);
     e.translationLanguage = [dict[@"tr_lang"] isKindOfClass:[NSString class]] ? dict[@"tr_lang"] : @"";
-    e.confidence = [dict[@"confidence"] doubleValue];
+    e.confidence = [dict[@"confidence"] isKindOfClass:[NSNumber class]] ? [dict[@"confidence"] doubleValue] : 0.0;
     return e;
 }
 
 - (nullable YTMULyricsDescriptionExtraction *)cachedExtractionForInfo:(YTMULyricsSearchInfo *)info {
     NSDictionary *dict = [self readPlistForVideoId:info.videoId];
     if (!dict) return nil;
+    // A remembered parse/verify failure is honoured as a miss until its TTL
+    // runs out, then forgotten so the model gets another chance.
+    id failedAt = dict[@"failed_at"];
+    if ([failedAt isKindOfClass:[NSNumber class]]) {
+        NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - [failedAt doubleValue];
+        if (age < 0 || age >= YTMULDEFailureTTL) return nil;
+        return [[YTMULyricsDescriptionExtraction alloc] init];
+    }
     YTMULyricsDescriptionExtraction *e = [self extractionFromPlist:dict];
     // Empty/null cache hits ARE meaningful — they record "we already
     // checked this videoId and there were no lyrics in the description".
     // We still return them so callers don't re-fire the AI request. The
     // provider treats empty sourceLines as a miss.
     return e;
-}
-
-#pragma mark - Failure blacklist
-
-- (NSDictionary *)allFailures {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:YTMULDEFailuresKey];
-    return [dict isKindOfClass:[NSDictionary class]] ? dict : @{};
-}
-
-- (void)setAllFailures:(NSDictionary *)failures {
-    [[NSUserDefaults standardUserDefaults] setObject:(failures ?: @{}) forKey:YTMULDEFailuresKey];
-}
-
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId {
-    if (!videoId.length) return NO;
-    NSDictionary *entry = [self allFailures][videoId];
-    if (![entry isKindOfClass:[NSDictionary class]]) return NO;
-    NSInteger count = [entry[@"count"] integerValue];
-    NSTimeInterval ts = [entry[@"ts"] doubleValue];
-    if (count < YTMULDEFailureThreshold) return NO;
-    NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - ts;
-    return age >= 0 && age < YTMULDEBlacklistDuration;
-}
-
-- (void)recordFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    NSMutableDictionary *entry = [[all[videoId] isKindOfClass:[NSDictionary class]] ? all[videoId] : @{} mutableCopy];
-    NSInteger count = [entry[@"count"] integerValue] + 1;
-    entry[@"count"] = @(count);
-    entry[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
-    all[videoId] = entry;
-    [self setAllFailures:all];
-}
-
-- (void)clearFailureForVideoId:(NSString *)videoId {
-    if (!videoId.length) return;
-    NSMutableDictionary *all = [[self allFailures] mutableCopy];
-    if (all[videoId]) {
-        [all removeObjectForKey:videoId];
-        [self setAllFailures:all];
-    }
 }
 
 #pragma mark - Prompts
@@ -307,7 +263,7 @@ static NSString *const YTMULDESystemPrompt =
     if (!trimmed.length) return @"";
     NSMutableString *mutable = [trimmed mutableCopy];
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     return [spaces stringByReplacingMatchesInString:mutable options:0 range:NSMakeRange(0, mutable.length) withTemplate:@" "];
 }
 
@@ -343,7 +299,16 @@ static NSString *const YTMULDESystemPrompt =
 - (nullable YTMULyricsDescriptionExtraction *)extractionFromResponseDict:(NSDictionary *)dict
                                                               description:(NSString *)description {
     if (!dict) return nil;
-    BOOL hasLyrics = [dict[@"has_lyrics"] boolValue];
+    // `has_lyrics` is model output: it can be missing, JSON null (NSNull,
+    // which does not respond to boolValue), or the wrong type. Only an
+    // explicit false is a negative verdict; anything else means "let the
+    // verified source_lyrics decide" so a malformed field can neither
+    // crash us nor cache a bogus 30-day negative for a song whose
+    // description really does carry the lyrics.
+    id hasLyricsValue = dict[@"has_lyrics"];
+    BOOL hasLyricsKnown = [hasLyricsValue isKindOfClass:[NSNumber class]] ||
+                          [hasLyricsValue isKindOfClass:[NSString class]];
+    BOOL hasLyrics = hasLyricsKnown ? [hasLyricsValue boolValue] : YES;
     if (!hasLyrics) {
         // Valid "no lyrics" verdict — return an empty extraction so we
         // can cache the negative result.
@@ -415,18 +380,7 @@ static NSString *const YTMULDESystemPrompt =
     // In-flight dedup: same videoId can fire multiple refresh passes
     // (initial raw, then a normalize re-pass, plus YT metadata flickering)
     // — we want exactly one AI call per song.
-    YTMULyricsDescriptionExtractorCompletion completionCopy = [completion copy];
-    BOOL alreadyInFlight = NO;
-    @synchronized (self.inflight) {
-        NSMutableArray *queue = self.inflight[videoId];
-        if (queue) {
-            [queue addObject:completionCopy];
-            alreadyInFlight = YES;
-        } else {
-            self.inflight[videoId] = [NSMutableArray arrayWithObject:completionCopy];
-        }
-    }
-    if (alreadyInFlight) {
+    if (![self.inflight beginOrJoinKey:videoId completion:completion]) {
         YTMULyricsLog(@"description extract joined in-flight videoId=%@", videoId);
         return;
     }
@@ -449,12 +403,7 @@ static NSString *const YTMULDESystemPrompt =
                             completion:^(NSString * _Nullable text, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             void (^fanout)(YTMULyricsDescriptionExtraction *, NSError *) = ^(YTMULyricsDescriptionExtraction *result, NSError *err) {
-                NSArray<YTMULyricsDescriptionExtractorCompletion> *callbacks;
-                @synchronized (weakSelf.inflight) {
-                    callbacks = [weakSelf.inflight[videoId] copy];
-                    [weakSelf.inflight removeObjectForKey:videoId];
-                }
-                for (YTMULyricsDescriptionExtractorCompletion cb in callbacks) cb(result, err);
+                for (YTMULyricsDescriptionExtractorCompletion cb in [weakSelf.inflight takeCompletionsForKey:videoId]) cb(result, err);
             };
 
             if (error) {
@@ -471,6 +420,18 @@ static NSString *const YTMULDESystemPrompt =
                 YTMULyricsLog(@"description extract parse/verify failed videoId=%@ raw=%@",
                               videoId,
                               text.length > 200 ? [text substringToIndex:200] : (text ?: @""));
+                // Remember the failure for a while: the next refresh of this
+                // song (and the normalize re-pass right behind it) must not
+                // spend another LLM call on what is almost always the same
+                // deterministic verify miss.
+                [weakSelf writePlist:@{
+                    @"v":          @(YTMULDESchemaVersion),
+                    @"src_lines":  @[],
+                    @"tr_lines":   @[],
+                    @"failed_at":  @([[NSDate date] timeIntervalSince1970]),
+                    @"raw_t":      originalTitle,
+                    @"raw_a":      originalArtist,
+                } forVideoId:videoId];
                 fanout(nil, YTMULDEError(3, @"could not parse or verify extract response"));
                 return;
             }
@@ -500,10 +461,8 @@ static NSString *const YTMULDESystemPrompt =
 }
 
 - (void)clearCache {
-    dispatch_async(self.ioQueue, ^{
-        [[NSFileManager defaultManager] removeItemAtPath:[self cacheDirectory] error:nil];
-    });
-    [self setAllFailures:@{}];
+    [self.store removeAll];
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:YTMULDELegacyFailuresKey];
 }
 
 @end

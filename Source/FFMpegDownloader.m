@@ -138,20 +138,28 @@
 }
 
 - (void)downloadImage:(NSURL *)link {
+    // Fetch off the main thread (the old version blocked the UI for the
+    // whole round trip); all HUD / Photos work stays on main.
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSData *imageData = [NSData dataWithContentsOfURL:link];
-        UIImage *image = [UIImage imageWithData:imageData];
-
-        if (image) UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
         self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
-        self.hud.mode = MBProgressHUDModeCustomView;
-        self.hud.label.text = LOC(@"SAVED_TO_PHOTOS");
+        self.hud.mode = MBProgressHUDModeIndeterminate;
+    });
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSData *imageData = link ? [NSData dataWithContentsOfURL:link] : nil;
+        UIImage *image = imageData ? [UIImage imageWithData:imageData] : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (image) UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
+            [self.hud hideAnimated:NO];
+            self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+            self.hud.mode = MBProgressHUDModeCustomView;
+            self.hud.label.text = image ? LOC(@"SAVED_TO_PHOTOS") : LOC(@"LINK_NOT_FOUND");
 
-        UIImageView *checkmarkImageView = [[UIImageView alloc] initWithImage:[self imageWithSystemIconNamed:@"checkmark"]];
-        checkmarkImageView.contentMode = UIViewContentModeScaleAspectFit;
-        self.hud.customView = checkmarkImageView;
+            UIImageView *iconView = [[UIImageView alloc] initWithImage:[self imageWithSystemIconNamed:image ? @"checkmark" : @"xmark"]];
+            iconView.contentMode = UIViewContentModeScaleAspectFit;
+            self.hud.customView = iconView;
 
-        [self.hud hideAnimated:YES afterDelay:2.0];
+            [self.hud hideAnimated:YES afterDelay:2.0];
+        });
     });
 }
 

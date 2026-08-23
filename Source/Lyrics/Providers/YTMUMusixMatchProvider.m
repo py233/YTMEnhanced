@@ -3,9 +3,11 @@
 #import "../../Utils/NSBundle+YTMU.h"
 
 @interface YTMUMusixMatchProvider ()
-@property (nonatomic, copy) NSString *cookie;
-@property (nonatomic, copy) NSString *token;
-@property (nonatomic) NSTimeInterval tokenExpiresAt;
+// atomic: written from NSURLSession's completion queue, read from whichever
+// thread starts the next search.
+@property (atomic, copy) NSString *cookie;
+@property (atomic, copy) NSString *token;
+@property (atomic) NSTimeInterval tokenExpiresAt;
 @end
 
 @implementation YTMUMusixMatchProvider
@@ -44,7 +46,7 @@
             completion(@"", error);
             return;
         }
-        [self captureCookie:(NSHTTPURLResponse *)response];
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) [self captureCookie:(NSHTTPURLResponse *)response];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *token = YTMULyricsJSONStringAtPath(json, @[@"message", @"body", @"user_token"]);
         if (!token.length) {
@@ -84,7 +86,7 @@
             completion(nil, error);
             return;
         }
-        [self captureCookie:(NSHTTPURLResponse *)response];
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) [self captureCookie:(NSHTTPURLResponse *)response];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         if (json && ![json isKindOfClass:[NSDictionary class]]) {
             completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_BAD_JSON", @"Musixmatch returned invalid JSON")}]);

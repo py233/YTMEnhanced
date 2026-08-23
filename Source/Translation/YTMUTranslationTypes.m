@@ -9,6 +9,13 @@ NSString *const YTMUTranslationProviderOpenAI    = @"openai-compatible";
 
 NSString *const YTMUTranslationErrorDomain = @"YTMUTranslationErrorDomain";
 
+NSString *YTMUTranslationDefaultModelForProvider(NSString *providerName) {
+    if ([providerName isEqualToString:YTMUTranslationProviderAnthropic]) return @"claude-haiku-4-5-20251001";
+    if ([providerName isEqualToString:YTMUTranslationProviderGemini]) return @"gemini-2.0-flash";
+    if ([providerName isEqualToString:YTMUTranslationProviderOpenAI]) return @"gpt-4o-mini";
+    return @"";
+}
+
 @implementation YTMUTranslationRequest
 @end
 
@@ -18,7 +25,7 @@ BOOL YTMUTranslationDebugLoggingEnabled(void) {
     return value == nil ? NO : [value boolValue];
 }
 
-void YTMUTranslationLog(NSString *format, ...) {
+void YTMUTranslationLogImpl(NSString *format, ...) {
     if (!YTMUTranslationDebugLoggingEnabled() || !format.length) return;
 
     va_list args;

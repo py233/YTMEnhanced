@@ -226,10 +226,7 @@
 }
 
 - (NSString *)modelFallbackForProvider:(NSString *)provider {
-    if ([provider isEqualToString:YTMUTranslationProviderAnthropic]) return @"claude-haiku-4-5-20251001";
-    if ([provider isEqualToString:YTMUTranslationProviderGemini]) return @"gemini-2.0-flash";
-    if ([provider isEqualToString:YTMUTranslationProviderOpenAI]) return @"gpt-4o-mini";
-    return @"";
+    return YTMUTranslationDefaultModelForProvider(provider);
 }
 
 - (NSArray<NSDictionary *> *)providerConfigRows {

@@ -37,9 +37,6 @@ typedef void(^YTMULyricsDescriptionExtractorCompletion)(YTMULyricsDescriptionExt
 // Cache lookup without firing an AI call. Returns nil if not cached.
 - (nullable YTMULyricsDescriptionExtraction *)cachedExtractionForInfo:(YTMULyricsSearchInfo *)info;
 
-// 24h failure suppression — same shape as the title normalizer's.
-- (BOOL)isBlacklistedForVideoId:(NSString *)videoId;
-
 - (void)clearCache;
 
 @end

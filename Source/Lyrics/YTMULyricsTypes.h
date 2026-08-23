@@ -76,7 +76,11 @@ typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
 @end
 
 BOOL YTMULyricsDebugLoggingEnabled(void);
-void YTMULyricsLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+void YTMULyricsLogImpl(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+// Macro, not a function, so the argument expressions are only evaluated
+// when logging is actually on — several call sites pass things like
+// `manager.displayLineTexts.count`, which re-splits the whole lyric.
+#define YTMULyricsLog(...) do { if (YTMULyricsDebugLoggingEnabled()) YTMULyricsLogImpl(__VA_ARGS__); } while (0)
 
 NSString *YTMULyricsSettingsString(NSString *key, NSString *fallback);
 BOOL YTMULyricsSettingsBool(NSString *key, BOOL fallback);
@@ -88,6 +92,17 @@ NSInteger YTMULyricsTimingOffsetForKey(NSString *key);
 NSInteger YTMULyricsCurrentTimingOffsetForKey(NSString *key);
 void YTMULyricsActivateTimingOffsetForInfo(YTMULyricsSearchInfo *info, BOOL notify);
 void YTMULyricsSetTimingOffsetForKey(NSString *key, NSInteger value, BOOL notify);
+
+// Process-wide cache of compiled regexes keyed by (pattern, options).
+// NSRegularExpression compilation costs tens of microseconds and the
+// matching helpers below run inside O(candidates × titles) scoring loops,
+// so every pattern literal in the lyrics code goes through this instead
+// of +regularExpressionWithPattern:. Thread-safe; returns nil only for an
+// invalid pattern (all callers pass literals).
+NSRegularExpression *_Nullable YTMULyricsCachedRegex(NSString *pattern, NSRegularExpressionOptions options);
+// `value` matches `pattern` anywhere (regex search). Same truth table as
+// [value rangeOfString:pattern options:NSRegularExpressionSearch|…].location != NSNotFound.
+BOOL YTMULyricsRegexMatches(NSString *_Nullable value, NSString *pattern, NSRegularExpressionOptions options);
 
 NSString *YTMULyricsNormalizeLoose(NSString *value);
 NSString *YTMULyricsCompactString(NSString *value);

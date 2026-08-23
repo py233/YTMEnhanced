@@ -30,13 +30,14 @@
 
 - The Theos target is `iphone:clang:16.5:13.0`, `ARCHS = arm64`, and `INSTALL_TARGET_PROCESSES = YouTubeMusic`.
 - CI installs GNU make, `ldid`, `pipx`, checks out Theos at commit `344ee5925df036dbd1312b783ad5a00d153c2445`, and uses `iPhoneOS16.5.sdk`.
-- There is no repo-local test, lint, formatter, or typecheck config; verification is a successful Theos build for the packaging mode affected.
+- There is no lint, formatter, or typecheck config; the two verification gates are a successful Theos build for the packaging mode affected and the host test suite below.
+- `Tests/Host/run.sh` compiles `Source/{Lyrics,Translation,Scrobbling,Utils}` plus `Tests/Host/*.m` into one Mac Catalyst binary (same `-Wall -Werror` as Theos) and runs it inside a real `UIApplication`, so provider parsers, caches, the scrobble queue and UIKit lifecycles are exercised for real on the Mac. It needs `/Applications/Xcode.app` (set `XCODE=` to point elsewhere) and reaches it through `DEVELOPER_DIR` for that one invocation — the system `xcode-select` is left alone. Caches are redirected to a temp dir via `YTMU_CACHES_ROOT` (see `Source/Utils/YTMUPaths.m`) and the test binary's defaults domain is wiped, so runs never touch `~/Library/Caches` or real preferences. Add a test with `YTMU_TEST(name) { … }` in a new `Tests/Host/Test_*.m`; `Tests/Host/YTMUTestHTTPServer` gives you a real local HTTP endpoint and `YTMUTestFakeLLM` a canned LLM. Run it before every commit that touches those directories.
 - Generated/build artifacts are intentionally ignored: `.theos/`, `packages/`, `build/`, and `*.ipa`.
 
 ## Runtime Architecture
 
 - Feature hooks live as top-level Logos files in `Source/`; preferences UI lives in `Source/Prefs/`.
-- Bilingual lyrics flow is centered on `Source/Lyrics/YTMULyricsManager.m`; providers live in `Source/Lyrics/Providers/`.
+- Bilingual lyrics flow is centered on `Source/Lyrics/YTMULyricsManager.m`; providers live in `Source/Lyrics/Providers/`; per-line romanization (Google transliteration, batch scheduling, memory cache) is `Source/Lyrics/YTMURomanizationService.m` — its `endpointBaseURL` is how the host tests stand in for Google.
 - Translation flow is centered on `Source/Translation/YTMUTranslator.m`; providers are Google Translate, Anthropic, Gemini, and OpenAI-compatible.
 - Settings are stored in the `NSUserDefaults` dictionary key `YTMUltimate`; translation/lyrics settings changes post `YTMULyricsSettingsDidChangeNotification`.
 - Translation cache keys include `YTMUTranslationStrategyVersion` from `Source/Translation/YTMUTranslationTypes.m`; bump it when changing cache-incompatible translation behavior. The lyrics layer has a parallel `YTMUInnerTubeSchemaVersion` (in `Source/Lyrics/YTMUInnerTubeDescriptionFetcher.m`) for the on-disk InnerTube description / blacklist cache — bump it when changing that plist's shape.
@@ -47,8 +48,9 @@
 - `Source/*.x` and `Source/*.xm` are injected app hooks; each file generally owns one tweak feature such as ads, playback, tabs, or settings entry.
 - `Source/Headers/` contains private YouTube Music interface declarations used by hooks; update these when hook signatures drift with app versions.
 - `Source/Prefs/` builds the in-app YTMusicUltimate settings screens; it writes into the shared `YTMUltimate` defaults dictionary.
-- `Source/Lyrics/` owns synced/bilingual lyrics state, caches, parsing, text processing, and provider orchestration.
+- `Source/Lyrics/` owns synced/bilingual lyrics state, caches, parsing, text processing, and provider orchestration — plus the in-app lyrics panel UI (`YTMULyricsTabOverlayView`, `YTMULyricsPanelViewController`, with shared helpers in `YTMULyricsPanelSupport`); `Source/SelectableLyrics.x` contains only the hooks that mount it.
 - `Source/Translation/` owns translation requests, prompt construction, provider adapters, and translation cache behavior.
+- `Source/Utils/` holds small shared helpers: `YTMUPaths` (one cache root for every on-disk cache), `YTMUDigest` (SHA-1), `YTMUPlistStore` (versioned per-key plist cache), `YTMUInflightCoalescer` (collapse concurrent requests per key), `YTMUConcurrencyLimiter` (bounded async fan-out without blocking a thread), `YTMUWeakProxy` (timer / display-link targets). Reach for these before writing another copy.
 - `Source/Utils/lib/` and `Source/Utils/MobileFFmpeg/` are vendored binary/header dependencies used by downloader/FFmpeg code; avoid treating them as normal app source.
 - `layout/Library/Application Support/YTMusicUltimate.bundle/` is the packaged tweak bundle for icons and `.lproj/Localizable.strings` files.
 - `Resources/` is repository/release artwork and depiction metadata, not the runtime localization bundle.

@@ -61,9 +61,11 @@
         result.plainLyrics = plain;
         result.lines = @[];
         result.duration = info.duration;
-        // Mark as inexact so any downstream UI that surfaces an "exact
-        // match" badge doesn't claim certainty for what's effectively a
-        // best-effort extraction.
+        // Not inexact: `inexact` means "title/artist matched fuzzily", and
+        // this text came from the video's own description and was verified
+        // against it line by line — the song identity is certain even if
+        // the extraction is partial. (An earlier comment here said the
+        // opposite of what the code does; the code was right.)
         result.inexact = NO;
 
         // If the uploader provided a side-by-side translation in the

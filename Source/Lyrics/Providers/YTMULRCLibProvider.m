@@ -3,11 +3,11 @@
 #import "../../Utils/NSBundle+YTMU.h"
 
 static BOOL YTMULRCLibRegexTest(NSString *value, NSString *pattern) {
-    return [value rangeOfString:pattern options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, pattern, NSRegularExpressionCaseInsensitive);
 }
 
 static BOOL YTMULRCLibHasJapaneseOrCJK(NSString *value) {
-    return [value rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[\\u3040-\\u30ff\\u3400-\\u9fff]", 0);
 }
 
 @implementation YTMULRCLibProvider
@@ -74,7 +74,7 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
 
 - (NSString *)cleanTitleFragment:(NSString *)fragment {
     NSString *clean = YTMULyricsStripSearchNoise(fragment ?: @"");
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     clean = [spaces stringByReplacingMatchesInString:clean options:0 range:NSMakeRange(0, clean.length) withTemplate:@" "];
     return [clean stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
@@ -95,16 +95,12 @@ static const NSUInteger YTMULRCLibMaxFallbackQueries = 2;
         if (!source.length) continue;
         addTitle(source);
 
-        NSRegularExpression *quoted = [NSRegularExpression regularExpressionWithPattern:@"[「『](.+?)[」』]"
-                                                                                options:0
-                                                                                  error:nil];
+        NSRegularExpression *quoted = YTMULyricsCachedRegex(@"[「『](.+?)[」』]", 0);
         for (NSTextCheckingResult *match in [quoted matchesInString:source options:0 range:NSMakeRange(0, source.length)]) {
             if (match.numberOfRanges >= 2) addTitle([source substringWithRange:[match rangeAtIndex:1]]);
         }
 
-        NSRegularExpression *delimiter = [NSRegularExpression regularExpressionWithPattern:@"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]"
-                                                                                  options:0
-                                                                                    error:nil];
+        NSRegularExpression *delimiter = YTMULyricsCachedRegex(@"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]", 0);
         NSString *split = [delimiter stringByReplacingMatchesInString:source options:0 range:NSMakeRange(0, source.length) withTemplate:@"\n"];
         for (NSString *part in [split componentsSeparatedByString:@"\n"]) addTitle(part);
     }

@@ -12,130 +12,39 @@
 #import "Headers/YTIFormatStream.h"
 #import "Headers/YTAlertView.h"
 #import "Headers/ELMNodeController.h"
+#import "Lyrics/YTMULyricsPlaybackState.h"
+#import "Utils/YTMUKVC.h"
+#import "Utils/YTMUHLSManifest.h"
 
 static BOOL YTMU(NSString *key) {
     NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
     return [YTMUltimateDict[key] boolValue];
 }
 
-static id YTMUDownloadSafeValueForKey(id object, NSString *key) {
-    if (!object || !key.length) return nil;
-    @try {
-        return [object valueForKey:key];
-    } @catch (__unused NSException *exception) {
-        return nil;
-    }
-}
-
-static YTPlayerViewController *YTMUDownloadPlayerFromObject(id candidate, NSUInteger depth);
-
-static YTPlayerViewController *YTMUDownloadPlayerFromKnownKeys(id candidate, NSUInteger depth) {
-    NSArray<NSString *> *keys = @[
-        @"playerViewController",
-        @"_playerViewController",
-        @"playerViewDelegate",
-        @"_playerViewDelegate",
-        @"playerController",
-        @"_playerController",
-        @"player",
-        @"_player"
-    ];
-    for (NSString *key in keys) {
-        id value = YTMUDownloadSafeValueForKey(candidate, key);
-        if (!value || value == candidate) continue;
-        YTPlayerViewController *player = YTMUDownloadPlayerFromObject(value, depth + 1);
-        if (player) return player;
-    }
-    return nil;
-}
-
-static YTPlayerViewController *YTMUDownloadPlayerFromObject(id candidate, NSUInteger depth) {
-    if (!candidate || depth > 10) return nil;
-
+// The player that is playing right now. The lyrics hooks observe every
+// player activation (and every time tick) and keep a weak reference in
+// YTMULyricsPlaybackState, so this is the same object the Now Playing
+// screen is showing — no view-hierarchy walking needed. Upstream's original
+// `playingVC.parentViewController.playerViewController` chain is kept as a
+// fallback, but read without assuming the parent's class: newer YouTube
+// Music builds re-parent the Now Playing controller, and sending
+// -playerViewController to the wrong class is what used to crash here.
+static YTPlayerViewController *YTMUDownloadCurrentPlayer(UIViewController *playingVC) {
+    YTPlayerViewController *tracked = [YTMULyricsPlaybackState sharedState].playerViewController;
+    if (tracked) return tracked;
+    id candidate = YTMUSafeValueForKey(playingVC.parentViewController, @"playerViewController");
     Class playerClass = NSClassFromString(@"YTPlayerViewController");
-    if (playerClass && [candidate isKindOfClass:playerClass]) return candidate;
-
-    YTPlayerViewController *keyPlayer = YTMUDownloadPlayerFromKnownKeys(candidate, depth);
-    if (keyPlayer) return keyPlayer;
-
-    id parent = YTMUDownloadSafeValueForKey(candidate, @"parentViewController");
-    if (parent && parent != candidate) {
-        YTPlayerViewController *parentPlayer = YTMUDownloadPlayerFromObject(parent, depth + 1);
-        if (parentPlayer) return parentPlayer;
-    }
-
-    if ([candidate isKindOfClass:[UIViewController class]]) {
-        UIViewController *viewController = (UIViewController *)candidate;
-        YTPlayerViewController *viewPlayer = YTMUDownloadPlayerFromObject(viewController.view, depth + 1);
-        if (viewPlayer) return viewPlayer;
-
-        for (UIViewController *child in viewController.childViewControllers) {
-            YTPlayerViewController *childPlayer = YTMUDownloadPlayerFromObject(child, depth + 1);
-            if (childPlayer) return childPlayer;
-        }
-    }
-
-    return nil;
+    return (playerClass && [candidate isKindOfClass:playerClass]) ? candidate : nil;
 }
 
-static YTPlayerViewController *YTMUDownloadPlayerFromViewHierarchy(UIView *view) {
-    for (UIView *ancestor = view; ancestor; ancestor = ancestor.superview) {
-        YTPlayerViewController *player = YTMUDownloadPlayerFromObject(ancestor, 0);
-        if (player) return player;
-    }
-    return nil;
+// `playerResponse` is read by key: on some builds the property getter is
+// gone but the ivar is still there, and KVC reaches both.
+static id YTMUDownloadPlayerResponse(YTPlayerViewController *player) {
+    return YTMUSafeValueForKey(player, @"playerResponse") ?: YTMUSafeValueForKey(player, @"contentPlayerResponse");
 }
 
-static YTPlayerViewController *YTMUDownloadPlayerInSubviews(UIView *view, NSUInteger depth) {
-    if (!view || depth > 8) return nil;
-
-    YTPlayerViewController *player = YTMUDownloadPlayerFromObject(view, 0);
-    if (player) return player;
-
-    for (UIView *subview in view.subviews) {
-        YTPlayerViewController *subviewPlayer = YTMUDownloadPlayerInSubviews(subview, depth + 1);
-        if (subviewPlayer) return subviewPlayer;
-    }
-    return nil;
-}
-
-static id YTMUDownloadPlayerResponseFromObject(id candidate, NSUInteger depth) {
-    if (!candidate || depth > 10) return nil;
-
-    id response = YTMUDownloadSafeValueForKey(candidate, @"playerResponse") ?: YTMUDownloadSafeValueForKey(candidate, @"_playerResponse");
-    if (response) return response;
-
-    id parentResponder = YTMUDownloadSafeValueForKey(candidate, @"parentResponder") ?: YTMUDownloadSafeValueForKey(candidate, @"_parentResponder");
-    if (parentResponder && parentResponder != candidate) {
-        id parentResponse = YTMUDownloadPlayerResponseFromObject(parentResponder, depth + 1);
-        if (parentResponse) return parentResponse;
-    }
-
-    id delegate = YTMUDownloadSafeValueForKey(candidate, @"delegate") ?: YTMUDownloadSafeValueForKey(candidate, @"_delegate");
-    if (delegate && delegate != candidate) {
-        id delegateResponse = YTMUDownloadPlayerResponseFromObject(delegate, depth + 1);
-        if (delegateResponse) return delegateResponse;
-    }
-
-    if ([candidate isKindOfClass:[UIViewController class]]) {
-        UIViewController *viewController = (UIViewController *)candidate;
-        for (UIViewController *child in viewController.childViewControllers) {
-            id childResponse = YTMUDownloadPlayerResponseFromObject(child, depth + 1);
-            if (childResponse) return childResponse;
-        }
-    }
-
-    return nil;
-}
-
-static id YTMUDownloadObjectForKey(id object, NSString *key) {
-    if (!object || !key.length) return nil;
-    if ([object isKindOfClass:[NSDictionary class]]) return ((NSDictionary *)object)[key];
-    return YTMUDownloadSafeValueForKey(object, key);
-}
-
-static NSString *YTMUDownloadStringForKey(id object, NSString *key) {
-    id value = YTMUDownloadObjectForKey(object, key);
+static NSString *YTMUDownloadString(id object, NSString *key) {
+    id value = YTMUSafeValueForKey(object, key);
     if ([value isKindOfClass:[NSString class]]) return value;
     if ([value respondsToSelector:@selector(stringValue)]) return [value stringValue];
     return @"";
@@ -143,11 +52,17 @@ static NSString *YTMUDownloadStringForKey(id object, NSString *key) {
 
 static NSString *YTMUDownloadSanitizeFileComponent(NSString *string) {
     NSString *safe = string.length ? string : @"Unknown";
-    NSArray<NSString *> *bad = @[@"/", @":", @"\n", @"\r"];
-    for (NSString *part in bad) {
+    for (NSString *part in @[@"/", @":", @"\n", @"\r"]) {
         safe = [safe stringByReplacingOccurrencesOfString:part withString:@""];
     }
     return safe;
+}
+
+static void YTMUDownloadShowAlert(NSString *titleKey, NSString *subtitleKey) {
+    YTAlertView *alertView = [%c(YTAlertView) infoDialog];
+    alertView.title = LOC(titleKey);
+    alertView.subtitle = LOC(subtitleKey);
+    [alertView show];
 }
 
 @interface UIView ()
@@ -155,9 +70,8 @@ static NSString *YTMUDownloadSanitizeFileComponent(NSString *string) {
 @end
 
 @interface ELMTouchCommandPropertiesHandler : NSObject
-- (void)downloadAudio:(YTPlayerViewController *)playerResponse;
-- (void)downloadCoverImage:(YTPlayerViewController *)playerResponse;
-- (NSString *)getURLFromManifest:(NSURL *)manifest;
+- (void)downloadAudio:(YTPlayerViewController *)playerVC;
+- (void)downloadCoverImage:(YTPlayerViewController *)playerVC;
 @end
 
 %hook ELMTouchCommandPropertiesHandler
@@ -184,11 +98,8 @@ static NSString *YTMUDownloadSanitizeFileComponent(NSString *string) {
     }
 
     YTMNowPlayingViewController *playingVC = (YTMNowPlayingViewController *)tapRecognizer.view._viewControllerForAncestor;
-    YTPlayerViewController *playerVC = YTMUDownloadPlayerFromViewHierarchy(tapRecognizer.view);
-    if (!playerVC) playerVC = YTMUDownloadPlayerFromObject(playingVC, 0);
-    if (!playerVC) playerVC = YTMUDownloadPlayerInSubviews(playingVC.view, 0);
-    if (!playerVC) playerVC = YTMUDownloadPlayerFromObject([UIApplication sharedApplication].keyWindow.rootViewController, 0);
-    id playerResponse = YTMUDownloadPlayerResponseFromObject(playerVC, 0);
+    YTPlayerViewController *playerVC = YTMUDownloadCurrentPlayer(playingVC);
+    id playerResponse = YTMUDownloadPlayerResponse(playerVC);
 
     if (playerVC && playerResponse) {
         YTMActionSheetController *sheetController = [%c(YTMActionSheetController) musicActionSheetController];
@@ -215,117 +126,87 @@ static NSString *YTMUDownloadSanitizeFileComponent(NSString *string) {
             [self downloadCoverImage:playerVC];
         }
     } else {
-        YTAlertView *alertView = [%c(YTAlertView) infoDialog];
-        alertView.title = LOC(@"DONT_RUSH");
-        alertView.subtitle = LOC(@"DONT_RUSH_DESC");
-        [alertView show];
+        YTMUDownloadShowAlert(@"DONT_RUSH", @"DONT_RUSH_DESC");
     }
 }
 
 %new
 - (void)downloadAudio:(YTPlayerViewController *)playerVC {
-    id playerResponse = YTMUDownloadPlayerResponseFromObject(playerVC, 0);
-    if (!playerResponse) {
-        YTAlertView *alertView = [%c(YTAlertView) infoDialog];
-        alertView.title = LOC(@"OOPS");
-        alertView.subtitle = LOC(@"LINK_NOT_FOUND");
-        [alertView show];
+    id playerResponse = YTMUDownloadPlayerResponse(playerVC);
+    id playerData = YTMUSafeValueForKey(playerResponse, @"playerData");
+    id videoDetails = YTMUSafeValueForKey(playerData, @"videoDetails");
+    NSString *manifestURLString = YTMUDownloadString(YTMUSafeValueForKey(playerData, @"streamingData"), @"hlsManifestURL");
+    NSURL *manifestURL = manifestURLString.length ? [NSURL URLWithString:manifestURLString] : nil;
+    if (!playerResponse || !manifestURL) {
+        YTMUDownloadShowAlert(@"OOPS", @"LINK_NOT_FOUND");
         return;
     }
 
-    id playerData = YTMUDownloadObjectForKey(playerResponse, @"playerData");
-    id videoDetails = YTMUDownloadObjectForKey(playerData, @"videoDetails");
-    id streamingData = YTMUDownloadObjectForKey(playerData, @"streamingData");
-    NSString *title = YTMUDownloadSanitizeFileComponent(YTMUDownloadStringForKey(videoDetails, @"title"));
-    NSString *author = YTMUDownloadSanitizeFileComponent(YTMUDownloadStringForKey(videoDetails, @"author"));
-    NSString *urlStr = YTMUDownloadStringForKey(streamingData, @"hlsManifestURL");
+    NSString *title = YTMUDownloadSanitizeFileComponent(YTMUDownloadString(videoDetails, @"title"));
+    NSString *author = YTMUDownloadSanitizeFileComponent(YTMUDownloadString(videoDetails, @"author"));
+    NSString *tempName = YTMUDownloadString(playerVC, @"contentVideoID");
+    id durationValue = YTMUSafeValueForKey(playerVC, @"currentVideoTotalMediaTime");
+    NSInteger duration = [durationValue respondsToSelector:@selector(doubleValue)] ? (NSInteger)round([durationValue doubleValue]) : 0;
+    NSMutableArray *thumbnails = YTMUSafeValueForKey(YTMUSafeValueForKey(videoDetails, @"thumbnail"), @"thumbnailsArray");
+    YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnails isKindOfClass:[NSArray class]] ? thumbnails.lastObject : nil;
+    NSURL *coverSourceURL = thumbnail.URL.length ? [NSURL URLWithString:thumbnail.URL] : nil;
 
-    FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
-    ffmpeg.tempName = YTMUDownloadStringForKey(playerVC, @"contentVideoID");
-    ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
-    id durationValue = YTMUDownloadObjectForKey(playerVC, @"currentVideoTotalMediaTime");
-    ffmpeg.duration = [durationValue respondsToSelector:@selector(doubleValue)] ? round([durationValue doubleValue]) : 0;
+    // The master playlist and the cover are fetched off the main thread —
+    // upstream did both synchronously inside the tap handler and froze the UI
+    // for the round trips. A spinner covers the wait; FFMpegDownloader then
+    // shows its own progress HUD.
+    MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+    hud.mode = MBProgressHUDModeIndeterminate;
 
-    
-    NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
-    
-    if (extractedURL.length > 0) {
-        [ffmpeg downloadAudio:extractedURL];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSData *manifestData = [NSData dataWithContentsOfURL:manifestURL];
+        NSString *manifest = manifestData ? [[NSString alloc] initWithData:manifestData encoding:NSUTF8StringEncoding] : nil;
+        NSString *audioURL = YTMUHLSAudioStreamURLFromManifest(manifest);
+        NSData *coverData = (audioURL.length && coverSourceURL) ? [NSData dataWithContentsOfURL:coverSourceURL] : nil;
 
-        id thumbnailDetails = YTMUDownloadObjectForKey(videoDetails, @"thumbnail");
-        NSMutableArray *thumbnailsArray = YTMUDownloadObjectForKey(thumbnailDetails, @"thumbnailsArray");
-        YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnailsArray lastObject];
-        NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnail.URL]];
-
-        if (imageData) {
-            NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-            NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
-            [imageData writeToURL:coverURL atomically:YES];
-        }
-    } else {
-        YTAlertView *alertView = [%c(YTAlertView) infoDialog];
-        alertView.title = LOC(@"OOPS");
-        alertView.subtitle = LOC(@"LINK_NOT_FOUND");
-        [alertView show];
-    }
-}
-
-%new
-- (NSString *)getURLFromManifest:(NSURL *)manifest {
-    NSData *manifestData = [NSData dataWithContentsOfURL:manifest];
-    NSString *manifestString = [[NSString alloc] initWithData:manifestData encoding:NSUTF8StringEncoding];
-    NSArray *manifestLines = [manifestString componentsSeparatedByString:@"\n"];
-
-    NSArray *groupIDS = @[@"234", @"233"]; // Our priority to find group id 234
-    for (NSString *groupID in groupIDS) {
-        for (NSString *line in manifestLines) {
-            NSString *searchString = [NSString stringWithFormat:@"TYPE=AUDIO,GROUP-ID=\"%@\"", groupID];
-            if ([line containsString:searchString]) {
-                NSRange startRange = [line rangeOfString:@"https://"];
-                NSRange endRange = [line rangeOfString:@"index.m3u8"];
-
-                if (startRange.location != NSNotFound && endRange.location != NSNotFound) {
-                    NSRange targetRange = NSMakeRange(startRange.location, NSMaxRange(endRange) - startRange.location);
-                    return [line substringWithRange:targetRange];
-                }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [hud hideAnimated:YES];
+            if (!audioURL.length) {
+                YTMUDownloadShowAlert(@"OOPS", @"LINK_NOT_FOUND");
+                return;
             }
-        }
-    }
+            FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
+            ffmpeg.tempName = tempName;
+            ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
+            ffmpeg.duration = duration;
+            [ffmpeg downloadAudio:audioURL];
 
-    return nil;
+            if (coverData) {
+                NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+                NSURL *folderURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+                [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
+                NSURL *coverURL = [folderURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@ - %@.png", author, title]];
+                [coverData writeToURL:coverURL atomically:YES];
+            }
+        });
+    });
 }
 
 %new
 - (void)downloadCoverImage:(YTPlayerViewController *)playerVC {
-    MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        hud.mode = MBProgressHUDModeIndeterminate;
-    });
-
-    id playerResponse = YTMUDownloadPlayerResponseFromObject(playerVC, 0);
-    if (!playerResponse) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [hud hideAnimated:YES];
-        });
-        YTAlertView *alertView = [%c(YTAlertView) infoDialog];
-        alertView.title = LOC(@"OOPS");
-        alertView.subtitle = LOC(@"LINK_NOT_FOUND");
-        [alertView show];
+    id playerResponse = YTMUDownloadPlayerResponse(playerVC);
+    id videoDetails = YTMUSafeValueForKey(YTMUSafeValueForKey(playerResponse, @"playerData"), @"videoDetails");
+    NSMutableArray *thumbnails = YTMUSafeValueForKey(YTMUSafeValueForKey(videoDetails, @"thumbnail"), @"thumbnailsArray");
+    YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnails isKindOfClass:[NSArray class]] ? thumbnails.lastObject : nil;
+    if (!thumbnail.URL.length) {
+        YTMUDownloadShowAlert(@"OOPS", @"LINK_NOT_FOUND");
         return;
     }
-
-    id playerData = YTMUDownloadObjectForKey(playerResponse, @"playerData");
-    id videoDetails = YTMUDownloadObjectForKey(playerData, @"videoDetails");
-    id thumbnailDetails = YTMUDownloadObjectForKey(videoDetails, @"thumbnail");
-    NSMutableArray *thumbnailsArray = YTMUDownloadObjectForKey(thumbnailDetails, @"thumbnailsArray");
-    YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnailsArray lastObject];
-    NSString *thumbnailURL = [thumbnail.URL stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@"w%u-h%u-", thumbnail.width, thumbnail.width] withString:@"w2048-h2048-"];
+    // Ask for the 2048-square variant by rewriting the size segment of the
+    // largest thumbnail's URL (upstream substituted the width for both
+    // dimensions, which only matched square art). `height` is read by key:
+    // the private header we compile against only declares `width`.
+    id heightValue = YTMUSafeValueForKey(thumbnail, @"height");
+    unsigned int height = [heightValue respondsToSelector:@selector(unsignedIntValue)] ? [heightValue unsignedIntValue] : thumbnail.width;
+    NSString *sizeSegment = [NSString stringWithFormat:@"w%u-h%u-", thumbnail.width, height];
+    NSString *thumbnailURL = [thumbnail.URL stringByReplacingOccurrencesOfString:sizeSegment withString:@"w2048-h2048-"];
 
     FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
     [ffmpeg downloadImage:[NSURL URLWithString:thumbnailURL]];
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [hud hideAnimated:YES];
-    });
 }
 %end

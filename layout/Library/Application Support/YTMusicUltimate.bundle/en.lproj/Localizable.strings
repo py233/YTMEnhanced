@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Lyrics via %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Translated via %@";
 "LYRICS_PROVIDER_NO_MATCH" = "no match";
+"LYRICS_PROVIDER_TIMEOUT" = "timed out";
 "LYRICS_PROVIDER_FALLBACK" = "translator";
 "LYRICS_ERROR_NO_DESCRIPTION" = "no description available";
 "LYRICS_ERROR_NO_LLM" = "no LLM configured";

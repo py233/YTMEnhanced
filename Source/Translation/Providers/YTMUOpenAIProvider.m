@@ -33,7 +33,7 @@ static NSString *YTMUOpenAIResponsesURL(NSString *baseURL) {
 }
 
 - (NSString *)modelIdentifier {
-    return YTMUOpenAIDefaultsString(@"translationModel_openai-compatible", @"gpt-4o-mini");
+    return YTMUOpenAIDefaultsString(@"translationModel_openai-compatible", YTMUTranslationDefaultModelForProvider(YTMUTranslationProviderOpenAI));
 }
 
 - (NSDictionary *)requestBodyForRequest:(YTMUTranslationRequest *)request includeJSONMode:(BOOL)includeJSONMode {
@@ -94,7 +94,11 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
             ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil]
             : nil;
         if (![json isKindOfClass:[NSDictionary class]]) continue;
-        NSString *type = json[@"type"];
+        // Wire data (possibly via a user-configured gateway): JSON null and
+        // wrong-typed values are real inputs, and NSNull does not respond to
+        // isEqualToString: / length. Type-check before touching anything.
+        id typeValue = json[@"type"];
+        NSString *type = [typeValue isKindOfClass:[NSString class]] ? typeValue : @"";
         if ([type isEqualToString:@"response.output_text.delta"]) {
             NSString *delta = json[@"delta"];
             if ([delta isKindOfClass:[NSString class]]) {
@@ -102,9 +106,18 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
             }
         } else if ([type isEqualToString:@"error"] ||
                    [type isEqualToString:@"response.failed"]) {
-            NSDictionary *err = json[@"error"] ?: json[@"response"];
-            NSString *msg = [err isKindOfClass:[NSDictionary class]]
-                ? err[@"message"] ?: @"OpenAI stream error"
+            // Prefer a dictionary-shaped `error`; fall back to `response`
+            // (response.failed nests the error there). `?:` alone would
+            // happily pick an NSNull `error`.
+            NSDictionary *err = [json[@"error"] isKindOfClass:[NSDictionary class]] ? json[@"error"] : json[@"response"];
+            id rawMessage = [err isKindOfClass:[NSDictionary class]] ? err[@"message"] : nil;
+            if (![rawMessage isKindOfClass:[NSString class]] && [err isKindOfClass:[NSDictionary class]]) {
+                // response.failed: {"response":{"error":{"message":...}}}
+                NSDictionary *nested = err[@"error"];
+                if ([nested isKindOfClass:[NSDictionary class]]) rawMessage = nested[@"message"];
+            }
+            NSString *msg = ([rawMessage isKindOfClass:[NSString class]] && [rawMessage length])
+                ? rawMessage
                 : @"OpenAI stream error";
             if (outError) {
                 *outError = [NSError errorWithDomain:YTMUTranslationErrorDomain
@@ -174,25 +187,6 @@ static NSString *YTMUOpenAIAccumulateSSE(NSData *data, NSError **outError) {
         if ([lower rangeOfString:n].location != NSNotFound) return YES;
     }
     return NO;
-}
-
-- (NSString *)responseTextFromJSON:(NSDictionary *)json {
-    NSString *outputText = [json[@"output_text"] isKindOfClass:[NSString class]] ? json[@"output_text"] : @"";
-    if (outputText.length) return outputText;
-
-    NSArray *output = [json[@"output"] isKindOfClass:[NSArray class]] ? json[@"output"] : @[];
-    NSMutableString *combined = [NSMutableString string];
-    for (id item in output) {
-        NSDictionary *itemDict = [item isKindOfClass:[NSDictionary class]] ? item : nil;
-        NSArray *content = [itemDict[@"content"] isKindOfClass:[NSArray class]] ? itemDict[@"content"] : @[];
-        for (id part in content) {
-            NSDictionary *partDict = [part isKindOfClass:[NSDictionary class]] ? part : nil;
-            NSString *text = [partDict[@"text"] isKindOfClass:[NSString class]] ? partDict[@"text"] : @"";
-            if (!text.length) text = [partDict[@"output_text"] isKindOfClass:[NSString class]] ? partDict[@"output_text"] : @"";
-            if (text.length) [combined appendString:text];
-        }
-    }
-    return combined;
 }
 
 - (void)handleData:(NSData *)data

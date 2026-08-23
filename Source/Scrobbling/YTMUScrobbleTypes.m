@@ -64,10 +64,6 @@ static NSString *YTMUListenFirstNonEmpty(NSString *a, NSString *b, NSString *c) 
     return best.length ? best : nil;
 }
 
-- (nullable NSString *)bestRecordingMBID {
-    return self.recordingMBID.length ? self.recordingMBID : nil;
-}
-
 - (BOOL)hasMinimumMetadata {
     return self.trackName.length > 0 && self.artist.length > 0;
 }
@@ -178,8 +174,12 @@ void YTMUScrobbleSetDefaults(NSString *key, id _Nullable value) {
 
 #pragma mark - Logging
 
-void YTMUScrobbleLog(NSString *format, ...) {
-    if (!YTMUScrobbleDefaultsBool(@"scrobbleDebugLogs", NO)) return;
+BOOL YTMUScrobbleDebugLoggingEnabled(void) {
+    return YTMUScrobbleDefaultsBool(@"scrobbleDebugLogs", NO);
+}
+
+void YTMUScrobbleLogImpl(NSString *format, ...) {
+    if (!YTMUScrobbleDebugLoggingEnabled()) return;
     va_list args;
     va_start(args, format);
     NSString *message = [[NSString alloc] initWithFormat:format arguments:args];

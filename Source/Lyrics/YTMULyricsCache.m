@@ -1,20 +1,12 @@
 #import "YTMULyricsCache.h"
 #import <UIKit/UIKit.h>
-#import <CommonCrypto/CommonDigest.h>
+#import "../Utils/YTMUDigest.h"
+#import "../Utils/YTMUPaths.h"
 
 @interface YTMULyricsCache ()
 @property (nonatomic, strong) NSCache<NSString *, YTMULyricsResult *> *memoryCache;
 @property (nonatomic, strong) dispatch_queue_t ioQueue;
 @end
-
-static NSString *YTMULyricsSHA1(NSString *string) {
-    NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    CC_SHA1(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) [output appendFormat:@"%02x", digest[i]];
-    return output;
-}
 
 @implementation YTMULyricsCache
 
@@ -31,7 +23,9 @@ static NSString *YTMULyricsSHA1(NSString *string) {
     self = [super init];
     if (self) {
         _memoryCache = [[NSCache alloc] init];
-        _memoryCache.countLimit = 8;
+        // Six providers × a probe round per song writes up to 6 entries;
+        // 8 churned constantly. 32 covers a few songs of back-and-forth.
+        _memoryCache.countLimit = 32;
         _memoryCache.totalCostLimit = 768 * 1024;
         _ioQueue = dispatch_queue_create("com.ytmultimate.lyrics-cache", DISPATCH_QUEUE_SERIAL);
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -70,12 +64,11 @@ static NSString *YTMULyricsSHA1(NSString *string) {
 }
 
 - (NSString *)cacheDirectory {
-    NSString *cacheRoot = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    return [[cacheRoot stringByAppendingPathComponent:@"YTMUltimate"] stringByAppendingPathComponent:@"Lyrics"];
+    return YTMUCachesSubdirectory(@"Lyrics");
 }
 
 - (NSString *)filePathForKey:(NSString *)key {
-    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMULyricsSHA1(key) stringByAppendingString:@".bin"]];
+    return [[self cacheDirectory] stringByAppendingPathComponent:[YTMUSHA1Hex(key) stringByAppendingString:@".bin"]];
 }
 
 - (void)ensureCacheDirectory {
