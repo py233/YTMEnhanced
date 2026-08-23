@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Liedtext über %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Übersetzt über %@";
 "LYRICS_PROVIDER_NO_MATCH" = "keine Übereinstimmung";
+"LYRICS_PROVIDER_TIMEOUT" = "Zeitüberschreitung";
 "LYRICS_PROVIDER_FALLBACK" = "Übersetzer";
 "LYRICS_ERROR_NO_DESCRIPTION" = "Keine Beschreibung verfügbar";
 "LYRICS_ERROR_NO_LLM" = "kein LLM konfiguriert";

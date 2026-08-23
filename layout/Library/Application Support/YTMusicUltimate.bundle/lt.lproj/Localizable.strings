@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Žodžiai iš %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Išversta su %@";
 "LYRICS_PROVIDER_NO_MATCH" = "nėra atitikmens";
+"LYRICS_PROVIDER_TIMEOUT" = "baigėsi laikas";
 "LYRICS_PROVIDER_FALLBACK" = "vertėjas";
 "LYRICS_ERROR_NO_DESCRIPTION" = "aprašymo nėra";
 "LYRICS_ERROR_NO_LLM" = "LLM nesukonfigūruotas";

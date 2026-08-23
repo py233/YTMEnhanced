@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Текст через %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Перевод через %@";
 "LYRICS_PROVIDER_NO_MATCH" = "нет совпадений";
+"LYRICS_PROVIDER_TIMEOUT" = "истекло время ожидания";
 "LYRICS_PROVIDER_FALLBACK" = "переводчик";
 "LYRICS_ERROR_NO_DESCRIPTION" = "описание недоступно";
 "LYRICS_ERROR_NO_LLM" = "LLM не настроен";

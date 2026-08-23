@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Tekst przez %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Przetłumaczono przez %@";
 "LYRICS_PROVIDER_NO_MATCH" = "brak dopasowania";
+"LYRICS_PROVIDER_TIMEOUT" = "przekroczono limit czasu";
 "LYRICS_PROVIDER_FALLBACK" = "tłumacz";
 "LYRICS_ERROR_NO_DESCRIPTION" = "brak opisu";
 "LYRICS_ERROR_NO_LLM" = "brak skonfigurowanego LLM";

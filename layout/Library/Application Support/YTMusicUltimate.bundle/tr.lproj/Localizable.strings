@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Sözler %@ aracılığıyla";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "%@ aracılığıyla çevrildi";
 "LYRICS_PROVIDER_NO_MATCH" = "eşleşme yok";
+"LYRICS_PROVIDER_TIMEOUT" = "zaman aşımı";
 "LYRICS_PROVIDER_FALLBACK" = "çevirmen";
 "LYRICS_ERROR_NO_DESCRIPTION" = "açıklama yok";
 "LYRICS_ERROR_NO_LLM" = "LLM yapılandırılmamış";

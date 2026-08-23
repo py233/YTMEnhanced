@@ -174,3 +174,28 @@ YTMU_TEST(Pipeline_lowQualityRaw_triggersNormalizeRepass_andBetterHitReplacesIt)
     YTMU_ASSERT_EQ_STR(p2.lastInfo.artist, @"Qeiru");
     YTMU_ASSERT_EQ_INT(m.currentResult.lines.count, 20);
 }
+
+// L9: a provider that does not answer within the budget is skipped; its
+// late answer is still cached but must not advance the pass a second time.
+YTMU_TEST(Pipeline_slowProvider_isSkippedAfterBudget_lateAnswerOnlyCaches) {
+    YTMUTestFakeLyricsProvider *slow = [[YTMUTestFakeLyricsProvider alloc] initWithName:@"Slow"];
+    YTMUTestFakeLyricsProvider *fast = [[YTMUTestFakeLyricsProvider alloc] initWithName:@"Fast"];
+    slow.result = YTMUTestSyncedResult(@"Slow", @"Budget Song", @"Artist", 10);
+    slow.delay = 1.2;                                   // answers after the budget
+    fast.result = YTMUTestSyncedResult(@"Fast", @"Budget Song", @"Artist", 4);
+    YTMULyricsManager *m = ManagerWithProviders(@[slow, fast], nil);
+    [m setValue:@0.4 forKey:@"providerBudgetSeconds"];
+
+    [m refreshWithInfo:YTMUTestInfo(@"v-budget", @"Budget Song", @"Artist")];
+    YTMU_ASSERT(WaitForState(m, YTMULyricsFetchStateDone, 5), "never reached Done");
+    YTMU_ASSERT_EQ_STR(m.currentResult.sourceName, @"Fast");         // chain moved on past Slow
+    YTMU_ASSERT([m.sourceAvailability[@"Slow"] isEqualToString:@"checking"], "skipped provider should still read as checking, got %@", m.sourceAvailability[@"Slow"]);
+
+    // Let the slow answer arrive: it caches + flips the chip, nothing else.
+    YTMU_ASSERT(WaitForAvailability(m, @"Slow", @"hit", 5), "late answer should mark Slow as hit, got %@", m.sourceAvailability);
+    YTMU_ASSERT_EQ_STR(m.currentResult.sourceName, @"Fast");         // result unchanged
+    YTMU_ASSERT_EQ_INT(fast.searchCount, 1);                          // pass did not run again
+    NSString *key = [YTMULyricsCache cacheKeyForInfo:YTMUTestInfo(@"v-budget", @"Budget Song", @"Artist") source:@"Slow"];
+    YTMU_ASSERT(YTMUTestWaitUntil(3, ^BOOL{ return [[YTMULyricsCache sharedCache] resultForKey:key] != nil; }), "late answer should be cached");
+    [m setValue:@20.0 forKey:@"providerBudgetSeconds"];
+}

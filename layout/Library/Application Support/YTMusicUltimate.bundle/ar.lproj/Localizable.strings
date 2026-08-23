@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "الكلمات عبر %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "تمت الترجمة عبر %@";
 "LYRICS_PROVIDER_NO_MATCH" = "لا يوجد تطابق";
+"LYRICS_PROVIDER_TIMEOUT" = "انتهت المهلة";
 "LYRICS_PROVIDER_FALLBACK" = "المترجم";
 "LYRICS_ERROR_NO_DESCRIPTION" = "لا يوجد وصف";
 "LYRICS_ERROR_NO_LLM" = "لم يتم إعداد LLM";

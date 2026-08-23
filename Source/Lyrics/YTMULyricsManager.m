@@ -32,6 +32,12 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
 @property (nonatomic) NSUInteger requestGeneration;
 @property (nonatomic, strong, readwrite) YTMULyricsSearchInfo *lastSearchInfo;
 @property (nonatomic, strong) NSCache<NSString *, NSArray<NSString *> *> *romanizationMemoryCache;
+// How long one provider may hold up a pass before it is skipped. Every
+// provider bounds its own requests (≈8 s each), but NetEase's
+// candidate-by-candidate lyric fetch and Genius's two legs can stack
+// several of those; this keeps the chain moving regardless. A late answer
+// is still cached and still updates the availability chip.
+@property (nonatomic) NSTimeInterval providerBudgetSeconds;
 @end
 
 // Result of a single provider pass. provider/result are set together
@@ -123,6 +129,7 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
         _sourceAvailability = @{};
         _romanizationMemoryCache = [[NSCache alloc] init];
         _romanizationMemoryCache.countLimit = 8;
+        _providerBudgetSeconds = 20.0;
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(settingsDidChange:)
                                                      name:YTMULyricsSettingsDidChangeNotification
@@ -919,15 +926,35 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
                   info.artist,
                   info.duration);
     NSUInteger generation = pass.generation;
+    // `settled` (main-thread only) makes sure exactly one of {answer, budget
+    // timeout} advances the pass; the other just records what it learned.
+    __block BOOL settled = NO;
+    NSTimeInterval budget = self.providerBudgetSeconds;
+    if (budget > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(budget * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (settled) return;
+            if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
+            settled = YES;
+            YTMULyricsLog(@"lyrics source budget exceeded videoId=%@ source=%@ after %.0fs — moving on", info.videoId, [provider providerName], budget);
+            [pass.errors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName],
+                                    YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_TIMEOUT", @"timed out")]];
+            pass.index += 1;
+            [self runProviderPass:pass];
+        });
+    }
     [provider searchWithInfo:info completion:^(YTMULyricsResult *result, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.requestGeneration || ![info.videoId isEqualToString:self.activeVideoId]) return;
             if (result.hasText) {
                 if (updateAvailability) [self setAvailability:@"hit" forProvider:provider notify:NO];
                 [[YTMULyricsCache sharedCache] storeResult:result forKey:cacheKey];
+                if (settled) return;          // answered after the budget: cached for next time
+                settled = YES;
                 acceptOrContinue(result, NO);
                 return;
             }
+            if (settled) return;
+            settled = YES;
             NSString *message = error.localizedDescription ?: YTMULyricsManagerLocalized(@"LYRICS_PROVIDER_NO_MATCH", @"no match");
             if (updateAvailability) [self setAvailability:@"miss" forProvider:provider notify:YES];
             [pass.errors addObject:[NSString stringWithFormat:@"%@: %@", [provider providerName], message]];

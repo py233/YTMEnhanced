@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "เนื้อเพลงจาก %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "แปลโดย %@";
 "LYRICS_PROVIDER_NO_MATCH" = "ไม่ตรงกัน";
+"LYRICS_PROVIDER_TIMEOUT" = "หมดเวลา";
 "LYRICS_PROVIDER_FALLBACK" = "ผู้แปล";
 "LYRICS_ERROR_NO_DESCRIPTION" = "ไม่มีคำอธิบายวิดีโอ";
 "LYRICS_ERROR_NO_LLM" = "ยังไม่ได้ตั้งค่า LLM";

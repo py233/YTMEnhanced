@@ -151,6 +151,7 @@
 "LYRICS_ATTRIBUTION_LYRICS_FORMAT" = "Lời từ %@";
 "LYRICS_ATTRIBUTION_TRANSLATION_FORMAT" = "Dịch bởi %@";
 "LYRICS_PROVIDER_NO_MATCH" = "không khớp";
+"LYRICS_PROVIDER_TIMEOUT" = "hết thời gian chờ";
 "LYRICS_PROVIDER_FALLBACK" = "trình dịch";
 "LYRICS_ERROR_NO_DESCRIPTION" = "không có phần mô tả";
 "LYRICS_ERROR_NO_LLM" = "chưa cấu hình LLM";
