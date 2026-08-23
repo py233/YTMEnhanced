@@ -19,5 +19,8 @@
 @end
 
 NSString *YTMULocalized(NSString *key, NSString *fallback) {
-    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+    // A missing bundle (packaging slip, or the host test binary) must still
+    // yield the inline fallback rather than nil — callers put the result
+    // straight into dictionary literals and labels.
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil] ?: (fallback ?: key);
 }

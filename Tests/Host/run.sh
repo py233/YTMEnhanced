@@ -52,6 +52,10 @@ xcrun clang \
 APP="$OUT/YTMUHostTests.app"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 cp "$OUT/ytmu-host-tests" "$APP/Contents/MacOS/YTMUHostTests"
+# The real localisation bundle, found the same way the sideloaded app finds
+# it ([NSBundle mainBundle] pathForResource:@"YTMusicUltimate" ofType:@"bundle").
+mkdir -p "$APP/Contents/Resources"
+cp -R "layout/Library/Application Support/YTMusicUltimate.bundle" "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

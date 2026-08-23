@@ -16,7 +16,7 @@
 #import <NaturalLanguage/NaturalLanguage.h>
 
 static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
-    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil] ?: (fallback ?: key);
 }
 
 @interface YTMULyricsManager ()

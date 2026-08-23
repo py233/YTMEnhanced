@@ -8,7 +8,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 
 static NSString *YTMUSyncedLyricsLocalized(NSString *key, NSString *fallback) {
-    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil];
+    return [NSBundle.ytmu_defaultBundle localizedStringForKey:key value:fallback table:nil] ?: (fallback ?: key);
 }
 
 static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
