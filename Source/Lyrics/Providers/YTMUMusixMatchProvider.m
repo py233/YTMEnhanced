@@ -3,9 +3,11 @@
 #import "../../Utils/NSBundle+YTMU.h"
 
 @interface YTMUMusixMatchProvider ()
-@property (nonatomic, copy) NSString *cookie;
-@property (nonatomic, copy) NSString *token;
-@property (nonatomic) NSTimeInterval tokenExpiresAt;
+// atomic: written from NSURLSession's completion queue, read from whichever
+// thread starts the next search.
+@property (atomic, copy) NSString *cookie;
+@property (atomic, copy) NSString *token;
+@property (atomic) NSTimeInterval tokenExpiresAt;
 @end
 
 @implementation YTMUMusixMatchProvider

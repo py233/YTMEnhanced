@@ -30,6 +30,19 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
 @property (nonatomic) BOOL initialized;
 @end
 
+// Everything derived from the search info that both the keyword pass and
+// the candidate-scoring pass need. Built once per search (it is the
+// expensive part — tag filtering, title splitting, dozens of similarity
+// calls) instead of once per pass.
+@interface YTMUNetEaseSearchContext : NSObject
+@property (nonatomic, copy) NSArray<NSString *> *artists;          // split primary artist + artist-like tags
+@property (nonatomic, copy) NSArray<NSString *> *featured;         // feat./ft. names pulled from the titles
+@property (nonatomic, copy) NSArray<NSString *> *titleTags;
+@property (nonatomic, copy) NSArray<NSDictionary *> *titleCandidates;
+@end
+@implementation YTMUNetEaseSearchContext
+@end
+
 @implementation YTMUNetEaseProvider
 
 - (instancetype)init {
@@ -95,11 +108,16 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return hex;
 }
 
+// `cookies` is read while building a request (whichever thread searches)
+// and written from NSURLSession's completion queue; both sides take the
+// same lock so an enumeration never races a set.
 - (NSString *)cookieHeader {
     NSMutableArray *parts = [NSMutableArray array];
-    [self.cookies enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
-        [parts addObject:[NSString stringWithFormat:@"%@=%@", key, obj]];
-    }];
+    @synchronized (self.cookies) {
+        [self.cookies enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
+            [parts addObject:[NSString stringWithFormat:@"%@=%@", key, obj]];
+        }];
+    }
     return [parts componentsJoinedByString:@"; "];
 }
 
@@ -113,7 +131,9 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         if (kv.count < 2) continue;
         NSString *name = [kv[0] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         NSString *value = [[kv subarrayWithRange:NSMakeRange(1, kv.count - 1)] componentsJoinedByString:@"="];
-        if (name.length && value.length) self.cookies[name] = value;
+        if (name.length && value.length) {
+            @synchronized (self.cookies) { self.cookies[name] = value; }
+        }
     }
 }
 
@@ -523,17 +543,30 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     return unique;
 }
 
-- (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info {
+- (YTMUNetEaseSearchContext *)searchContextForInfo:(YTMULyricsSearchInfo *)info {
     NSDictionary *tagGroups = [self filterArtistTagValuesForTitle:info.title
                                                  alternativeTitle:info.alternativeTitle
                                                             album:info.album
                                                            artist:info.artist
                                                              tags:info.tags];
     NSArray *artistTags = tagGroups[@"artistTags"] ?: @[];
-    NSArray *titleTags = tagGroups[@"titleTags"] ?: @[];
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, artistTags);
-    NSArray *featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
-    NSArray<NSDictionary *> *titles = [self titleCandidatesForInfo:info artistNames:artists titleTags:titleTags];
+    YTMUNetEaseSearchContext *context = [[YTMUNetEaseSearchContext alloc] init];
+    context.titleTags = tagGroups[@"titleTags"] ?: @[];
+    context.artists = YTMULyricsSplitArtists(info.artist, artistTags);
+    context.featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
+    context.titleCandidates = [self titleCandidatesForInfo:info artistNames:context.artists titleTags:context.titleTags];
+    return context;
+}
+
+- (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info {
+    return [self keywordsForInfo:info context:[self searchContextForInfo:info]];
+}
+
+- (NSArray<NSString *> *)keywordsForInfo:(YTMULyricsSearchInfo *)info context:(YTMUNetEaseSearchContext *)context {
+    NSArray *artists = context.artists;
+    NSArray *featured = context.featured;
+    NSArray *titleTags = context.titleTags;
+    NSArray<NSDictionary *> *titles = context.titleCandidates;
     NSArray<NSString *> *searchArtists = [self searchArtistNamesForArtistNames:artists featuredArtistNames:featured];
     NSMutableArray *keywords = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
@@ -555,10 +588,10 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
         if (keywords.count >= 16) break;
     }
-    YTMULyricsLog(@"NetEase prepared search candidates=%lu keywords=%@ artistTags=%@ titleTags=%@ featured=%@",
+    YTMULyricsLog(@"NetEase prepared search candidates=%lu keywords=%@ artists=%@ titleTags=%@ featured=%@",
                   (unsigned long)titles.count,
                   keywords,
-                  artistTags,
+                  artists,
                   titleTags,
                   featured);
     return keywords;
@@ -627,19 +660,18 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
 }
 
 - (NSArray<NSDictionary *> *)candidateSongsFromSongs:(NSArray<NSDictionary *> *)songs info:(YTMULyricsSearchInfo *)info {
-    NSDictionary *tagGroups = [self filterArtistTagValuesForTitle:info.title
-                                                 alternativeTitle:info.alternativeTitle
-                                                            album:info.album
-                                                           artist:info.artist
-                                                             tags:info.tags];
-    NSArray *artistTags = tagGroups[@"artistTags"] ?: @[];
-    NSArray *titleTags = tagGroups[@"titleTags"] ?: @[];
-    NSArray *artists = YTMULyricsSplitArtists(info.artist, artistTags);
-    NSArray *featured = [self featuredArtistNamesFromTitles:@[info.title ?: @"", info.alternativeTitle ?: @""]];
+    return [self candidateSongsFromSongs:songs info:info context:[self searchContextForInfo:info]];
+}
+
+- (NSArray<NSDictionary *> *)candidateSongsFromSongs:(NSArray<NSDictionary *> *)songs
+                                                info:(YTMULyricsSearchInfo *)info
+                                             context:(YTMUNetEaseSearchContext *)context {
+    NSArray *artists = context.artists;
+    NSArray *featured = context.featured;
     NSMutableArray<NSString *> *scoreArtistValues = [NSMutableArray arrayWithArray:artists ?: @[]];
     [scoreArtistValues addObjectsFromArray:featured ?: @[]];
     NSArray *scoreArtistNames = [self uniqueStringsBySearchText:scoreArtistValues];
-    NSArray *titleCandidates = [self titleCandidatesForInfo:info artistNames:artists titleTags:titleTags];
+    NSArray *titleCandidates = context.titleCandidates;
     NSMutableArray<NSDictionary *> *ranked = [NSMutableArray array];
     BOOL hasDuration = isfinite(info.duration) && info.duration > 0;
     for (id candidate in songs) {
@@ -963,8 +995,15 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
 }
 
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
+    // Keyword generation and candidate scoring are regex / similarity
+    // heavy. registerIfNeeded: calls `ready` synchronously once the session
+    // is registered, i.e. on the caller's (main) thread — hop off it first.
+    // Every completion path below already runs on a background queue, so
+    // callers see no difference.
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     [self registerIfNeeded:^{
-        NSArray *keywords = [self keywordsForInfo:info];
+        YTMUNetEaseSearchContext *context = [self searchContextForInfo:info];
+        NSArray *keywords = [self keywordsForInfo:info context:context];
         if (!keywords.count) {
             completion(nil, nil);
             return;
@@ -987,7 +1026,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
                 NSNumber *songId = YTMULyricsJSONNumberAtPath(song, @[@"id"]);
                 if (songId) unique[songId] = song;
             }
-            NSArray<NSDictionary *> *matches = [self candidateSongsFromSongs:unique.allValues info:info];
+            NSArray<NSDictionary *> *matches = [self candidateSongsFromSongs:unique.allValues info:info context:context];
             if (!matches.count) {
                 completion(nil, nil);
                 return;
@@ -997,6 +1036,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     } failure:^(NSError *error) {
         completion(nil, error);
     }];
+    });
 }
 
 @end
