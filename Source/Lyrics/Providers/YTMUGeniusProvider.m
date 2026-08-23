@@ -20,7 +20,7 @@
     NSString *withBreaks = [html stringByReplacingOccurrencesOfString:@"<br/>" withString:@"\n"];
     withBreaks = [withBreaks stringByReplacingOccurrencesOfString:@"<br />" withString:@"\n"];
     withBreaks = [withBreaks stringByReplacingOccurrencesOfString:@"</p>" withString:@"\n"];
-    NSRegularExpression *tags = [NSRegularExpression regularExpressionWithPattern:@"<[^>]+>" options:0 error:nil];
+    NSRegularExpression *tags = YTMULyricsCachedRegex(@"<[^>]+>", 0);
     NSString *stripped = [tags stringByReplacingMatchesInString:withBreaks options:0 range:NSMakeRange(0, withBreaks.length) withTemplate:@""];
     return [[self stringByDecodingHTML:stripped] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
@@ -28,9 +28,7 @@
 - (NSString *)cleanExtractedLyrics:(NSString *)lyrics {
     NSArray<NSString *> *rawLines = [lyrics componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    NSRegularExpression *boilerplate = [NSRegularExpression regularExpressionWithPattern:@"^(\\d+\\s*)?(contributors?|translations?|english|romanization|romanized|you might also like|embed|read more|lyrics)$|contributors?.*translations?.*romanization|^see .+ live|get tickets as low as|^\\d+embed$"
-                                                                                options:NSRegularExpressionCaseInsensitive
-                                                                                  error:nil];
+    NSRegularExpression *boilerplate = YTMULyricsCachedRegex(@"^(\\d+\\s*)?(contributors?|translations?|english|romanization|romanized|you might also like|embed|read more|lyrics)$|contributors?.*translations?.*romanization|^see .+ live|get tickets as low as|^\\d+embed$", NSRegularExpressionCaseInsensitive);
     for (NSString *raw in rawLines) {
         NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         while ([line hasSuffix:@"\\"]) {
@@ -56,17 +54,13 @@
 }
 
 - (NSString *)extractLyricsFromPreloadedState:(NSString *)html {
-    NSRegularExpression *stateRegex = [NSRegularExpression regularExpressionWithPattern:@"__PRELOADED_STATE__\\s*=\\s*JSON\\.parse\\('(.*?)'\\);"
-                                                                                options:NSRegularExpressionDotMatchesLineSeparators
-                                                                                  error:nil];
+    NSRegularExpression *stateRegex = YTMULyricsCachedRegex(@"__PRELOADED_STATE__\\s*=\\s*JSON\\.parse\\('(.*?)'\\);", NSRegularExpressionDotMatchesLineSeparators);
     NSTextCheckingResult *stateMatch = [stateRegex firstMatchInString:html options:0 range:NSMakeRange(0, html.length)];
     if (!stateMatch || stateMatch.numberOfRanges < 2) return @"";
 
     NSString *state = [html substringWithRange:[stateMatch rangeAtIndex:1]];
     state = [state stringByReplacingOccurrencesOfString:@"\\\"" withString:@"\""];
-    NSRegularExpression *preload = [NSRegularExpression regularExpressionWithPattern:@"body\"\\s*:\\s*\\{\\s*\"html\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"children\""
-                                                                             options:NSRegularExpressionDotMatchesLineSeparators
-                                                                               error:nil];
+    NSRegularExpression *preload = YTMULyricsCachedRegex(@"body\"\\s*:\\s*\\{\\s*\"html\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"children\"", NSRegularExpressionDotMatchesLineSeparators);
     NSTextCheckingResult *match = [preload firstMatchInString:state options:0 range:NSMakeRange(0, state.length)];
     if (!match || match.numberOfRanges < 2) return @"";
 
@@ -79,9 +73,7 @@
     NSString *preloaded = [self extractLyricsFromPreloadedState:html];
     if (preloaded.length) return preloaded;
 
-    NSRegularExpression *dataLyrics = [NSRegularExpression regularExpressionWithPattern:@"<div[^>]+data-lyrics-container=\"true\"[^>]*>(.*?)</div>"
-                                                                                options:NSRegularExpressionDotMatchesLineSeparators | NSRegularExpressionCaseInsensitive
-                                                                                  error:nil];
+    NSRegularExpression *dataLyrics = YTMULyricsCachedRegex(@"<div[^>]+data-lyrics-container=\"true\"[^>]*>(.*?)</div>", NSRegularExpressionDotMatchesLineSeparators | NSRegularExpressionCaseInsensitive);
     NSArray<NSTextCheckingResult *> *matches = [dataLyrics matchesInString:html options:0 range:NSMakeRange(0, html.length)];
     NSMutableArray *parts = [NSMutableArray array];
     for (NSTextCheckingResult *match in matches) {
@@ -144,9 +136,7 @@
 
     NSUInteger lyricLikeLines = 0;
     NSUInteger boilerplateLines = 0;
-    NSRegularExpression *boilerplate = [NSRegularExpression regularExpressionWithPattern:@"^(\\d+\\s*)?(contributors?|translations?|you might also like|embed|read more|lyrics)$|contributors?.*lyrics$|^see .+ live|get tickets as low as"
-                                                                                options:NSRegularExpressionCaseInsensitive
-                                                                                  error:nil];
+    NSRegularExpression *boilerplate = YTMULyricsCachedRegex(@"^(\\d+\\s*)?(contributors?|translations?|you might also like|embed|read more|lyrics)$|contributors?.*lyrics$|^see .+ live|get tickets as low as", NSRegularExpressionCaseInsensitive);
     for (NSUInteger idx = 0; idx < MIN((NSUInteger)8, lines.count); idx++) {
         NSString *line = lines[idx];
         if ([boilerplate firstMatchInString:line options:0 range:NSMakeRange(0, line.length)]) boilerplateLines++;

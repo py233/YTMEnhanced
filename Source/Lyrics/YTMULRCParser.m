@@ -1,4 +1,5 @@
 #import "YTMULRCParser.h"
+#import "YTMULyricsTypes.h"
 
 @implementation YTMULRCParser
 
@@ -24,15 +25,9 @@
 + (NSArray<YTMULyricLine *> *)parseLRC:(NSString *)text {
     if (!text.length) return @[];
 
-    NSRegularExpression *timestamp = [NSRegularExpression regularExpressionWithPattern:@"\\[(\\d+)[:：](\\d+)(?:[\\.:：](\\d+))?\\]"
-                                                                               options:0
-                                                                                 error:nil];
-    NSRegularExpression *tag = [NSRegularExpression regularExpressionWithPattern:@"^\\[(\\w+):\\s*(.+?)\\s*\\]$"
-                                                                        options:0
-                                                                          error:nil];
-    NSRegularExpression *wordTiming = [NSRegularExpression regularExpressionWithPattern:@"<\\d+[:：]\\d+(?:[\\.:：]\\d+)?>\\s*"
-                                                                               options:0
-                                                                                 error:nil];
+    NSRegularExpression *timestamp = YTMULyricsCachedRegex(@"\\[(\\d+)[:：](\\d+)(?:[\\.:：](\\d+))?\\]", 0);
+    NSRegularExpression *tag = YTMULyricsCachedRegex(@"^\\[(\\w+):\\s*(.+?)\\s*\\]$", 0);
+    NSRegularExpression *wordTiming = YTMULyricsCachedRegex(@"<\\d+[:：]\\d+(?:[\\.:：]\\d+)?>\\s*", 0);
 
     NSMutableArray<YTMULyricLine *> *lines = [NSMutableArray array];
     __block NSInteger offset = 0;
@@ -101,9 +96,7 @@
     if (!lyrics.length) return @[];
     NSArray *raw = [lyrics componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
     NSMutableArray *lines = [NSMutableArray arrayWithCapacity:raw.count];
-    NSRegularExpression *lrcPrefix = [NSRegularExpression regularExpressionWithPattern:@"^\\[\\d+[:：]\\d+(?:[\\.:：]\\d+)?\\]\\s*"
-                                                                               options:0
-                                                                                 error:nil];
+    NSRegularExpression *lrcPrefix = YTMULyricsCachedRegex(@"^\\[\\d+[:：]\\d+(?:[\\.:：]\\d+)?\\]\\s*", 0);
     for (NSString *line in raw) {
         NSString *clean = [lrcPrefix stringByReplacingMatchesInString:line options:0 range:NSMakeRange(0, line.length) withTemplate:@""];
         clean = [clean stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];

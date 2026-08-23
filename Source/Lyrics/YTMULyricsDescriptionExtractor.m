@@ -307,7 +307,7 @@ static NSString *const YTMULDESystemPrompt =
     if (!trimmed.length) return @"";
     NSMutableString *mutable = [trimmed mutableCopy];
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     return [spaces stringByReplacingMatchesInString:mutable options:0 range:NSMakeRange(0, mutable.length) withTemplate:@" "];
 }
 

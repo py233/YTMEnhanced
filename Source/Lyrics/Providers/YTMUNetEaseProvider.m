@@ -10,20 +10,19 @@ static NSString *const YTMUNetEaseEncodeKey = @"3go8&$8*3*3h0k(2)2";
 static NSString *const YTMUNetEaseCheckToken = @"9ca17ae2e6ffcda170e2e6ee8ad85dba908ca4d74da9ac8ea2d44e938f9eadc66da5a8979af572a5a9b68ac12af0feaec3b92aa69af9b1d372f6b8adccb35e968b9bb6c14f908d0099fb6ff48efdacd361f5b6ee9e";
 
 static BOOL YTMUNetEaseHasJapaneseOrCJK(NSString *value) {
-    return [value rangeOfString:@"[\\u3040-\\u30ff\\u3400-\\u9fff]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[\\u3040-\\u30ff\\u3400-\\u9fff]", 0);
 }
 
 static BOOL YTMUNetEaseHasLatin(NSString *value) {
-    return [value rangeOfString:@"[A-Za-z]" options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[A-Za-z]", 0);
 }
 
 static BOOL YTMUNetEaseHasNonLatinRomanizableText(NSString *value) {
-    return [value rangeOfString:@"[\\u3040-\\u30ff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0980-\\u09ff\\u0900-\\u097f]"
-                        options:NSRegularExpressionSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, @"[\\u3040-\\u30ff\\uac00-\\ud7af\\u0e00-\\u0e7f\\u0980-\\u09ff\\u0900-\\u097f]", 0);
 }
 
 static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
-    return [value rangeOfString:pattern options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound;
+    return YTMULyricsRegexMatches(value, pattern, NSRegularExpressionCaseInsensitive);
 }
 
 @interface YTMUNetEaseProvider ()
@@ -276,14 +275,12 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     NSMutableString *mutable = [[value stringByFoldingWithOptions:NSWidthInsensitiveSearch
                                                            locale:[NSLocale currentLocale]] mutableCopy];
     CFStringTransform((__bridge CFMutableStringRef)mutable, NULL, kCFStringTransformFullwidthHalfwidth, NO);
-    NSRegularExpression *punctuation = [NSRegularExpression regularExpressionWithPattern:@"[^\\p{L}\\p{N}\\s]+"
-                                                                                 options:0
-                                                                                   error:nil];
+    NSRegularExpression *punctuation = YTMULyricsCachedRegex(@"[^\\p{L}\\p{N}\\s]+", 0);
     NSString *stripped = [punctuation stringByReplacingMatchesInString:mutable
                                                                options:0
                                                                  range:NSMakeRange(0, mutable.length)
                                                           withTemplate:@" "];
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     NSString *collapsed = [spaces stringByReplacingMatchesInString:stripped
                                                            options:0
                                                              range:NSMakeRange(0, stripped.length)
@@ -367,12 +364,8 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
 
 - (NSArray<NSString *> *)featuredArtistNamesFromTitles:(NSArray<NSString *> *)titles {
     NSMutableArray<NSString *> *featured = [NSMutableArray array];
-    NSRegularExpression *block = [NSRegularExpression regularExpressionWithPattern:@"[\\(\\[\\{（【［][^\\)\\]\\}】］）]*(?:feat|ft|featuring)\\.?\\s+([^\\)\\]\\}】］）]+)[\\)\\]\\}】］）]"
-                                                                           options:NSRegularExpressionCaseInsensitive
-                                                                             error:nil];
-    NSRegularExpression *tail = [NSRegularExpression regularExpressionWithPattern:@"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+(.+)$"
-                                                                          options:NSRegularExpressionCaseInsensitive
-                                                                            error:nil];
+    NSRegularExpression *block = YTMULyricsCachedRegex(@"[\\(\\[\\{（【［][^\\)\\]\\}】］）]*(?:feat|ft|featuring)\\.?\\s+([^\\)\\]\\}】］）]+)[\\)\\]\\}】］）]", NSRegularExpressionCaseInsensitive);
+    NSRegularExpression *tail = YTMULyricsCachedRegex(@"(?:^|[\\s\\u3000\\(（\\[])(?:feat|ft|featuring)\\.?\\s+(.+)$", NSRegularExpressionCaseInsensitive);
     for (NSString *title in titles ?: @[]) {
         if (!title.length) continue;
         NSArray<NSTextCheckingResult *> *matches = [block matchesInString:title options:0 range:NSMakeRange(0, title.length)];
@@ -430,9 +423,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     NSString *clean = YTMULyricsStripSearchNoise(fragment ?: @"");
     if (!clean.length) return @"";
 
-    NSRegularExpression *brackets = [NSRegularExpression regularExpressionWithPattern:@"[\\(\\[\\{（【［]([^\\)\\]\\}）】］]+)[\\)\\]\\}）】］]"
-                                                                              options:0
-                                                                                error:nil];
+    NSRegularExpression *brackets = YTMULyricsCachedRegex(@"[\\(\\[\\{（【［]([^\\)\\]\\}）】］]+)[\\)\\]\\}）】］]", 0);
     NSMutableString *mutable = [clean mutableCopy];
     NSArray<NSTextCheckingResult *> *matches = [brackets matchesInString:clean options:0 range:NSMakeRange(0, clean.length)];
     for (NSTextCheckingResult *match in [matches reverseObjectEnumerator]) {
@@ -443,7 +434,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         }
     }
 
-    NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+    NSRegularExpression *spaces = YTMULyricsCachedRegex(@"\\s+", 0);
     NSString *out = [spaces stringByReplacingMatchesInString:mutable options:0 range:NSMakeRange(0, mutable.length) withTemplate:@" "];
     return [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
@@ -453,9 +444,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
     if (!cleaned.length) return @[];
 
     NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObject:cleaned];
-    NSRegularExpression *quoted = [NSRegularExpression regularExpressionWithPattern:@"[「『](.+?)[」』]"
-                                                                            options:0
-                                                                              error:nil];
+    NSRegularExpression *quoted = YTMULyricsCachedRegex(@"[「『](.+?)[」』]", 0);
     NSArray<NSTextCheckingResult *> *quoteMatches = [quoted matchesInString:cleaned options:0 range:NSMakeRange(0, cleaned.length)];
     for (NSTextCheckingResult *match in quoteMatches) {
         if (match.numberOfRanges < 2) continue;
@@ -463,9 +452,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
         if (part.length) [parts addObject:part];
     }
 
-    NSRegularExpression *delimiter = [NSRegularExpression regularExpressionWithPattern:@"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]"
-                                                                              options:0
-                                                                                error:nil];
+    NSRegularExpression *delimiter = YTMULyricsCachedRegex(@"\\s+[-–—]\\s+|\\s+[/|]\\s+|[／｜│]|\\s+:\\s+|[：]", 0);
     NSString *split = [delimiter stringByReplacingMatchesInString:cleaned options:0 range:NSMakeRange(0, cleaned.length) withTemplate:@"\n"];
     for (NSString *raw in [split componentsSeparatedByString:@"\n"]) {
         NSString *part = [self cleanTitleFragment:raw artistNames:artistNames];
