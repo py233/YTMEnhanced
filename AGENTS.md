@@ -30,7 +30,8 @@
 
 - The Theos target is `iphone:clang:16.5:13.0`, `ARCHS = arm64`, and `INSTALL_TARGET_PROCESSES = YouTubeMusic`.
 - CI installs GNU make, `ldid`, `pipx`, checks out Theos at commit `344ee5925df036dbd1312b783ad5a00d153c2445`, and uses `iPhoneOS16.5.sdk`.
-- There is no repo-local test, lint, formatter, or typecheck config; verification is a successful Theos build for the packaging mode affected.
+- There is no lint, formatter, or typecheck config; the two verification gates are a successful Theos build for the packaging mode affected and the host test suite below.
+- `Tests/Host/run.sh` compiles `Source/{Lyrics,Translation,Scrobbling,Utils}` plus `Tests/Host/*.m` into one Mac Catalyst binary (same `-Wall -Werror` as Theos) and runs it inside a real `UIApplication`, so provider parsers, caches, the scrobble queue and UIKit lifecycles are exercised for real on the Mac. It needs `/Applications/Xcode.app` (set `XCODE=` to point elsewhere) and reaches it through `DEVELOPER_DIR` for that one invocation — the system `xcode-select` is left alone. Caches are redirected to a temp dir via `YTMU_CACHES_ROOT` (see `Source/Utils/YTMUPaths.m`) and the test binary's defaults domain is wiped, so runs never touch `~/Library/Caches` or real preferences. Add a test with `YTMU_TEST(name) { … }` in a new `Tests/Host/Test_*.m`; `Tests/Host/YTMUTestHTTPServer` gives you a real local HTTP endpoint and `YTMUTestFakeLLM` a canned LLM. Run it before every commit that touches those directories.
 - Generated/build artifacts are intentionally ignored: `.theos/`, `packages/`, `build/`, and `*.ipa`.
 
 ## Runtime Architecture
