@@ -44,7 +44,7 @@
             completion(@"", error);
             return;
         }
-        [self captureCookie:(NSHTTPURLResponse *)response];
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) [self captureCookie:(NSHTTPURLResponse *)response];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *token = YTMULyricsJSONStringAtPath(json, @[@"message", @"body", @"user_token"]);
         if (!token.length) {
@@ -84,7 +84,7 @@
             completion(nil, error);
             return;
         }
-        [self captureCookie:(NSHTTPURLResponse *)response];
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) [self captureCookie:(NSHTTPURLResponse *)response];
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
         if (json && ![json isKindOfClass:[NSDictionary class]]) {
             completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_BAD_JSON", @"Musixmatch returned invalid JSON")}]);

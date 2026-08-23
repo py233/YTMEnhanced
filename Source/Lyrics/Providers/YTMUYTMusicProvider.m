@@ -40,7 +40,7 @@
             completion(nil, error);
             return;
         }
-        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
         if (status < 200 || status >= 300) {
             completion(nil, [NSError errorWithDomain:@"YTMUYTMusic" code:status userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:YTMULocalized(@"LYRICS_ERROR_HTTP_STATUS_FORMAT", @"HTTP %ld"), (long)status]}]);
             return;

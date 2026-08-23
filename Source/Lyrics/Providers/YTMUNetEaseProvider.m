@@ -161,7 +161,7 @@ static BOOL YTMUNetEaseRegexTest(NSString *value, NSString *pattern) {
             completion(nil, error);
             return;
         }
-        NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+        NSHTTPURLResponse *http = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *)response : nil;
         [self captureCookiesFromResponse:http];
         NSInteger status = http.statusCode;
         if (status < 200 || status >= 300) {

@@ -360,7 +360,7 @@ static NSString *YTMULyricsManagerLocalized(NSString *key, NSString *fallback) {
             completion(@"");
             return;
         }
-        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)response statusCode] : 0;
         if (status < 200 || status >= 300) {
             NSString *preview = @"";
             if (data.length) {
