@@ -193,7 +193,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 
 @end
 
-@interface YTMUSyncedLyricsView ()
+@interface YTMUSyncedLyricsView () <UIScrollViewDelegate>
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *stateLabel;
@@ -204,6 +204,14 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 @property (nonatomic, strong) CADisplayLink *displayLink;
 @property (nonatomic, copy) NSString *lastReloadSignature;
 @property (nonatomic, copy) NSString *lastReloadContentSignature;
+// Manual-scroll hold. `userInteracting` is YES from willBeginDragging until
+// the touch ends (including the deceleration tail); `followHoldUntil` is
+// the CACurrentMediaTime() the grace period runs to after that;
+// `followRestorePending` remembers that the view is off its followed
+// position and owes the user a scroll-back once the hold lifts.
+@property (nonatomic) BOOL userInteracting;
+@property (nonatomic) CFTimeInterval followHoldUntil;
+@property (nonatomic) BOOL followRestorePending;
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs animated:(BOOL)animated;
 @end
 
@@ -239,9 +247,14 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
         _stateLabel.textAlignment = NSTextAlignmentCenter;
         [_blurView.contentView addSubview:_stateLabel];
 
+        _followResumeDelay = 3.0;
         _scrollView = [[UIScrollView alloc] init];
         _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
         _scrollView.showsVerticalScrollIndicator = NO;
+        // Delegate callbacks only fire for user gestures (programmatic
+        // setContentOffset does not go through them), which is exactly the
+        // distinction the manual-scroll hold needs.
+        _scrollView.delegate = self;
         [_blurView.contentView addSubview:_scrollView];
 
         _stackView = [[UIStackView alloc] init];
@@ -485,6 +498,11 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     }
     self.lineViews = @[];
     self.activeIndex = -1;
+    // New content means the old reading position is meaningless; follow
+    // immediately. (`userInteracting` is owned by the delegate callbacks —
+    // if a finger is genuinely down it stays down.)
+    self.followHoldUntil = 0;
+    self.followRestorePending = NO;
 }
 
 - (void)applyBaseFontSizeToExistingLines:(CGFloat)base {
@@ -621,6 +639,10 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 
 - (void)lineTapped:(YTMULyricLineView *)sender {
     if (!self.playerViewController || sender.timeInMs <= 0) return;
+    // Choosing a line is the end of browsing: follow again right away and
+    // let the seek-induced line change do the scrolling.
+    self.followHoldUntil = 0;
+    self.followRestorePending = NO;
     // Display highlights a line when currentTime + offset >= line.timeInMs (see
     // updatePlaybackTimeMs:animated:, which does timeMs += lyricsTimingOffsetMs).
     // To land on the tapped line, seek to the moment it becomes current, i.e.
@@ -629,6 +651,69 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     NSTimeInterval seekMs = sender.timeInMs - offsetMs + 10;
     if (seekMs < 0) seekMs = 0;
     [self.playerViewController seekToTime:seekMs / 1000.0];
+}
+
+#pragma mark - Manual-scroll hold
+
+- (BOOL)isFollowSuspended {
+    return self.userInteracting || CACurrentMediaTime() < self.followHoldUntil;
+}
+
+- (void)beginUserInteraction {
+    self.userInteracting = YES;
+}
+
+- (void)endUserInteraction {
+    self.userInteracting = NO;
+    self.followHoldUntil = CACurrentMediaTime() + MAX(self.followResumeDelay, 0);
+    // Whatever the user did, the view is (or may be) away from the followed
+    // position now; once the grace runs out, scroll back even if the active
+    // line has not changed in the meantime.
+    self.followRestorePending = YES;
+}
+
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
+    [self beginUserInteraction];
+}
+
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
+    if (decelerate) return;   // the deceleration tail is still the same interaction
+    [self endUserInteraction];
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
+    [self endUserInteraction];
+}
+
+- (void)scrollViewDidScrollToTop:(UIScrollView *)scrollView {
+    // Status-bar tap: a user scroll that skips the dragging callbacks.
+    [self endUserInteraction];
+}
+
+- (CGPoint)followOffsetForLineAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)self.lineViews.count) return self.scrollView.contentOffset;
+    YTMULyricLineView *lineView = self.lineViews[index];
+    CGRect target = [self.scrollView convertRect:lineView.bounds fromView:lineView];
+    CGFloat offsetY = MAX(0, CGRectGetMidY(target) - self.scrollView.bounds.size.height * 0.48);
+    CGFloat maxOffset = MAX(0, self.scrollView.contentSize.height - self.scrollView.bounds.size.height);
+    return CGPointMake(0, MIN(offsetY, maxOffset));
+}
+
+- (void)scrollToActiveLineAnimated:(BOOL)animated {
+    CGPoint contentOffset = [self followOffsetForLineAtIndex:self.activeIndex];
+    self.followRestorePending = NO;
+    if (!animated) {
+        [UIView performWithoutAnimation:^{
+            self.scrollView.contentOffset = contentOffset;
+        }];
+        return;
+    }
+    [UIView animateWithDuration:0.45
+                          delay:0
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseInOut
+                     animations:^{
+        self.scrollView.contentOffset = contentOffset;
+    } completion:nil];
 }
 
 - (void)updatePlaybackTimeMs:(NSTimeInterval)timeMs {
@@ -666,6 +751,12 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
         }
         CGFloat progress = line.durationMs > 0 ? (CGFloat)((timeMs - line.timeInMs) / line.durationMs) : 1.0;
         [line updateKaraokeProgress:progress active:YES];
+        // The display link lands here ~30×/s, which is what lets a hold
+        // expire mid-line: the moment it lifts, drift back to the active
+        // line instead of waiting for the next line change.
+        if (self.followRestorePending && ![self isFollowSuspended]) {
+            [self scrollToActiveLineAnimated:animated];
+        }
         return;
     }
 
@@ -693,22 +784,14 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
         [line updateKaraokeProgress:progress active:(NSInteger)i == current];
     }
 
-    CGRect target = [self.scrollView convertRect:self.lineViews[current].bounds fromView:self.lineViews[current]];
-    CGFloat offsetY = MAX(0, CGRectGetMidY(target) - self.scrollView.bounds.size.height * 0.48);
-    CGFloat maxOffset = MAX(0, self.scrollView.contentSize.height - self.scrollView.bounds.size.height);
-    CGPoint contentOffset = CGPointMake(0, MIN(offsetY, maxOffset));
-    if (!animated) {
-        [UIView performWithoutAnimation:^{
-            self.scrollView.contentOffset = contentOffset;
-        }];
+    if ([self isFollowSuspended]) {
+        // The user is reading somewhere else: keep the highlight moving (all
+        // of the above ran) but leave their scroll position alone, and owe
+        // them a scroll-back for when the hold lifts.
+        self.followRestorePending = YES;
         return;
     }
-    [UIView animateWithDuration:0.45
-                          delay:0
-                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseInOut
-                     animations:^{
-        self.scrollView.contentOffset = contentOffset;
-    } completion:nil];
+    [self scrollToActiveLineAnimated:animated];
 }
 
 @end
