@@ -1,6 +1,6 @@
 Package: com.py233.ytmenhanced
 Name: YTMEnhanced
-Version: 1.1.2
+Version: 1.1.3
 Architecture: iphoneos-arm
 Description: Lyrics, translation, and scrobbling for YouTube Music
 Maintainer: py233

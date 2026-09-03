@@ -180,3 +180,71 @@ YTMU_TEST(MusixMatch_cleansTheSearchTitle_triesASecondCandidate_andOmitsZeroDura
     }
     [server stop];
 }
+
+// The HTTP status is 200 even when the API refuses the call — the real one is
+// in message.header, and a refused call still carries a macro_calls object with
+// 404s and no matcher.track.get. Parsing that as "this song has no lyrics" is
+// what made an expired token look like missing coverage, and the six-hour token
+// cache would have made it permanent.
+YTMU_TEST(MusixMatch_apiLevel401_reMintsTheToken_insteadOfReportingNoMatch) {
+    YTMUTestHTTPServer *server = [YTMUTestHTTPServer start];
+    NSString *refused = @"{\"message\":{\"header\":{\"status_code\":401,\"hint\":\"renew\"},\"body\":{\"macro_calls\":{"
+        @"\"track.lyrics.get\":{\"message\":{\"header\":{\"status_code\":404}}},"
+        @"\"track.subtitles.get\":{\"message\":{\"header\":{\"status_code\":404}}}}}}}";
+    NSString *hit = @"{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"macro_calls\":{"
+        @"\"matcher.track.get\":{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"track\":{\"track_id\":7,\"track_name\":\"Delete\",\"artist_name\":\"Ninajirachi\"}}}},"
+        @"\"track.lyrics.get\":{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"lyrics\":{\"lyrics_body\":\"one\\ntwo\"}}}}}}}}";
+
+    __block NSInteger tokensMinted = 0;
+    server.responder = ^NSData *(YTMUTestHTTPRequest *req, NSInteger *status, NSMutableDictionary *headers) {
+        *status = 200;
+        headers[@"Content-Type"] = @"application/json";
+        if ([req.path containsString:@"token.get"]) {
+            tokensMinted++;
+            NSString *body = [NSString stringWithFormat:
+                @"{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"user_token\":\"tok-%ld\"}}}", (long)tokensMinted];
+            return [body dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        // The first token is stale; anything minted after it is accepted.
+        BOOL stale = [req.path containsString:@"usertoken=tok-1"];
+        return [(stale ? refused : hit) dataUsingEncoding:NSUTF8StringEncoding];
+    };
+
+    YTMUMusixMatchProvider *provider = ProviderOn(server);
+    YTMULyricsSearchInfo *info = YTMUTestInfo(@"v-401", @"Delete", @"Ninajirachi");
+    info.duration = 180;
+
+    __block YTMULyricsResult *result = nil; __block NSError *error = nil; __block BOOL done = NO;
+    [provider searchWithInfo:info completion:^(YTMULyricsResult *r, NSError *e) { result = r; error = e; done = YES; }];
+    YTMU_ASSERT(YTMUTestWaitUntil(8, ^BOOL{ return done; }), "search never completed");
+    YTMU_ASSERT(error == nil, "unexpected error %@", error);
+    YTMU_ASSERT(result.lineTexts.count == 2, "the retry with a fresh token should have found lyrics, got %lu lines", (unsigned long)result.lineTexts.count);
+    YTMU_ASSERT_EQ_INT(tokensMinted, 2);   // stale token dropped, one fresh mint
+    [server stop];
+}
+
+// If the API keeps refusing, that must reach the user as the reason it gave —
+// never as "no lyrics for this song".
+YTMU_TEST(MusixMatch_persistent401_surfacesTheReason_notASilentMiss) {
+    YTMUTestHTTPServer *server = [YTMUTestHTTPServer start];
+    server.responder = ^NSData *(YTMUTestHTTPRequest *req, NSInteger *status, NSMutableDictionary *headers) {
+        *status = 200;
+        headers[@"Content-Type"] = @"application/json";
+        if ([req.path containsString:@"token.get"]) {
+            return [@"{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"user_token\":\"tok-any\"}}}" dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        return [@"{\"message\":{\"header\":{\"status_code\":401,\"hint\":\"renew\"},\"body\":{\"macro_calls\":{}}}}" dataUsingEncoding:NSUTF8StringEncoding];
+    };
+    YTMUMusixMatchProvider *provider = ProviderOn(server);
+    YTMULyricsSearchInfo *info = YTMUTestInfo(@"v-401b", @"Delete", @"Ninajirachi");
+    info.duration = 180;
+
+    __block YTMULyricsResult *result = nil; __block NSError *error = nil; __block BOOL done = NO;
+    [provider searchWithInfo:info completion:^(YTMULyricsResult *r, NSError *e) { result = r; error = e; done = YES; }];
+    YTMU_ASSERT(YTMUTestWaitUntil(8, ^BOOL{ return done; }), "search never completed");
+    YTMU_ASSERT(result == nil, "no lyrics should be returned");
+    YTMU_ASSERT(error != nil, "a refused call must not look like an empty result");
+    YTMU_ASSERT([error.localizedDescription containsString:@"401"] && [error.localizedDescription containsString:@"renew"],
+                "the reason should reach the error, got %@", error.localizedDescription);
+    [server stop];
+}

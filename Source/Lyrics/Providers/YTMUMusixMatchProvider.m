@@ -37,6 +37,10 @@ static const NSTimeInterval YTMUMusixMatchTokenTTL = 6 * 60 * 60;
 // gets an IP flagged in the first place.
 static const NSTimeInterval YTMUMusixMatchFailureCooldown = 30 * 60;
 
+// Error code for "the API refused this token", which must never be reported as
+// "no lyrics for this song".
+static const NSInteger YTMUMusixMatchAuthErrorCode = 4;
+
 static NSString *const YTMUMusixMatchTokenKey = @"musixmatch_userToken";
 static NSString *const YTMUMusixMatchTokenExpiryKey = @"musixmatch_userTokenExpiresAt";
 static NSString *const YTMUMusixMatchAppIdKey = @"musixmatch_appId";
@@ -232,6 +236,21 @@ static NSString *const YTMUMusixMatchAppIdKey = @"musixmatch_appId";
             completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:2 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_BAD_JSON", @"Musixmatch returned invalid JSON")}]);
             return;
         }
+        // The HTTP status is 200 even when the API refuses the call: the real
+        // one is in message.header. A refused call still carries a macro_calls
+        // object (with 404s and no matcher.track.get), so without this check it
+        // parses as "this song has no lyrics" and the actual reason — an
+        // expired or rejected token — never surfaces.
+        NSNumber *apiStatus = YTMULyricsJSONNumberAtPath(json, @[@"message", @"header", @"status_code"]);
+        NSInteger status = apiStatus ? apiStatus.integerValue : 200;
+        if (status != 200) {
+            NSString *hint = YTMULyricsJSONStringAtPath(json, @[@"message", @"header", @"hint"]) ?: @"";
+            NSString *message = [NSString stringWithFormat:@"Musixmatch %ld%@", (long)status,
+                                 hint.length ? [NSString stringWithFormat:@" (%@)", hint] : @""];
+            NSInteger code = (status == 401) ? YTMUMusixMatchAuthErrorCode : 2;
+            completion(nil, [NSError errorWithDomain:@"YTMUMusixMatch" code:code userInfo:@{NSLocalizedDescriptionKey: message}]);
+            return;
+        }
         completion((NSDictionary *)json, error);
     }] resume];
 }
@@ -271,13 +290,40 @@ static NSString *const YTMUMusixMatchAppIdKey = @"musixmatch_appId";
     return result.hasText ? result : nil;
 }
 
+// Drops the cached token, including the persisted copy, so the next request
+// mints a fresh one. Called when the API refuses the token we hold — the
+// six-hour cache is only safe because of this.
+- (void)invalidateToken {
+    self.token = @"";
+    self.tokenExpiresAt = 0;
+    YTMUSettingsUpdate(^(NSMutableDictionary<NSString *, id> *settings) {
+        [settings removeObjectForKey:YTMUMusixMatchTokenKey];
+        [settings removeObjectForKey:YTMUMusixMatchTokenExpiryKey];
+    }, @[YTMUMusixMatchTokenKey, YTMUMusixMatchTokenExpiryKey]);
+}
+
 - (void)searchWithInfo:(YTMULyricsSearchInfo *)info completion:(void (^)(YTMULyricsResult *, NSError *))completion {
+    [self searchWithInfo:info renewTokenOnAuthFailure:YES completion:completion];
+}
+
+- (void)searchWithInfo:(YTMULyricsSearchInfo *)info
+renewTokenOnAuthFailure:(BOOL)renew
+            completion:(void (^)(YTMULyricsResult *, NSError *))completion {
     [self getToken:^(NSString *token, NSError *error) {
         if (error) {
             completion(nil, error);
             return;
         }
-        [self searchTitles:[self queryTitlesForInfo:info] index:0 info:info token:token completion:completion];
+        [self searchTitles:[self queryTitlesForInfo:info] index:0 info:info token:token completion:^(YTMULyricsResult *result, NSError *searchError) {
+            BOOL refusedToken = [searchError.domain isEqualToString:@"YTMUMusixMatch"] && searchError.code == YTMUMusixMatchAuthErrorCode;
+            if (!refusedToken || !renew) {
+                completion(result, searchError);
+                return;
+            }
+            YTMULyricsLog(@"musixmatch refused the cached token (%@) — re-minting once", searchError.localizedDescription);
+            [self invalidateToken];
+            [self searchWithInfo:info renewTokenOnAuthFailure:NO completion:completion];
+        }];
     }];
 }
 
