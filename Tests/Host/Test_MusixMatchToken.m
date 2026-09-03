@@ -8,6 +8,7 @@
 #import "YTMUTestSettings.h"
 #import "YTMUTestHTTPServer.h"
 #import "Lyrics/Providers/YTMUMusixMatchProvider.h"
+#import "YTMUTestFakeLyricsProvider.h"
 
 @interface YTMUMusixMatchProvider (YTMUTokenTesting)
 - (void)getToken:(void(^)(NSString *token, NSError *error))completion;
@@ -121,4 +122,61 @@ YTMU_TEST(MusixMatch_sendsOnlyCookieNameValuePairsBack) {
     YTMU_ASSERT([sent containsString:@"mxm-user=abc123"], "the cookie value should be echoed, got %@", sent);
     YTMU_ASSERT(![sent containsString:@"Path"] && ![sent containsString:@"Expires"] && ![sent containsString:@"HttpOnly"],
                 "cookie attributes must not be echoed back, got %@", sent);
+}
+
+// This provider used to be the only one reporting "no match" on tracks
+// Musixmatch demonstrably has (Ninajirachi's "Delete" among them): it sent the
+// microformat video title verbatim and gave up after one attempt, and it sent
+// q_duration=0 when the duration was unknown, which makes the matcher match
+// nothing.
+YTMU_TEST(MusixMatch_cleansTheSearchTitle_triesASecondCandidate_andOmitsZeroDuration) {
+    YTMUTestHTTPServer *server = [YTMUTestHTTPServer start];
+    NSString *lrc = @"[00:01.00]line one\n[00:05.00]line two\n[00:09.00]line three\n";
+    NSString *hit = [NSString stringWithFormat:
+        @"{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"macro_calls\":{"
+        @"\"matcher.track.get\":{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"track\":{\"track_id\":42,\"track_name\":\"Delete\",\"artist_name\":\"Ninajirachi\"}}}},"
+        @"\"track.lyrics.get\":{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"lyrics\":{\"lyrics_body\":\"line one\\nline two\\nline three\"}}}},"
+        @"\"track.subtitles.get\":{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"subtitle_list\":[{\"subtitle\":{\"subtitle_body\":\"%@\"}}]}}}"
+        @"}}}}", [lrc stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"]];
+    NSString *miss = @"{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"macro_calls\":{"
+        @"\"matcher.track.get\":{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"track\":{\"track_id\":115264642,\"track_name\":\"\",\"artist_name\":\"\"}}}}}}}}";
+
+    server.responder = ^NSData *(YTMUTestHTTPRequest *req, NSInteger *status, NSMutableDictionary *headers) {
+        *status = 200;
+        headers[@"Content-Type"] = @"application/json";
+        if ([req.path containsString:@"token.get"]) {
+            return [@"{\"message\":{\"header\":{\"status_code\":200},\"body\":{\"user_token\":\"tok-search\"}}}" dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        // Musixmatch only knows the clean title; the raw video title misses.
+        BOOL clean = [req.path containsString:@"q_track=Delete&"] || [req.path hasSuffix:@"q_track=Delete"];
+        return [(clean ? hit : miss) dataUsingEncoding:NSUTF8StringEncoding];
+    };
+
+    YTMUMusixMatchProvider *provider = ProviderOn(server);
+    YTMULyricsSearchInfo *info = YTMUTestInfo(@"v-mxm", @"Delete (Official Audio)", @"Ninajirachi");
+    info.alternativeTitle = @"Ninajirachi - Delete (Official Audio)";
+    info.duration = 0;   // unknown, as it is before the player reports it
+
+    __block YTMULyricsResult *result = nil; __block NSError *error = nil; __block BOOL done = NO;
+    [provider searchWithInfo:info completion:^(YTMULyricsResult *r, NSError *e) { result = r; error = e; done = YES; }];
+    YTMU_ASSERT(YTMUTestWaitUntil(8, ^BOOL{ return done; }), "search never completed");
+    YTMU_ASSERT(error == nil, "unexpected error %@", error);
+    // Four lines, not three: the LRC parser prepends a silent lead-in when the
+    // first timestamp is later than 300 ms.
+    YTMU_ASSERT(result.lineTexts.count == 4 && result.isSynced,
+                "the cleaned title should have matched: %lu lines", (unsigned long)result.lineTexts.count);
+    YTMU_ASSERT([result.lineTexts containsObject:@"line one"], "lyrics text: %@", result.lineTexts);
+    YTMU_ASSERT_EQ_STR(result.title, @"Delete");
+
+    NSMutableArray<NSString *> *tracks = [NSMutableArray array];
+    for (YTMUTestHTTPRequest *r in server.requests) {
+        if ([r.path containsString:@"macro.subtitles.get"]) [tracks addObject:r.path];
+    }
+    YTMU_ASSERT(tracks.count >= 1, "no lyrics query was made");
+    YTMU_ASSERT([tracks.firstObject containsString:@"q_track=Delete"],
+                "the noise-stripped title must be tried first, got %@", tracks.firstObject);
+    for (NSString *path in tracks) {
+        YTMU_ASSERT(![path containsString:@"q_duration=0"], "an unknown duration must not be sent as 0: %@", path);
+    }
+    [server stop];
 }

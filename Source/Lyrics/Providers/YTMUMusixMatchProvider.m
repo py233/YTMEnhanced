@@ -172,18 +172,46 @@ static NSString *const YTMUMusixMatchAppIdKey = @"musixmatch_appId";
     }] resume];
 }
 
-- (void)queryMacroWithInfo:(YTMULyricsSearchInfo *)info token:(NSString *)token completion:(void(^)(NSDictionary *json, NSError *error))completion {
+// The titles to try, best first. matcher.track.get is a fuzzy matcher but it
+// still misses on YouTube-shaped titles ("Delete (Official Audio)",
+// "Artist - Delete"), which is why this provider used to be the only one
+// reporting "no match" on tracks Musixmatch demonstrably has: it sent
+// `alternativeTitle` — the microformat video title, the noisiest one we hold —
+// verbatim and gave up after one attempt, while LRCLIB and NetEase both strip
+// search noise and try several candidates.
+- (NSArray<NSString *> *)queryTitlesForInfo:(YTMULyricsSearchInfo *)info {
+    NSMutableArray<NSString *> *titles = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSString *candidate in @[YTMULyricsStripSearchNoise(info.title ?: @""),
+                                  YTMULyricsStripSearchNoise(info.alternativeTitle ?: @""),
+                                  info.title ?: @"",
+                                  info.alternativeTitle ?: @""]) {
+        NSString *trimmed = [candidate stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *key = YTMULyricsCompactString(trimmed);
+        if (!trimmed.length || !key.length || [seen containsObject:key]) continue;
+        [seen addObject:key];
+        [titles addObject:trimmed];
+        // Two requests per song at most: this host's WAF scores request
+        // volume, and the cleaned title is the one that matters.
+        if (titles.count == 2) break;
+    }
+    return titles;
+}
+
+- (void)queryMacroWithInfo:(YTMULyricsSearchInfo *)info track:(NSString *)track token:(NSString *)token completion:(void(^)(NSDictionary *json, NSError *error))completion {
     NSMutableDictionary *params = [@{
         @"app_id": self.appId.length ? self.appId : YTMUMusixMatchAppIds().firstObject,
         @"format": @"json",
         @"usertoken": token ?: @"",
-        @"q_track": info.alternativeTitle.length ? info.alternativeTitle : info.title ?: @"",
+        @"q_track": track ?: @"",
         @"q_artist": info.artist ?: @"",
-        @"q_duration": [NSString stringWithFormat:@"%ld", (long)llround(info.duration)],
         @"namespace": @"lyrics_richsynched",
         @"subtitle_format": @"lrc",
     } mutableCopy];
     if (info.album.length) params[@"q_album"] = info.album;
+    // Duration is a strong signal for the matcher, so send it only when it is
+    // real; a literal q_duration=0 makes it match nothing.
+    if (info.duration > 0) params[@"q_duration"] = [NSString stringWithFormat:@"%ld", (long)llround(info.duration)];
 
     NSMutableArray *parts = [NSMutableArray array];
     [params enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
@@ -218,7 +246,12 @@ static NSString *const YTMUMusixMatchAppIdKey = @"musixmatch_appId";
 
     NSString *trackName = YTMULyricsJSONStringAtPath(track, @[@"track_name"]) ?: info.title;
     NSString *artistName = YTMULyricsJSONStringAtPath(track, @[@"artist_name"]) ?: info.artist;
-    CGFloat score = YTMULyricsSimilarity(trackName, info.title) * 1.5 + YTMULyricsSimilarity(artistName, info.artist) * 0.7;
+    // Score against whichever of the two titles we hold fits better, the way
+    // LRCLIB and Genius do — otherwise a correct match found via the cleaned
+    // title gets thrown away for not resembling the raw one.
+    CGFloat titleScore = MAX(YTMULyricsSimilarity(trackName, info.title),
+                             YTMULyricsSimilarity(trackName, info.alternativeTitle));
+    CGFloat score = titleScore * 1.5 + YTMULyricsSimilarity(artistName, info.artist) * 0.7;
     if (score < 0.75) return nil;
 
     NSString *plain = YTMULyricsJSONStringAtPath(lyrics, @[@"lyrics_body"]) ?: @"";
@@ -244,16 +277,38 @@ static NSString *const YTMUMusixMatchAppIdKey = @"musixmatch_appId";
             completion(nil, error);
             return;
         }
-        [self queryMacroWithInfo:info token:token completion:^(NSDictionary *json, NSError *queryError) {
-            YTMULyricsResult *result = queryError ? nil : [self resultFromJSON:json info:info];
-            if (result) {
-                YTMULyricsLog(@"Musixmatch match title=%@ synced=%d lines=%lu",
-                              result.title,
-                              result.isSynced,
-                              (unsigned long)result.lineTexts.count);
-            }
-            completion(result, queryError);
-        }];
+        [self searchTitles:[self queryTitlesForInfo:info] index:0 info:info token:token completion:completion];
+    }];
+}
+
+- (void)searchTitles:(NSArray<NSString *> *)titles
+               index:(NSUInteger)index
+                info:(YTMULyricsSearchInfo *)info
+               token:(NSString *)token
+          completion:(void (^)(YTMULyricsResult *, NSError *))completion {
+    if (index >= titles.count) {
+        completion(nil, nil);
+        return;
+    }
+    NSString *track = titles[index];
+    [self queryMacroWithInfo:info track:track token:token completion:^(NSDictionary *json, NSError *queryError) {
+        if (queryError) {
+            completion(nil, queryError);
+            return;
+        }
+        YTMULyricsResult *result = [self resultFromJSON:json info:info];
+        if (result) {
+            YTMULyricsLog(@"Musixmatch match q_track=\"%@\" title=%@ synced=%d lines=%lu",
+                          track,
+                          result.title,
+                          result.isSynced,
+                          (unsigned long)result.lineTexts.count);
+            completion(result, nil);
+            return;
+        }
+        YTMULyricsLog(@"Musixmatch no match for q_track=\"%@\"%@", track,
+                      index + 1 < titles.count ? @", trying the next title" : @"");
+        [self searchTitles:titles index:index + 1 info:info token:token completion:completion];
     }];
 }
 
