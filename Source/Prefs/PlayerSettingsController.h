@@ -1,7 +1,5 @@
-#import <UIKit/UIKit.h>
-#import "../Headers/Localization.h"
+#import "YTMUSettingsTableController.h"
 
-@interface PlayerSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
-@property (nonatomic, strong) UITableView* tableView;
+@interface PlayerSettingsController : YTMUSettingsTableController <UITextFieldDelegate>
 - (UIView *)KBToolbar:(UITextField *)textField;
 @end

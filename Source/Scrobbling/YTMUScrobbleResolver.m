@@ -7,6 +7,7 @@
 #import "../Lyrics/YTMULyricsTypes.h"
 #import "../Translation/YTMUTranslator.h"
 #import "../Translation/YTMUTranslationTypes.h"
+#import "../Utils/YTMUSettings.h"
 
 // Cache TTL: corrections + MBID assignments are stable on the order
 // of months, but we re-query every 30 days so that backend curation
@@ -193,7 +194,7 @@ static NSInteger const kLastFMCacheSchemaVersion = 8;
             cachedLastFM = nil;
             @synchronized (self.lastfmCache) {
                 [self.lastfmCache removeObjectForKey:signature];
-                YTMUScrobbleSetDefaults(kLastFMCacheKey, self.lastfmCache);
+                YTMUScrobbleSetDefaults(kLastFMCacheKey, [self.lastfmCache copy]);
             }
         }
     }
@@ -259,22 +260,7 @@ static NSInteger const kLastFMCacheSchemaVersion = 8;
 // whether a track.search result's artist field matches the input
 // artist closely enough to count.
 - (NSString *)normalizeArtistForCompare:(NSString *)s {
-    if (s.length == 0) return @"";
-    NSMutableString *out = [[s.lowercaseString stringByTrimmingCharactersInSet:
-                             [NSCharacterSet characterSetWithCharactersInString:@" .。、,·"]]
-                            mutableCopy];
-    NSDictionary *map = @{
-        @"×": @"&", @"・": @"&", @"·": @"&", @"、": @"&", @",": @"&", @" & ": @"&",
-    };
-    for (NSString *k in map) {
-        [out replaceOccurrencesOfString:k withString:map[k]
-                                options:0 range:NSMakeRange(0, out.length)];
-    }
-    NSRegularExpression *ws = [NSRegularExpression regularExpressionWithPattern:@"\\s+"
-                                                                       options:0 error:nil];
-    [ws replaceMatchesInString:out options:0
-                          range:NSMakeRange(0, out.length) withTemplate:@""];
-    return out;
+    return YTMUScrobbleNormalizeArtistForCompare(s);
 }
 
 // Does `resultArtist` plausibly refer to the same artist as our input
@@ -893,8 +879,7 @@ static NSInteger const kLastFMCacheSchemaVersion = 8;
 #pragma mark - Cache
 
 - (NSMutableDictionary<NSString *, NSDictionary *> *)loadCacheForKey:(NSString *)defaultsKey {
-    NSDictionary *root = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    id raw = root[defaultsKey];
+    id raw = YTMUSettingsObject(defaultsKey);
     if (![raw isKindOfClass:[NSDictionary class]]) return [NSMutableDictionary dictionary];
     return [NSMutableDictionary dictionaryWithDictionary:raw];
 }
@@ -931,7 +916,10 @@ static NSInteger const kLastFMCacheSchemaVersion = 8;
                 [cache removeObjectForKey:sorted[i]];
             }
         }
-        YTMUScrobbleSetDefaults(defaultsKey, cache);
+        // An immutable snapshot goes into the settings dictionary: the
+        // live mutable cache keeps changing on network callback queues
+        // while the snapshot may be serialised or read elsewhere.
+        YTMUScrobbleSetDefaults(defaultsKey, [cache copy]);
     }
 }
 

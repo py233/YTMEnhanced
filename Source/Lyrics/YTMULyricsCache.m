@@ -105,11 +105,16 @@
 
 - (void)storeResult:(YTMULyricsResult *)result forKey:(NSString *)key {
     if (!key.length || !result.hasText) return;
-    [self.memoryCache setObject:result forKey:key cost:[self costForResult:result]];
+    // Snapshot now: the caller keeps mutating its instance (the manager sets
+    // `title` on a re-pass hit, decorates romanization, …) while the archive
+    // below runs on the I/O queue. Both the memory entry and the file hold
+    // the frozen copy.
+    YTMULyricsResult *frozen = [result copy];
+    [self.memoryCache setObject:frozen forKey:key cost:[self costForResult:frozen]];
     dispatch_async(self.ioQueue, ^{
         [self ensureCacheDirectory];
         NSError *error = nil;
-        NSData *data = [NSKeyedArchiver archivedDataWithRootObject:result requiringSecureCoding:YES error:&error];
+        NSData *data = [NSKeyedArchiver archivedDataWithRootObject:frozen requiringSecureCoding:YES error:&error];
         if (data && !error) [data writeToFile:[self filePathForKey:key] atomically:YES];
     });
 }

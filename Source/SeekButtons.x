@@ -2,23 +2,16 @@
 #import "Headers/YTMNowPlayingView.h"
 #import "Headers/YTAssetLoader.h"
 #import "Headers/Localization.h"
+#import "Utils/YTMUSettings.h"
 
-static NSInteger seekTime() {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-
-    if (YTMUltimateDict && YTMUltimateDict[@"seekTime"]) {
-        NSInteger index = [YTMUltimateDict[@"seekTime"] integerValue];
-        NSArray *seekTimes = @[@0, @10, @20, @30, @60];
-
-        return [seekTimes[index] integerValue];
-    }
-
-    return 0;
-}
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
+// Index into the prefs segmented control (Default / 10 / 20 / 30 / 60).
+// Bounds-checked: a stale or hand-edited index must not become an
+// NSRangeException on the Now Playing screen.
+static NSInteger seekTime(void) {
+    static const NSInteger seekTimes[] = {0, 10, 20, 30, 60};
+    NSInteger index = YTMUSettingsInteger(@"seekTime", 0);
+    if (index < 0 || index >= (NSInteger)(sizeof(seekTimes) / sizeof(seekTimes[0]))) return 0;
+    return seekTimes[index];
 }
 
 %hook YTMNowPlayingViewController
@@ -48,8 +41,9 @@ static BOOL YTMU(NSString *key) {
         [longPressNext setMinimumPressDuration:0.5];
         [controlsView.nextButton addGestureRecognizer:longPressNext];
 
-        NSInteger backValue = seekTime() == 0 ? 10 : seekTime();
-        NSInteger forwardValue = seekTime() == 0 ? 30 : seekTime();
+        NSInteger configured = seekTime();
+        NSInteger backValue = configured == 0 ? 10 : configured;
+        NSInteger forwardValue = configured == 0 ? 30 : configured;
 
         YTAssetLoader *al = [[%c(YTAssetLoader) alloc] initWithBundle:[NSBundle mainBundle]];
 

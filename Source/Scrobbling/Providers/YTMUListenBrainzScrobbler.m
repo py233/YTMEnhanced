@@ -180,6 +180,10 @@ static NSError *YTMUListenBrainzError(NSInteger code, NSString *message) {
     [self submitBody:body completion:completion];
 }
 
+- (NSUInteger)maxBatchSize {
+    return kListenBrainzBatchMax;
+}
+
 - (void)submitBatch:(NSArray<YTMUListen *> *)listens completion:(YTMUScrobblerCompletion)completion {
     if (![self isEnabled] || ![self isConfigured] || listens.count == 0) {
         completion(NO, YTMUListenBrainzError(2003, @"Not configured or empty batch"));

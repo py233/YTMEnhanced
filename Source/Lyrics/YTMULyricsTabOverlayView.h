@@ -18,12 +18,6 @@
 @property (retain, nonatomic) UITextView *lyricsTextView;
 @property (retain, nonatomic) YTMUSyncedLyricsView *syncedLyricsView;
 @property (retain, nonatomic) UILabel *attributionLabel;
-@property (retain, nonatomic) UIButton *fontDecreaseButton;
-@property (retain, nonatomic) UIButton *fontIncreaseButton;
-@property (retain, nonatomic) UILabel *fontSizeLabel;
-@property (retain, nonatomic) UIButton *offsetDecreaseButton;
-@property (retain, nonatomic) UIButton *offsetIncreaseButton;
-@property (retain, nonatomic) UILabel *offsetLabel;
 @property (retain, nonatomic) UIView *sheetBackdropView;
 @property (retain, nonatomic) UIView *sheetContentView;
 @property (retain, nonatomic) UILabel *sheetValueLabel;
@@ -34,8 +28,6 @@
 - (void)ytmu_renderTabOverlay;
 - (void)ytmu_layoutSourceButtons;
 - (void)ytmu_updateSourceButtons;
-- (void)ytmu_updateFontControls;
-- (void)ytmu_updateTimingControls;
 - (void)ytmu_updateNowPlayingHeader;
 - (void)ytmu_presentLyricsMenu:(UIButton *)sender;
 - (void)ytmu_presentSourceMenuFromView:(UIView *)sourceView;
@@ -53,8 +45,5 @@
 - (void)ytmu_scrollSourceButtonIntoView:(UIButton *)button animated:(BOOL)animated;
 - (void)ytmu_selectLyricsSource:(UIButton *)sender;
 - (void)ytmu_cycleLyricsSource:(UISwipeGestureRecognizer *)gesture;
-- (void)ytmu_adjustLyricsFontSize:(UIButton *)sender;
-- (void)ytmu_adjustLyricsTiming:(UIButton *)sender;
-- (void)ytmu_resetLyricsTiming:(UITapGestureRecognizer *)gesture;
 @end
 

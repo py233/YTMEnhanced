@@ -1,9 +1,6 @@
 #import <Foundation/Foundation.h>
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
+#import "Utils/YTMUSettings.h"
+#import "Utils/YTMUKVC.h"
 
 @interface YTIPivotBarItemRenderer : NSObject
 @property(copy, nonatomic) NSString *pivotIdentifier;
@@ -247,17 +244,8 @@ static BOOL YTMU(NSString *key) {
 }
 %end
 
-// Remove Upgrade button
-%hook YTPivotBarView
-- (void)setRenderer:(YTIPivotBarRenderer *)renderer {
-    NSMutableArray <YTIPivotBarSupportedRenderers *> *items = [renderer itemsArray];
-    NSUInteger index = [items indexOfObjectPassingTest:^BOOL(YTIPivotBarSupportedRenderers *renderers, NSUInteger idx, BOOL *stop) {
-        return [[[renderers pivotBarItemRenderer] pivotIdentifier] isEqualToString:@"SPunlimited"];
-    }];
-    if (index != NSNotFound && YTMU(@"YTMUltimateIsEnabled")) [items removeObjectAtIndex:index];
-    %orig;
-}
-%end
+// The Upgrade tab ("SPunlimited") is removed in Source/YTMTab.x (the one
+// YTPivotBarView setRenderer: hook).
 
 %hook YTIShowFullscreenInterstitialCommand
 - (BOOL)shouldThrottleInterstitial{
@@ -326,7 +314,7 @@ static BOOL YTMU(NSString *key) {
 - (id)init {
     self = %orig;
     if (self && YTMU(@"YTMUltimateIsEnabled")) {
-        [self setValue:[NSNumber numberWithBool:YES] forKey:@"_isMobileAudioTierMode"];
+        YTMUSafeSetValueForKey(self, @"_isMobileAudioTierMode", @YES);
     }
     return self;
 }

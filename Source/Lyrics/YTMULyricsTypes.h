@@ -85,7 +85,6 @@ void YTMULyricsLogImpl(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 NSString *YTMULyricsSettingsString(NSString *key, NSString *fallback);
 BOOL YTMULyricsSettingsBool(NSString *key, BOOL fallback);
 NSInteger YTMULyricsSettingsInteger(NSString *key, NSInteger fallback);
-void YTMULyricsSetDefault(NSMutableDictionary *dict, NSString *key, id value);
 NSInteger YTMULyricsClampTimingOffsetMs(NSInteger value);
 NSString *YTMULyricsTimingOffsetKeyForInfo(YTMULyricsSearchInfo *info);
 NSInteger YTMULyricsTimingOffsetForKey(NSString *key);

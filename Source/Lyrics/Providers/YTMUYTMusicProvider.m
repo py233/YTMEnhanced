@@ -18,12 +18,16 @@ static NSString *const YTMUYTMusicNoLyricsSentinel = @"Lyrics not available"; //
     return YTMULyricsSourceYTMusic;
 }
 
+// `hl`/`gl` are pinned to English: without them InnerTube localizes to
+// the request's Accept-Language (which NSURLSession fills from the device
+// locale), and the "no lyrics" message would come back in Japanese or
+// Chinese and no longer match YTMUYTMusicNoLyricsSentinel.
 - (NSDictionary *)context {
-    return @{@"client": @{@"clientName": @"WEB_REMIX", @"clientVersion": YTMUYTMusicWebRemixClientVersion}};
+    return @{@"client": @{@"clientName": @"WEB_REMIX", @"clientVersion": YTMUYTMusicWebRemixClientVersion, @"hl": @"en", @"gl": @"US"}};
 }
 
 - (NSDictionary *)timedLyricsContext {
-    return @{@"client": @{@"clientName": YTMUYTMusicIOSClientName, @"clientVersion": YTMUYTMusicIOSClientVersion}};
+    return @{@"client": @{@"clientName": YTMUYTMusicIOSClientName, @"clientVersion": YTMUYTMusicIOSClientVersion, @"hl": @"en", @"gl": @"US"}};
 }
 
 - (void)postPath:(NSString *)path body:(NSDictionary *)body completion:(void(^)(NSDictionary *json, NSError *error))completion {
@@ -173,6 +177,10 @@ static NSString *const YTMUYTMusicNoLyricsSentinel = @"Lyrics not available"; //
     [self collectPlainLyricsFromNode:json into:plainParts];
     NSString *plain = [[plainParts componentsJoinedByString:@""] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if ([plain isEqualToString:YTMUYTMusicNoLyricsSentinel] || !plain.length) return nil;
+    // A single short line is a status message ("Lyrics not available" in
+    // some other language, "Lyrics coming soon"), never a song: real lyrics
+    // from this endpoint always span several lines.
+    if ([plain rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet]].location == NSNotFound && plain.length < 120) return nil;
 
     YTMULyricsResult *result = [[YTMULyricsResult alloc] init];
     result.sourceName = [self providerName];

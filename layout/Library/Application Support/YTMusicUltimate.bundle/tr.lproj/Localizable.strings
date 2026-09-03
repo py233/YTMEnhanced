@@ -66,10 +66,6 @@
 "CLEAR_CACHE" = "Önbelleği temizle";
 
 "LINKS" = "Bağlantılar";
-"TWITTER" = "Twitter'da %@'i takip edin";
-"TWITTER_DESC" = "Güncellemeler için beni takip edin";
-"DISCORD" = "Discord'a Katılın";
-"DISCORD_DESC" = "Hataları bildirin ve özellikler talep edin";
 "SOURCE_CODE" = "Kaynak kodu";
 "SOURCE_CODE_DESC" = "Koda bir göz atın";
 
@@ -176,8 +172,8 @@
 "SCROBBLE_LASTFM_HEADER" = "Last.fm";
 "SCROBBLE_LASTFM_ENABLE" = "Last.fm'e gönder";
 "SCROBBLE_LASTFM_FOOTER" = "last.fm/api/account/create adresinde bir API uygulaması oluştur, API key ile secret'ı buraya yapıştır ve Kimlik Doğrula'ya dokun.";
-"SCROBBLE_API_KEY" = "API key";
-"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_API_KEY" = "API anahtarı";
+"SCROBBLE_API_SECRET" = "API gizli anahtarı";
 "SCROBBLE_LASTFM_AUTHENTICATE" = "Kimlik doğrula";
 "SCROBBLE_LASTFM_FINISH_AUTH" = "Onayladım — bitir";
 "SCROBBLE_LASTFM_SIGN_OUT" = "Çıkış yap";
@@ -190,7 +186,7 @@
 "SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_ENABLE" = "ListenBrainz'e gönder";
 "SCROBBLE_LISTENBRAINZ_FOOTER" = "User Token'ı listenbrainz.org/profile/ adresinden kopyala ve buraya yapıştır. API root yalnızca kendi sunucunu kullanıyorsan değişmeli.";
-"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_USER_TOKEN" = "Kullanıcı belirteci";
 "SCROBBLE_API_ROOT" = "API kök adresi";
 "SCROBBLE_LISTENBRAINZ_VALIDATE" = "Token'ı doğrula";
 "SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz token geçerli";

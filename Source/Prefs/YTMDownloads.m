@@ -25,8 +25,11 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadData) name:@"ReloadDataNotification" object:nil];
 }
 
+// The empty-state views are built once and shown or hidden with the list
+// (they used to be added again on every empty reload, stacking up).
 - (void)maybeShowEmptyState {
-    if (self.audioFiles.count == 0) {
+    BOOL empty = self.audioFiles.count == 0;
+    if (empty && !self.imageView) {
         self.imageView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"yt_outline_audio_48pt" inBundle:[NSBundle mainBundle] compatibleWithTraitCollection:nil]];
         self.imageView.contentMode = UIViewContentModeScaleAspectFit;
         self.imageView.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
@@ -55,6 +58,8 @@
             [self.label.trailingAnchor constraintEqualToAnchor:self.tableView.trailingAnchor constant:-20],
         ]];
     }
+    self.imageView.hidden = !empty;
+    self.label.hidden = !empty;
 }
 
 - (void)dealloc {
@@ -136,16 +141,20 @@
         NSString *documentsDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
 
         UIImage *image = [UIImage imageWithContentsOfFile:[[documentsDirectory stringByAppendingPathComponent:@"YTMusicUltimate"] stringByAppendingPathComponent:imageName]];
-        CGFloat targetSize = 37.5;
-        CGFloat scaleFactor = targetSize / MAX(image.size.width, image.size.height);
-        CGSize scaledSize = CGSizeMake(image.size.width * scaleFactor, image.size.height * scaleFactor);
-        UIGraphicsBeginImageContextWithOptions(scaledSize, NO, 0.0);
-        [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height) cornerRadius:6] addClip];
-        [image drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
-        UIImage *roundedImage = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        roundedImage = [roundedImage imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
-        cell.imageView.image = roundedImage;
+        UIImage *roundedImage = nil;
+        // A download without a cover (or a cover that failed to decode)
+        // gets a placeholder; scaling a nil image divided by zero.
+        if (image.size.width > 0 && image.size.height > 0) {
+            CGFloat targetSize = 37.5;
+            CGFloat scaleFactor = targetSize / MAX(image.size.width, image.size.height);
+            CGSize scaledSize = CGSizeMake(image.size.width * scaleFactor, image.size.height * scaleFactor);
+            UIGraphicsBeginImageContextWithOptions(scaledSize, NO, 0.0);
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height) cornerRadius:6] addClip];
+            [image drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
+            roundedImage = [UIGraphicsGetImageFromCurrentImageContext() imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+            UIGraphicsEndImageContext();
+        }
+        cell.imageView.image = roundedImage ?: [UIImage systemImageNamed:@"music.note"];
     }
 
     else if (indexPath.section == 1) {
@@ -223,23 +232,29 @@
     textView.textAlignment = NSTextAlignmentNatural;
     textView.font = [UIFont systemFontOfSize:14.0];
 
+    NSString *currentName = [self.audioFiles[indexPath.row] stringByDeletingPathExtension];
     YTAlertView *alertView = [NSClassFromString(@"YTAlertView") confirmationDialogWithAction:^{
-        NSString *newName = [textView.text stringByReplacingOccurrencesOfString:@"/" withString:@""];
+        NSString *newName = [[textView.text stringByReplacingOccurrencesOfString:@"/" withString:@""]
+                             stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!newName.length || [newName isEqualToString:currentName]) return;
         NSString *extension = [audioURL pathExtension];
 
         NSURL *newAudioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.%@", newName, extension]];
         NSURL *newCoverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", newName]];
 
         NSError *error = nil;
-        [[NSFileManager defaultManager] moveItemAtURL:audioURL toURL:newAudioURL error:&error];
-        [[NSFileManager defaultManager] moveItemAtURL:coverURL toURL:newCoverURL error:&error];
-
-        if (!error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self reloadData];
-                [[NSClassFromString(@"YTMToastController") alloc] showMessage:LOC(@"DONE")];
-            });
-        }
+        BOOL moved = [[NSFileManager defaultManager] moveItemAtURL:audioURL toURL:newAudioURL error:&error];
+        // The cover is optional: a download without one must still rename.
+        if (moved) [[NSFileManager defaultManager] moveItemAtURL:coverURL toURL:newCoverURL error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!moved) {
+                NSLog(@"[YTMUDownloads] rename failed: %@", error);
+                [[NSClassFromString(@"YTMToastController") alloc] showMessage:LOC(@"OOPS")];
+                return;
+            }
+            [self reloadData];
+            [[NSClassFromString(@"YTMToastController") alloc] showMessage:LOC(@"DONE")];
+        });
     }
     actionTitle:LOC(@"RENAME")];
     alertView.title = @"YTMEnhanced";
@@ -258,16 +273,23 @@
     NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", [self.audioFiles[indexPath.row] stringByDeletingPathExtension]]];
 
     YTAlertView *alertView = [NSClassFromString(@"YTAlertView") confirmationDialogWithAction:^{
-        BOOL audioRemoved = [[NSFileManager defaultManager] removeItemAtURL:audioURL error:nil];
-        BOOL coverRemoved = [[NSFileManager defaultManager] removeItemAtURL:coverURL error:nil];
-
-        if (audioRemoved && coverRemoved) {
-            dispatch_async(dispatch_get_main_queue(), ^{
+        NSError *error = nil;
+        BOOL audioRemoved = [[NSFileManager defaultManager] removeItemAtURL:audioURL error:&error];
+        // The cover is optional; a download without one used to leave the
+        // row behind even though its audio was gone.
+        [[NSFileManager defaultManager] removeItemAtURL:coverURL error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!audioRemoved) {
+                NSLog(@"[YTMUDownloads] delete failed: %@", error);
+                [[NSClassFromString(@"YTMToastController") alloc] showMessage:LOC(@"OOPS")];
+                return;
+            }
+            if (indexPath.row < self.audioFiles.count) {
                 [self.audioFiles removeObjectAtIndex:indexPath.row];
                 [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-                [self maybeShowEmptyState];
-            });
-        }
+            }
+            [self maybeShowEmptyState];
+        });
     }
     actionTitle:LOC(@"DELETE")];
     alertView.title = @"YTMEnhanced";

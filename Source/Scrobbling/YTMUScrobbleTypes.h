@@ -127,9 +127,16 @@ typedef void (^YTMUScrobblerCompletion)(BOOL success, NSError *_Nullable error);
             completion:(YTMUScrobblerCompletion)completion;
 
 // Submit a batch of pending scrobbles in one request (used to flush
-// the offline queue). Order matters — older first.
+// the offline queue). Order matters — older first. The manager never
+// hands over more than `maxBatchSize` listens at once.
 - (void)submitBatch:(NSArray<YTMUListen *> *)listens
          completion:(YTMUScrobblerCompletion)completion;
+
+@optional
+// The most listens one submitBatch: call may carry (last.fm: 50,
+// ListenBrainz: 1000). The manager chunks the queue accordingly and
+// only removes what a chunk actually submitted. Absent = 50.
+- (NSUInteger)maxBatchSize;
 
 @end
 

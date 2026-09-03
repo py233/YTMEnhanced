@@ -1,6 +1,4 @@
-#import <UIKit/UIKit.h>
-#import "../Headers/Localization.h"
+#import "YTMUSettingsTableController.h"
 
-@interface NavBarSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource>
-@property (nonatomic, strong) UITableView* tableView;
+@interface NavBarSettingsController : YTMUSettingsTableController
 @end

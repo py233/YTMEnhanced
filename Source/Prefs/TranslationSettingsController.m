@@ -10,6 +10,7 @@
 #import "../Lyrics/YTMULyricsDescriptionExtractor.h"
 #import "../Lyrics/YTMUInnerTubeDescriptionFetcher.h"
 #import "../Lyrics/YTMULyricsTypes.h"
+#import "../Utils/YTMUSettings.h"
 
 @interface YTMUTranslationLanguageController : UITableViewController
 @property (nonatomic, copy) NSArray<NSDictionary *> *languages;
@@ -49,20 +50,7 @@
         self.navigationItem.backButtonDisplayMode = UINavigationItemBackButtonDisplayModeGeneric;
     }
     [self ensureDefaults];
-
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
-    self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.tableView.dataSource = self;
-    self.tableView.delegate = self;
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
-    [self.view addSubview:self.tableView];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [self.tableView.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [self.tableView.widthAnchor constraintEqualToAnchor:self.view.widthAnchor],
-        [self.tableView.heightAnchor constraintEqualToAnchor:self.view.heightAnchor]
-    ]];
 
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
@@ -121,31 +109,12 @@
 }
 
 - (void)ensureDefaults {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
-    YTMULyricsSetDefault(dict, @"bilingualLyrics", @(NO));
-    YTMULyricsSetDefault(dict, @"syncedLyricsEnabled", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", dict[@"bilingualLyrics"] ?: @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
-    YTMULyricsSetDefault(dict, @"lyricsShowInexact", @(YES));
-    YTMULyricsSetDefault(dict, @"lyricsRomanization", @(YES));
-    YTMULyricsSetDefault(dict, @"lyricsConvertChinese", @"disabled");
-    YTMULyricsSetDefault(dict, @"lyricsShowTimeCodes", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsLineEffect", @"fancy");
-    YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetActiveKey", @"");
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsets", @{});
-    YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
-    YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
-    YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
-    YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
-    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(NO));
-    [defaults setObject:dict forKey:@"YTMUltimate"];
+    // Same table Source/Defaults.x applies at launch; harmless to repeat.
+    YTMUSettingsRegisterDefaults(YTMUSettingsBuiltInDefaults());
 }
 
-- (NSMutableDictionary *)settings {
-    return [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{}];
+- (NSDictionary *)settings {
+    return YTMUSettingsSnapshot();
 }
 
 - (void)setSetting:(id)value forKey:(NSString *)key {
@@ -153,13 +122,11 @@
 }
 
 - (void)setSettings:(NSDictionary<NSString *, id> *)values notificationKey:(NSString *)notificationKey {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *dict = [self settings];
-    [values enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
-        if (key.length) dict[key] = value ?: @"";
-    }];
-    [defaults setObject:dict forKey:@"YTMUltimate"];
-    [defaults synchronize];
+    YTMUSettingsUpdate(^(NSMutableDictionary<NSString *, id> *settings) {
+        [values enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+            if (key.length) settings[key] = value ?: @"";
+        }];
+    }, values.allKeys);
     YTMULyricsLog(@"settings changed keys=%@", values.allKeys);
     NSDictionary *userInfo = notificationKey.length ? @{YTMULyricsSettingChangedKey: notificationKey} : @{};
     [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification object:self userInfo:userInfo];
@@ -310,29 +277,7 @@
 
 #pragma mark - Cells
 
-- (UITableViewCell *)switchCellWithTitle:(NSString *)title detail:(NSString *)detail key:(NSString *)key fallback:(BOOL)fallback action:(SEL)action {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"switchCell"];
-    cell.textLabel.text = title;
-    cell.detailTextLabel.text = detail;
-    cell.detailTextLabel.numberOfLines = 0;
-    cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-    ABCSwitch *switchControl = [[NSClassFromString(@"ABCSwitch") alloc] init];
-    switchControl.onTintColor = [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
-    switchControl.on = [self boolSetting:key fallback:fallback];
-    switchControl.accessibilityIdentifier = key;
-    [switchControl addTarget:self action:action forControlEvents:UIControlEventValueChanged];
-    cell.accessoryView = switchControl;
-    return cell;
-}
-
-- (UITableViewCell *)choiceCellWithTitle:(NSString *)title detail:(NSString *)detail {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"choiceCell"];
-    cell.textLabel.text = title;
-    cell.detailTextLabel.text = detail;
-    cell.detailTextLabel.adjustsFontSizeToFitWidth = YES;
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    return cell;
-}
+// switchCellWithTitle:… and choiceCellWithTitle:… come from YTMUSettingsTableController.
 
 #pragma mark - Table view
 

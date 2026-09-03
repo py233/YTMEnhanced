@@ -70,10 +70,17 @@
         return NSOrderedSame;
     }];
 
+    // LRC convention (foobar2000, Musixmatch, most players): a positive
+    // [offset:] makes the lyrics appear *earlier*, so it is subtracted from
+    // every timestamp. It used to be added — and durations used to be
+    // measured against the *next* line's not-yet-shifted time, which
+    // stretched every line by the offset; shift first, then measure.
+    for (YTMULyricLine *line in lines) {
+        line.timeInMs = MAX(0, line.timeInMs - offset);
+        line.time = [self timeStringForMs:line.timeInMs];
+    }
     for (NSUInteger i = 0; i < lines.count; i++) {
         YTMULyricLine *current = lines[i];
-        current.timeInMs += offset;
-        current.time = [self timeStringForMs:current.timeInMs];
         if (i + 1 < lines.count) {
             current.durationMs = MAX(0, lines[i + 1].timeInMs - current.timeInMs);
         } else {

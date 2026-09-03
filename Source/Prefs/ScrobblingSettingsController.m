@@ -30,20 +30,7 @@ typedef NS_ENUM(NSInteger, ScrobblingSection) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = LOC(@"SCROBBLING_SETTINGS");
-
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
-    self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.tableView.dataSource = self;
-    self.tableView.delegate = self;
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
-    [self.view addSubview:self.tableView];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-    ]];
 
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
@@ -56,27 +43,7 @@ typedef NS_ENUM(NSInteger, ScrobblingSection) {
 
 #pragma mark - Cell helpers
 
-// Standard ABCSwitch row. NSUserDefaults key is the switch's
-// accessibilityIdentifier — same convention as TranslationSettings.
-- (UITableViewCell *)switchCellWithTitle:(NSString *)title
-                                  detail:(nullable NSString *)detail
-                                     key:(NSString *)key
-                                fallback:(BOOL)fallback
-                                  action:(SEL)action {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"switchCell"];
-    cell.textLabel.text = title;
-    cell.detailTextLabel.text = detail;
-    cell.detailTextLabel.numberOfLines = 0;
-    cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    ABCSwitch *switchControl = [[NSClassFromString(@"ABCSwitch") alloc] init];
-    switchControl.onTintColor = [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
-    switchControl.on = YTMUScrobbleDefaultsBool(key, fallback);
-    switchControl.accessibilityIdentifier = key;
-    [switchControl addTarget:self action:action forControlEvents:UIControlEventValueChanged];
-    cell.accessoryView = switchControl;
-    return cell;
-}
+// switchCellWithTitle:… comes from YTMUSettingsTableController.
 
 - (UITableViewCell *)textFieldCellWithTitle:(NSString *)title
                                         key:(NSString *)key

@@ -1,7 +1,5 @@
-#import <UIKit/UIKit.h>
-#import "../Headers/Localization.h"
+#import "YTMUSettingsTableController.h"
 
-@interface ScrobblingSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
-@property (nonatomic, strong) UITableView *tableView;
+@interface ScrobblingSettingsController : YTMUSettingsTableController <UITextFieldDelegate>
 @property (nonatomic, weak) UITextField *activeTextField;
 @end

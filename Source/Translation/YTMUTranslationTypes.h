@@ -30,7 +30,20 @@ typedef NS_ENUM(NSInteger, YTMUTranslationErrorCode) {
     YTMUTranslationErrorMissingAPIKey  = 5,
     YTMUTranslationErrorEmptyResponse  = 6,
     YTMUTranslationErrorHTTPStatus     = 7,
+    // The model stopped at its output token limit; the text is unusable.
+    YTMUTranslationErrorTruncated      = 8,
+    // The provider's safety filter refused this content.
+    YTMUTranslationErrorContentBlocked = 9,
 };
+
+// NSNumber (the HTTP status) in the userInfo of YTMUTranslationErrorHTTPStatus
+// errors that came from a real HTTP response; absent for stream-level
+// error events. The translator's retry policy reads it.
+extern NSString *const YTMUTranslationErrorHTTPStatusKey;
+
+NSError *YTMUTranslationMakeError(YTMUTranslationErrorCode code, NSString *_Nullable message);
+// "<label> <status>: <first bodyLimit characters of body>", status in userInfo.
+NSError *YTMUTranslationHTTPError(NSString *label, NSInteger status, NSData *_Nullable body, NSUInteger bodyLimit);
 
 @interface YTMUTranslationRequest : NSObject
 @property (nonatomic, copy) NSString *title;

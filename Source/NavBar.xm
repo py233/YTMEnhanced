@@ -1,10 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
+#import "Utils/YTMUSettings.h"
 
 @interface YTMNavigationBarView : UIView
 @end

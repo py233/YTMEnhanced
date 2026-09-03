@@ -1,4 +1,5 @@
 #import "YTMULyricsDescriptionExtractor.h"
+#import "../Translation/YTMULLMTextUtils.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import "../Utils/YTMUPlistStore.h"
 #import "../Utils/YTMUInflightCoalescer.h"
@@ -29,6 +30,14 @@ static NSString *const YTMULDELegacyFailuresKey = @"YTMULDescriptionExtractFailu
 // normalising punctuation the verifier rejects), so without this every
 // play of such a song re-spent an LLM call.
 static const NSTimeInterval YTMULDEFailureTTL = 6 * 60 * 60;
+
+// A confirmed "this description has no lyrics" verdict is the model's
+// opinion, not a fact; ask again after a week. A positive extraction is
+// re-verified after a month in case the uploader edited the description.
+// Entries written before `ts` existed have no timestamp and never expire,
+// exactly as before.
+static const NSTimeInterval YTMULDENegativeTTL = 7 * 24 * 60 * 60;
+static const NSTimeInterval YTMULDEPositiveTTL = 30 * 24 * 60 * 60;
 
 // Description blocks under this length almost never contain a real lyric
 // section — typically uploader handle + one-liner + URL. Skip the AI call
@@ -138,6 +147,12 @@ static NSError *YTMULDEError(NSInteger code, NSString *message) {
         return [[YTMULyricsDescriptionExtraction alloc] init];
     }
     YTMULyricsDescriptionExtraction *e = [self extractionFromPlist:dict];
+    id ts = dict[@"ts"];
+    if ([ts isKindOfClass:[NSNumber class]]) {
+        NSTimeInterval age = [[NSDate date] timeIntervalSince1970] - [ts doubleValue];
+        NSTimeInterval ttl = e.sourceLines.count ? YTMULDEPositiveTTL : YTMULDENegativeTTL;
+        if (age < 0 || age >= ttl) return nil;
+    }
     // Empty/null cache hits ARE meaningful — they record "we already
     // checked this videoId and there were no lyrics in the description".
     // We still return them so callers don't re-fire the AI request. The
@@ -179,77 +194,11 @@ static NSString *const YTMULDESystemPrompt =
 
 #pragma mark - JSON parsing
 
-// Strip ```json…``` (any language tag) by walking characters. See the
-// matching parser in YTMULyricsTitleNormalizer for the rationale —
-// the older "find first newline" approach quietly failed when models
-// emitted a fence with no newline after the language tag.
-- (NSString *)stripMarkdownFences:(NSString *)text {
-    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if ([trimmed hasPrefix:@"```"]) {
-        NSUInteger i = 3;
-        while (i < trimmed.length) {
-            unichar c = [trimmed characterAtIndex:i];
-            if (c == '\n' || c == '\r' || c == ' ' || c == '\t') break;
-            i++;
-        }
-        while (i < trimmed.length) {
-            unichar c = [trimmed characterAtIndex:i];
-            if (c != '\n' && c != '\r' && c != ' ' && c != '\t') break;
-            i++;
-        }
-        trimmed = [trimmed substringFromIndex:i];
-    }
-    if ([trimmed hasSuffix:@"```"]) trimmed = [trimmed substringToIndex:trimmed.length - 3];
-    return [trimmed stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-}
-
+// Fence stripping, greedy and brace-balanced extraction live in
+// YTMULLMFirstJSONObject (shared with the translator and the description
+// extractor).
 - (nullable NSDictionary *)parseJSON:(NSString *)text {
-    if (!text.length) return nil;
-    NSString *clean = [self stripMarkdownFences:text];
-    NSData *data = [clean dataUsingEncoding:NSUTF8StringEncoding];
-    if (data) {
-        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-    }
-    // Greedy first { … last }
-    NSRange open = [clean rangeOfString:@"{"];
-    NSRange close = [clean rangeOfString:@"}" options:NSBackwardsSearch];
-    if (open.location != NSNotFound && close.location != NSNotFound && close.location > open.location) {
-        NSString *substr = [clean substringWithRange:NSMakeRange(open.location, close.location - open.location + 1)];
-        NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
-        id obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
-        if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-    }
-    // Brace-balanced extraction with string-literal awareness.
-    if (open.location != NSNotFound) {
-        NSUInteger len = clean.length;
-        NSUInteger depth = 0;
-        BOOL inString = NO;
-        BOOL escape = NO;
-        NSUInteger endIdx = NSNotFound;
-        for (NSUInteger i = open.location; i < len; i++) {
-            unichar c = [clean characterAtIndex:i];
-            if (inString) {
-                if (escape) { escape = NO; continue; }
-                if (c == '\\') { escape = YES; continue; }
-                if (c == '"') inString = NO;
-                continue;
-            }
-            if (c == '"') { inString = YES; continue; }
-            if (c == '{') { depth++; }
-            else if (c == '}') {
-                if (depth > 0) depth--;
-                if (depth == 0) { endIdx = i; break; }
-            }
-        }
-        if (endIdx != NSNotFound) {
-            NSString *substr = [clean substringWithRange:NSMakeRange(open.location, endIdx - open.location + 1)];
-            NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
-            id obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
-            if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-        }
-    }
-    return nil;
+    return YTMULLMFirstJSONObject(text);
 }
 
 #pragma mark - Verification
@@ -446,6 +395,7 @@ static NSString *const YTMULDESystemPrompt =
                 @"confidence": @(result.confidence),
                 @"raw_t":      originalTitle,
                 @"raw_a":      originalArtist,
+                @"ts":         @([[NSDate date] timeIntervalSince1970]),
             };
             [weakSelf writePlist:plist forVideoId:videoId];
             YTMULyricsLog(@"description extract success videoId=%@ lines=%lu translated=%lu lang=%@ tr_lang=%@ conf=%.2f",

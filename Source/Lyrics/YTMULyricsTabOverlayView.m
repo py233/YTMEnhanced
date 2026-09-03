@@ -85,56 +85,6 @@
         }
         self.sourceButtons = buttons;
 
-        self.offsetDecreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.offsetDecreaseButton.tag = -100;
-        [self.offsetDecreaseButton setTitle:@"-0.1s" forState:UIControlStateNormal];
-        [self.offsetDecreaseButton addTarget:self action:@selector(ytmu_adjustLyricsTiming:) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:self.offsetDecreaseButton];
-
-        self.offsetLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        self.offsetLabel.textAlignment = NSTextAlignmentCenter;
-        self.offsetLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
-        self.offsetLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
-        self.offsetLabel.userInteractionEnabled = YES;
-        UITapGestureRecognizer *resetOffset = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(ytmu_resetLyricsTiming:)];
-        [self.offsetLabel addGestureRecognizer:resetOffset];
-        [self addSubview:self.offsetLabel];
-
-        self.offsetIncreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.offsetIncreaseButton.tag = 100;
-        [self.offsetIncreaseButton setTitle:@"+0.1s" forState:UIControlStateNormal];
-        [self.offsetIncreaseButton addTarget:self action:@selector(ytmu_adjustLyricsTiming:) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:self.offsetIncreaseButton];
-
-        self.fontDecreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.fontDecreaseButton.tag = -1;
-        [self.fontDecreaseButton setTitle:@"A-" forState:UIControlStateNormal];
-        [self.fontDecreaseButton addTarget:self action:@selector(ytmu_adjustLyricsFontSize:) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:self.fontDecreaseButton];
-
-        self.fontSizeLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        self.fontSizeLabel.textAlignment = NSTextAlignmentCenter;
-        self.fontSizeLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
-        self.fontSizeLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.72];
-        [self addSubview:self.fontSizeLabel];
-
-        self.fontIncreaseButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.fontIncreaseButton.tag = 1;
-        [self.fontIncreaseButton setTitle:@"A+" forState:UIControlStateNormal];
-        [self.fontIncreaseButton addTarget:self action:@selector(ytmu_adjustLyricsFontSize:) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:self.fontIncreaseButton];
-
-        for (UIButton *button in @[self.offsetDecreaseButton, self.offsetIncreaseButton, self.fontDecreaseButton, self.fontIncreaseButton]) {
-            button.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
-            [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            button.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.12];
-            button.layer.cornerRadius = 15.0;
-            button.clipsToBounds = YES;
-            button.hidden = YES;
-        }
-        self.offsetLabel.hidden = YES;
-        self.fontSizeLabel.hidden = YES;
-
         self.lyricsTextView = [[UITextView alloc] initWithFrame:CGRectZero];
         self.lyricsTextView.backgroundColor = [UIColor clearColor];
         self.lyricsTextView.editable = NO;
@@ -224,12 +174,6 @@
                                                 1.0 / MAX(1.0, UIScreen.mainScreen.scale));
 
     self.sourceScrollView.frame = CGRectMake(sideInset, CGRectGetMaxY(self.headerSeparatorView.frame), self.bounds.size.width - sideInset * 2.0, 1.0);
-    self.offsetDecreaseButton.frame = CGRectZero;
-    self.offsetLabel.frame = CGRectZero;
-    self.offsetIncreaseButton.frame = CGRectZero;
-    self.fontDecreaseButton.frame = CGRectZero;
-    self.fontSizeLabel.frame = CGRectZero;
-    self.fontIncreaseButton.frame = CGRectZero;
 
     CGFloat textY = CGRectGetMaxY(self.headerSeparatorView.frame) + 12.0;
     CGFloat attributionY = self.bounds.size.height - bottomInset - attributionHeight;
@@ -286,8 +230,6 @@
     }
     self.attributionLabel.text = YTMULyricsPageAttributionText();
     [self ytmu_updateSourceButtons];
-    [self ytmu_updateFontControls];
-    [self ytmu_updateTimingControls];
     [self setNeedsLayout];
 
     YTMULyricsLog(@"lyrics tab overlay rendered state=%ld source=%@ lines=%lu translated=%lu",
@@ -295,24 +237,6 @@
                   manager.currentResult.sourceName ?: @"<none>",
                   (unsigned long)manager.displayLineTexts.count,
                   (unsigned long)manager.translatedLines.count);
-}
-
-- (void)ytmu_updateFontControls {
-    CGFloat size = YTMULyricsPageBaseFontSize();
-    self.fontSizeLabel.text = [NSString stringWithFormat:@"%.0f", size];
-    self.fontDecreaseButton.enabled = size > 16.0;
-    self.fontIncreaseButton.enabled = size < 38.0;
-    self.fontDecreaseButton.alpha = self.fontDecreaseButton.enabled ? 1.0 : 0.38;
-    self.fontIncreaseButton.alpha = self.fontIncreaseButton.enabled ? 1.0 : 0.38;
-}
-
-- (void)ytmu_updateTimingControls {
-    NSInteger offset = YTMULyricsPageTimingOffsetMs();
-    self.offsetLabel.text = [NSString stringWithFormat:@"%+.1fs", offset / 1000.0];
-    self.offsetDecreaseButton.enabled = offset > -10000;
-    self.offsetIncreaseButton.enabled = offset < 10000;
-    self.offsetDecreaseButton.alpha = self.offsetDecreaseButton.enabled ? 1.0 : 0.38;
-    self.offsetIncreaseButton.alpha = self.offsetIncreaseButton.enabled ? 1.0 : 0.38;
 }
 
 - (void)ytmu_updateNowPlayingHeader {
@@ -694,7 +618,6 @@
     if (fabs(next - YTMULyricsPageBaseFontSize()) < 0.5) return;
     YTMULyricsPageSetBaseFontSize(next);
     self.lastFontCommitTime = [NSDate timeIntervalSinceReferenceDate];
-    [self ytmu_updateFontControls];
 }
 
 - (void)ytmu_timingButtonTapped:(UIButton *)sender {
@@ -735,7 +658,6 @@
 }
 
 - (void)ytmu_applyTimingOffsetChange {
-    [self ytmu_updateTimingControls];
     if (!self.syncedLyricsView.hidden) {
         [self.syncedLyricsView updatePlaybackTimeMs:[[YTMULyricsPlaybackState sharedState] currentPlaybackTimeMs]];
     }
@@ -798,26 +720,6 @@
         [self ytmu_scrollSourceButtonIntoView:self.sourceButtons[(NSUInteger)index] animated:YES];
     }
     YTMULyricsLog(@"lyrics tab source swiped=%@", YTMULyricsPageSourceTitle(key));
-}
-
-- (void)ytmu_adjustLyricsFontSize:(UIButton *)sender {
-    CGFloat next = YTMULyricsPageBaseFontSize() + (sender.tag < 0 ? -2.0 : 2.0);
-    YTMULyricsPageSetBaseFontSize(next);
-    [self ytmu_updateFontControls];
-    YTMULyricsLog(@"lyrics page font size=%.0f", YTMULyricsPageBaseFontSize());
-}
-
-- (void)ytmu_adjustLyricsTiming:(UIButton *)sender {
-    NSInteger next = YTMULyricsPageTimingOffsetMs() + sender.tag;
-    YTMULyricsPageSetTimingOffsetMs(next);
-    [self ytmu_applyTimingOffsetChange];
-    YTMULyricsLog(@"lyrics page timing offset=%ldms", (long)YTMULyricsPageTimingOffsetMs());
-}
-
-- (void)ytmu_resetLyricsTiming:(UITapGestureRecognizer *)gesture {
-    YTMULyricsPageSetTimingOffsetMs(0);
-    [self ytmu_applyTimingOffsetChange];
-    YTMULyricsLog(@"lyrics page timing offset reset");
 }
 
 @end

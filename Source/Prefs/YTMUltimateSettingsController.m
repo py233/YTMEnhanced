@@ -1,4 +1,20 @@
 #import "YTMUltimateSettingsController.h"
+#import "../Utils/YTMUSettings.h"
+#import "../Utils/YTMUPaths.h"
+#import "../Lyrics/YTMULyricsCache.h"
+#import "../Lyrics/YTMURomanizationService.h"
+#import "../Lyrics/YTMULyricsTitleNormalizer.h"
+#import "../Lyrics/YTMULyricsDescriptionExtractor.h"
+#import "../Lyrics/YTMUInnerTubeDescriptionFetcher.h"
+#import "../Translation/YTMUTranslationCache.h"
+#import "../Scrobbling/YTMUScrobbleResolver.h"
+
+@interface YTMUltimateSettingsController ()
+// The tweak's cache size, measured off the main thread on demand; nil
+// while unknown (the row shows "…").
+@property (nonatomic, copy) NSString *cacheSizeText;
+@property (nonatomic) BOOL cacheSizeInFlight;
+@end
 
 @implementation YTMUltimateSettingsController
 
@@ -39,12 +55,7 @@
     ]];
 
     //Init isEnabled for first time
-    NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
-    if (!YTMUltimateDict[@"YTMUltimateIsEnabled"]) {
-        [YTMUltimateDict setObject:@(1) forKey:@"YTMUltimateIsEnabled"];
-        [[NSUserDefaults standardUserDefaults] setObject:YTMUltimateDict forKey:@"YTMUltimate"];
-    }
-
+    YTMUSettingsRegisterDefaults(@{@"YTMUltimateIsEnabled": @YES});
 }
 
 #pragma mark - Table view stuff
@@ -106,7 +117,7 @@
         }
     }
 
-    NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
+    NSDictionary *YTMUltimateDict = YTMUSettingsSnapshot();
 
     if (indexPath.section == 0) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"masterSection"];
@@ -155,7 +166,7 @@
         cell.textLabel.text = LOC(@"CLEAR_CACHE");
 
         UILabel *cache = [[UILabel alloc] init];
-        cache.text = [self getCacheSize];
+        cache.text = self.cacheSizeText ?: @"…";
         cache.textColor = [UIColor secondaryLabelColor];
         cache.font = [UIFont systemFontOfSize:16];
         cache.textAlignment = NSTextAlignmentRight;
@@ -164,6 +175,7 @@
         cell.accessoryView = cache;
         cell.imageView.image = [UIImage systemImageNamed:@"trash"];
         cell.imageView.tintColor = [UIColor redColor];
+        if (!self.cacheSizeText) [self measureCacheSize];
 
         return cell;
     }
@@ -200,21 +212,62 @@
     return cell;
 }
 
-- (NSString *)getCacheSize {
-    NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    NSArray *filesArray = [[NSFileManager defaultManager] subpathsOfDirectoryAtPath:cachePath error:nil];
-
-    unsigned long long int folderSize = 0;
-    for (NSString *fileName in filesArray) {
-        NSString *filePath = [cachePath stringByAppendingPathComponent:fileName];
-        NSDictionary *fileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil];
-        folderSize += [fileAttributes fileSize];
+// Only the tweak's own cache root (YTMUCachesDirectory) is measured and
+// cleared. The app's caches under Library/Caches are not ours; upstream
+// summed all of them on the main thread and deleted the whole directory.
+static NSString *YTMUCacheSizeText(void) {
+    NSString *cachePath = YTMUCachesDirectory();
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    unsigned long long folderSize = 0;
+    for (NSString *fileName in [fileManager subpathsOfDirectoryAtPath:cachePath error:nil]) {
+        NSDictionary *attributes = [fileManager attributesOfItemAtPath:[cachePath stringByAppendingPathComponent:fileName] error:nil];
+        if ([attributes.fileType isEqualToString:NSFileTypeRegular]) folderSize += attributes.fileSize;
     }
-
     NSByteCountFormatter *formatter = [[NSByteCountFormatter alloc] init];
     formatter.countStyle = NSByteCountFormatterCountStyleFile;
+    return [formatter stringFromByteCount:(long long)folderSize];
+}
 
-    return [formatter stringFromByteCount:folderSize];
+- (void)measureCacheSize {
+    if (self.cacheSizeInFlight) return;
+    self.cacheSizeInFlight = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSString *text = YTMUCacheSizeText();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            strongSelf.cacheSizeInFlight = NO;
+            strongSelf.cacheSizeText = text;
+            [strongSelf.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:0 inSection:2]] withRowAnimation:UITableViewRowAnimationNone];
+        });
+    });
+}
+
+- (void)clearCaches {
+    // Each module drops its memory cache and its own files; whatever is
+    // left under the root afterwards (older layouts, stray files) goes too.
+    [[YTMULyricsCache sharedCache] clearAll];
+    [[YTMUTranslationCache sharedCache] clearAll];
+    [[YTMURomanizationService sharedService] clearMemoryCache];
+    [[YTMULyricsTitleNormalizer sharedNormalizer] clearCache];
+    [[YTMULyricsDescriptionExtractor sharedExtractor] clearCache];
+    [[YTMUInnerTubeDescriptionFetcher sharedFetcher] clearCache];
+    [[YTMUScrobbleResolver sharedResolver] clearCaches];
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSString *root = YTMUCachesDirectory();
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        for (NSString *child in [fileManager contentsOfDirectoryAtPath:root error:nil]) {
+            [fileManager removeItemAtPath:[root stringByAppendingPathComponent:child] error:nil];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            strongSelf.cacheSizeText = nil;
+            [strongSelf.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:0 inSection:2]] withRowAnimation:UITableViewRowAnimationNone];
+        });
+    });
 }
 
 #pragma mark - UITableViewDelegate
@@ -244,15 +297,7 @@
         [activityIndicator startAnimating];
         UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
         cell.accessoryView = activityIndicator;
-
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-            [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:0 inSection:2]] withRowAnimation:UITableViewRowAnimationNone];
-            });
-        });
+        [self clearCaches];
     }
 
     if (indexPath.section == 3) {
@@ -296,11 +341,7 @@
 }
 
 - (void)toggleMasterSwitch:(UISwitch *)sender {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *twitchDvnDict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"]];
-
-    [twitchDvnDict setObject:@([sender isOn]) forKey:@"YTMUltimateIsEnabled"];
-    [defaults setObject:twitchDvnDict forKey:@"YTMUltimate"];
+    YTMUSettingsSetObject(@"YTMUltimateIsEnabled", @([sender isOn]));
 }
 
 @end

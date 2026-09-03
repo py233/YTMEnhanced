@@ -325,7 +325,7 @@ static BOOL YTMUSCTrySplitTitle(NSString *track,
 // single canonical form so we can compare "tosho_aTe × ukaihi"
 // against "tosho_aTe & ukaihi" without a false negative. Also
 // lowercases and trims punctuation tails like "Seeka ." → "seeka".
-static NSString *YTMUSCNormalizeArtistForCompare(NSString *s) {
+NSString *YTMUScrobbleNormalizeArtistForCompare(NSString *s) {
     if (s.length == 0) return @"";
     NSString *trimmed = [s stringByTrimmingCharactersInSet:
                          [NSCharacterSet characterSetWithCharactersInString:@" .。、,·"]];
@@ -345,7 +345,9 @@ static NSString *YTMUSCNormalizeArtistForCompare(NSString *s) {
                                   range:NSMakeRange(0, out.length)];
     }
     // Collapse any whitespace.
-    NSRegularExpression *ws = YTMUSCRegex(@"\\s+", 0);
+    static NSRegularExpression *ws;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ ws = YTMUSCRegex(@"\\s+", 0); });
     [ws replaceMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@""];
     return out;
 }
@@ -416,8 +418,8 @@ static NSString *YTMUSCStripSlashSuffix(NSString *track, NSString *artist) {
                                 range:NSMakeRange(0, rightForCompare.length) withTemplate:@""];
     [featBare replaceMatchesInString:rightForCompare options:0
                                range:NSMakeRange(0, rightForCompare.length) withTemplate:@""];
-    NSString *rightNorm = YTMUSCNormalizeArtistForCompare(rightForCompare);
-    NSString *artistNorm = YTMUSCNormalizeArtistForCompare(artistCleaned);
+    NSString *rightNorm = YTMUScrobbleNormalizeArtistForCompare(rightForCompare);
+    NSString *artistNorm = YTMUScrobbleNormalizeArtistForCompare(artistCleaned);
     BOOL suffixIsArtist = artistNorm.length > 0 && [rightNorm isEqualToString:artistNorm];
     BOOL suffixIsVoicebank = YTMUSCSuffixIsKnownVoicebank(rightCleaned);
     if (!suffixIsArtist && !suffixIsVoicebank) return track;

@@ -1,9 +1,5 @@
 #import <Foundation/Foundation.h>
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
+#import "Utils/YTMUSettings.h"
 
 @interface YTMBackgroundUpsellNotificationController : NSObject
 - (void)removePendingBackgroundNotifications;
@@ -61,14 +57,3 @@ static BOOL YTMU(NSString *key) {
     return YTMU(@"YTMUltimateIsEnabled") && YTMU(@"backgroundPlayback") ? YES : %orig;
 }
 %end
-
-%ctor {
-    NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
-    NSArray *keys = @[@"YTMUltimateIsEnabled", @"backgroundPlayback", @"noAds", @"downloadAudio", @"downloadCoverImage"];
-    for (NSString *key in keys) {
-        if (!YTMUltimateDict[key]) {
-            [YTMUltimateDict setObject:@(1) forKey:key];
-            [[NSUserDefaults standardUserDefaults] setObject:YTMUltimateDict forKey:@"YTMUltimate"];
-        }
-    }
-}

@@ -1,6 +1,7 @@
 #import "YTMUNetEaseProvider.h"
 #import "../YTMULRCParser.h"
 #import "../../Utils/NSBundle+YTMU.h"
+#import "../../Utils/YTMUConcurrencyLimiter.h"
 #import <CommonCrypto/CommonCrypto.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <float.h>
@@ -159,19 +160,16 @@ static const CGFloat YTMUNetEaseInexactMinScore = 1.25;
     return [parts componentsJoinedByString:@"; "];
 }
 
+// Foundation's cookie parser understands the folded Set-Cookie header,
+// including the comma inside an `Expires=Wed, 21 Oct …` attribute that a
+// naive split on "," turned into a bogus cookie.
 - (void)captureCookiesFromResponse:(NSHTTPURLResponse *)response {
-    NSString *setCookie = response.allHeaderFields[@"Set-Cookie"] ?: response.allHeaderFields[@"set-cookie"];
-    if (![setCookie isKindOfClass:[NSString class]] || !setCookie.length) return;
-    NSArray *cookieStrings = [setCookie componentsSeparatedByString:@","];
-    for (NSString *cookieString in cookieStrings) {
-        NSString *first = [cookieString componentsSeparatedByString:@";"].firstObject;
-        NSArray *kv = [first componentsSeparatedByString:@"="];
-        if (kv.count < 2) continue;
-        NSString *name = [kv[0] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        NSString *value = [[kv subarrayWithRange:NSMakeRange(1, kv.count - 1)] componentsJoinedByString:@"="];
-        if (name.length && value.length) {
-            @synchronized (self.cookies) { self.cookies[name] = value; }
-        }
+    NSDictionary *fields = response.allHeaderFields;
+    if (!fields.count) return;
+    NSURL *url = response.URL ?: [NSURL URLWithString:@"https://music.163.com/"];
+    for (NSHTTPCookie *cookie in [NSHTTPCookie cookiesWithResponseHeaderFields:fields forURL:url]) {
+        if (!cookie.name.length || !cookie.value.length) continue;
+        @synchronized (self.cookies) { self.cookies[cookie.name] = cookie.value; }
     }
 }
 
@@ -1052,18 +1050,18 @@ static const CGFloat YTMUNetEaseInexactMinScore = 1.25;
             return;
         }
 
-        dispatch_group_t group = dispatch_group_create();
+        // Every keyword is still searched (recall is unchanged), but at most
+        // six requests are in flight at once instead of all sixteen — the
+        // eapi endpoint is quick to rate-limit a burst.
         NSMutableArray *allSongs = [NSMutableArray array];
-        for (NSString *keyword in keywords) {
-            dispatch_group_enter(group);
-            [self searchSongs:keyword completion:^(NSArray<NSDictionary *> *songs) {
+        [YTMUConcurrencyLimiter runItems:keywords.count concurrency:6 shouldStart:nil work:^(NSUInteger index, dispatch_block_t done) {
+            [self searchSongs:keywords[index] completion:^(NSArray<NSDictionary *> *songs) {
                 @synchronized (allSongs) {
                     [allSongs addObjectsFromArray:songs];
                 }
-                dispatch_group_leave(group);
+                done();
             }];
-        }
-        dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        } completion:^{
             NSMutableDictionary<NSNumber *, NSDictionary *> *unique = [NSMutableDictionary dictionary];
             for (NSDictionary *song in allSongs) {
                 NSNumber *songId = YTMULyricsJSONNumberAtPath(song, @[@"id"]);
@@ -1075,7 +1073,7 @@ static const CGFloat YTMUNetEaseInexactMinScore = 1.25;
                 return;
             }
             [self resolveCandidateMatches:matches index:0 info:info completion:completion];
-        });
+        }];
     } failure:^(NSError *error) {
         completion(nil, error);
     }];

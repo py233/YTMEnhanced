@@ -66,10 +66,6 @@
 "CLEAR_CACHE" = "清除快取";
 
 "LINKS" = "相關連結";
-"TWITTER" = "在推特上跟隨%@";
-"TWITTER_DESC" = "跟隨我獲得更新資訊";
-"DISCORD" = "加入Discord";
-"DISCORD_DESC" = "回報問題和請求新功能";
 "SOURCE_CODE" = "原始碼";
 "SOURCE_CODE_DESC" = "查看原始碼";
 
@@ -176,8 +172,8 @@
 "SCROBBLE_LASTFM_HEADER" = "Last.fm";
 "SCROBBLE_LASTFM_ENABLE" = "傳送到 Last.fm";
 "SCROBBLE_LASTFM_FOOTER" = "在 last.fm/api/account/create 申請一個 API 應用,把 API key 和 secret 貼到這裡,然後點「授權」。";
-"SCROBBLE_API_KEY" = "API key";
-"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_API_KEY" = "API 金鑰";
+"SCROBBLE_API_SECRET" = "API 私密金鑰";
 "SCROBBLE_LASTFM_AUTHENTICATE" = "授權";
 "SCROBBLE_LASTFM_FINISH_AUTH" = "我已經在 Safari 裡授權了 - 完成";
 "SCROBBLE_LASTFM_SIGN_OUT" = "登出";
@@ -190,7 +186,7 @@
 "SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_ENABLE" = "傳送到 ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_FOOTER" = "從 listenbrainz.org/profile/ 複製 User Token 貼到這裡。除非你自架,否則 API 根網址保持預設即可。";
-"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_USER_TOKEN" = "使用者權杖";
 "SCROBBLE_API_ROOT" = "API 根網址";
 "SCROBBLE_LISTENBRAINZ_VALIDATE" = "驗證 token";
 "SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz token 有效";

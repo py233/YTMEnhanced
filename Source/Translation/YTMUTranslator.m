@@ -5,6 +5,7 @@
 #import "Providers/YTMUAnthropicProvider.h"
 #import "Providers/YTMUGeminiProvider.h"
 #import "Providers/YTMUOpenAIProvider.h"
+#import "../Utils/YTMUSettings.h"
 
 @interface YTMUTranslator ()
 @property (nonatomic, strong) NSDictionary<NSString *, id<YTMUTranslationProvider>> *providers;
@@ -14,16 +15,6 @@ static NSError *YTMUTranslatorError(YTMUTranslationErrorCode code, NSString *mes
     return [NSError errorWithDomain:YTMUTranslationErrorDomain
                                code:code
                            userInfo:@{NSLocalizedDescriptionKey: message ?: @"Translation failed"}];
-}
-
-static NSDictionary *YTMUSettingsDictionary(void) {
-    return [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-}
-
-static NSString *YTMUSettingsString(NSString *key, NSString *fallback) {
-    id value = YTMUSettingsDictionary()[key];
-    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return value;
-    return fallback ?: @"";
 }
 
 static void YTMUCompleteOnMain(void (^block)(void)) {
@@ -95,6 +86,12 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 
 - (BOOL)shouldFallbackPerLineForError:(NSError *)error lineCount:(NSUInteger)lineCount {
     if (lineCount > 8) return NO;
+    // Only the model's own output problems are worth re-asking line by
+    // line. Auth, rate limiting, a dead network, a truncated or blocked
+    // answer would just fail up to eight more times.
+    if (![error.domain isEqualToString:YTMUTranslationErrorDomain]) return NO;
+    if (error.code == YTMUTranslationErrorParse || error.code == YTMUTranslationErrorLineCount) return YES;
+    if (error.code != YTMUTranslationErrorUnknown) return NO;
     // localizedDescription is whatever the provider put into userInfo. The
     // providers now guarantee a string, but keep this boundary defensive: a
     // non-string here used to reach rangeOfString: and abort the process.
@@ -102,9 +99,7 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
     NSString *message = [description isKindOfClass:[NSString class]] ? description : @"";
     NSRange range = [message rangeOfString:@"parse|json|line|length|number of lines"
                                    options:NSRegularExpressionSearch | NSCaseInsensitiveSearch];
-    return range.location != NSNotFound ||
-           error.code == YTMUTranslationErrorParse ||
-           error.code == YTMUTranslationErrorLineCount;
+    return range.location != NSNotFound;
 }
 
 // Reconcile a model-returned line count that's off by ≤1 with the
@@ -172,11 +167,62 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
 }
 
 // Only deterministic-looking failures are remembered: an unparseable or
-// misaligned model output for this exact source usually repeats, whereas
-// network / HTTP / missing-key errors should be retried on the next play.
+// misaligned model output for this exact source usually repeats, and so
+// does a safety refusal of this exact content, whereas network / HTTP /
+// missing-key / truncation errors should be retried on the next play (the
+// user may fix the key, the network may be back, the model may change).
 - (BOOL)shouldRememberFailure:(NSError *)error {
     if (![error.domain isEqualToString:YTMUTranslationErrorDomain]) return NO;
-    return error.code == YTMUTranslationErrorParse || error.code == YTMUTranslationErrorLineCount;
+    return error.code == YTMUTranslationErrorParse ||
+           error.code == YTMUTranslationErrorLineCount ||
+           error.code == YTMUTranslationErrorContentBlocked;
+}
+
+// The single automatic retry is only worth it when the next answer can
+// differ: flaky model output, a 5xx, a connection that dropped mid-stream.
+// A missing key, 401/403/429, a dead network, a truncated or blocked answer
+// would fail identically — and the second round trip doubles the wait the
+// user sees before the error.
+- (BOOL)shouldRetryAfterError:(NSError *)error {
+    if ([error.domain isEqualToString:NSURLErrorDomain]) {
+        switch (error.code) {
+            case NSURLErrorTimedOut:
+            case NSURLErrorNotConnectedToInternet:
+            case NSURLErrorCannotFindHost:
+            case NSURLErrorCannotConnectToHost:
+            case NSURLErrorDNSLookupFailed:
+            case NSURLErrorInternationalRoamingOff:
+            case NSURLErrorDataNotAllowed:
+            case NSURLErrorSecureConnectionFailed:
+            case NSURLErrorServerCertificateUntrusted:
+            case NSURLErrorServerCertificateHasBadDate:
+            case NSURLErrorServerCertificateHasUnknownRoot:
+            case NSURLErrorServerCertificateNotYetValid:
+            case NSURLErrorClientCertificateRejected:
+            case NSURLErrorClientCertificateRequired:
+            case NSURLErrorCancelled:
+            case NSURLErrorUnsupportedURL:
+            case NSURLErrorBadURL:
+            case NSURLErrorAppTransportSecurityRequiresSecureConnection:
+                return NO;
+            default:
+                return YES;   // e.g. NSURLErrorNetworkConnectionLost mid-stream
+        }
+    }
+    if (![error.domain isEqualToString:YTMUTranslationErrorDomain]) return NO;
+    switch (error.code) {
+        case YTMUTranslationErrorParse:
+        case YTMUTranslationErrorLineCount:
+        case YTMUTranslationErrorEmptyResponse:
+            return YES;
+        case YTMUTranslationErrorHTTPStatus: {
+            NSNumber *status = error.userInfo[YTMUTranslationErrorHTTPStatusKey];
+            // No status = a stream-level error event (overloaded, …): worth one more try.
+            return ![status isKindOfClass:[NSNumber class]] || status.integerValue >= 500;
+        }
+        default:
+            return NO;
+    }
 }
 
 - (void)rememberFailure:(NSError *)error
@@ -399,6 +445,14 @@ static void YTMUCompleteOnMain(void (^block)(void)) {
         NSArray *aligned = alignedOrNil(translated, error, &firstError, @"");
         if (aligned) { succeed(aligned, @""); return; }
 
+        if (![self shouldRetryAfterError:firstError]) {
+            YTMUTranslationLog(@"provider failed, not retrying videoId=%@ provider=%@ error=%@",
+                               videoId.length ? videoId : @"<empty>",
+                               [provider providerName],
+                               firstError.localizedDescription ?: @"<unknown>");
+            handleFailure(firstError);
+            return;
+        }
         YTMUTranslationLog(@"provider first attempt failed videoId=%@ provider=%@ error=%@",
                            videoId.length ? videoId : @"<empty>",
                            [provider providerName],

@@ -23,7 +23,7 @@ static void Install(YTMULyricsResult *result) {
 
 YTMU_TEST(LyricsPanel_overlay_rendersPlainAndSynced_andIsReleased) {
     YTMUTestSetSettings(@{@"YTMUltimateIsEnabled": @YES, @"syncedLyricsEnabled": @YES,
-                          @"lyricsReplacementEnabled": @YES, @"lyricsTranslationEnabled": @NO, @"lyricsRomanization": @NO});
+                          @"lyricsTranslationEnabled": @NO, @"lyricsRomanization": @NO});
     __weak YTMULyricsTabOverlayView *weakOverlay = nil;
     __weak YTMUSyncedLyricsView *weakSynced = nil;
     @autoreleasepool {
@@ -57,7 +57,7 @@ YTMU_TEST(LyricsPanel_overlay_rendersPlainAndSynced_andIsReleased) {
 }
 
 YTMU_TEST(LyricsPanel_panelViewController_loadsAndIsReleased) {
-    YTMUTestSetSettings(@{@"YTMUltimateIsEnabled": @YES, @"syncedLyricsEnabled": @YES, @"lyricsReplacementEnabled": @YES});
+    YTMUTestSetSettings(@{@"YTMUltimateIsEnabled": @YES, @"syncedLyricsEnabled": @YES});
     Install(YTMUTestPlainResult(@"P", @"Plain Song", @"Artist", 4));
     __weak YTMULyricsPanelViewController *weakVC = nil;
     @autoreleasepool {

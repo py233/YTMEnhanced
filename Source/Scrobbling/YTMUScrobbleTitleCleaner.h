@@ -86,4 +86,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+
+// Artist name folded for "is this the same artist" comparisons: lowercase,
+// separator variants (× ・ · 、 ,) mapped to "&", whitespace removed. Shared
+// by the cleaner's slash-suffix logic and the resolver's match rules.
+NSString *YTMUScrobbleNormalizeArtistForCompare(NSString *_Nullable artist);
+
 NS_ASSUME_NONNULL_END

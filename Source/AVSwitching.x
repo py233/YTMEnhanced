@@ -1,15 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "UIKit/UIKit.h"
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
-
-static int YTMUint(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] integerValue];
-}
+#import "Utils/YTMUSettings.h"
 
 // Remove popup reminder 
 %hook YTMPlayerHeaderViewController
@@ -172,11 +163,11 @@ static int YTMUint(NSString *key) {
 
 %hook YTMQueueConfig
 - (BOOL)noVideoModeEnabledForMusic {
-	return YTMUint(@"audioVideoMode") == 0 ? YES : %orig;
+	return YTMUSettingsInteger(@"audioVideoMode", 0) == 0 ? YES : %orig;
 }
 
 - (BOOL)noVideoModeEnabledForPodcasts {
-	return YTMUint(@"audioVideoMode") == 0 ? YES : %orig;
+	return YTMUSettingsInteger(@"audioVideoMode", 0) == 0 ? YES : %orig;
 }
 %end
 
@@ -186,17 +177,17 @@ static int YTMUint(NSString *key) {
 }
 
 - (BOOL)noVideoModeEnabledForMusic {
-	return YTMUint(@"audioVideoMode") == 0 ? YES : %orig;
+	return YTMUSettingsInteger(@"audioVideoMode", 0) == 0 ? YES : %orig;
 }
 
 - (BOOL)noVideoModeEnabledForPodcasts {
-	return YTMUint(@"audioVideoMode") == 0 ? YES : %orig;
+	return YTMUSettingsInteger(@"audioVideoMode", 0) == 0 ? YES : %orig;
 }
 %end
 
 %hook YTQueueController
 - (BOOL)noVideoModeEnabled:(id)arg1 {
-	return YTMUint(@"audioVideoMode") == 0 ? YES : %orig;
+	return YTMUSettingsInteger(@"audioVideoMode", 0) == 0 ? YES : %orig;
 }
 - (BOOL)isAudioVideoModeSupportedForVideo:(id)video { return YTMU(@"YTMUltimateIsEnabled") ?: %orig; }
 %end
@@ -252,14 +243,3 @@ static int YTMUint(NSString *key) {
 // }
 // %end
 // %end
-
-%ctor {
-    NSMutableDictionary *YTMUltimateDict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
-    NSArray *intKeys = @[@"audioVideoMode"];
-    for (NSString *key in intKeys) {
-        if (!YTMUltimateDict[key]) {
-            [YTMUltimateDict setObject:@(0) forKey:key];
-            [[NSUserDefaults standardUserDefaults] setObject:YTMUltimateDict forKey:@"YTMUltimate"];
-        }
-    }
-}

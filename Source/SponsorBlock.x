@@ -3,151 +3,160 @@
 #import "Headers/Localization.h"
 #import "Headers/YTMToastController.h"
 #import "Headers/YTPlayerViewController.h"
+#import "Utils/YTMUKVC.h"
+#import "Utils/YTMUSettings.h"
 
-#define ytmuBool(key) [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"][key] boolValue]
-#define ytmuInt(key) [[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"][key] integerValue]
+// One video's SponsorBlock state: the segments the API returned for it
+// and which of them have already been skipped (or offered) this play.
+// Replaced wholesale on every video change and only ever touched on the
+// main thread, so the time-tick hook never races the network reply.
+@interface YTMUSponsorBlockState : NSObject
+@property (nonatomic, copy) NSString *videoID;
+@property (nonatomic, copy) NSArray<NSDictionary *> *segments;     // {UUID, category, segment: [start, end]}
+@property (nonatomic, strong) NSMutableSet<NSString *> *handledUUIDs;
+@end
 
-static id YTMUSponsorBlockSafeValueForKey(id object, NSString *key) {
-    if (!object || !key.length) return nil;
-    @try {
-        return [object valueForKey:key];
-    } @catch (__unused NSException *exception) {
-        return nil;
-    }
-}
+@implementation YTMUSponsorBlockState
+@end
 
 static NSString *YTMUSponsorBlockCurrentVideoID(YTPlayerViewController *player) {
-    NSString *videoID = @"";
+    NSString *videoID = nil;
     @try {
-        videoID = player.currentVideoID ?: player.contentVideoID ?: @"";
+        // Direct calls into the private header; a renamed selector in a
+        // newer app build lands here instead of aborting.
+        videoID = player.currentVideoID ?: player.contentVideoID;
     } @catch (__unused NSException *exception) {
-        videoID = @"";
+        videoID = nil;
     }
-    if (!videoID.length) {
-        id value = YTMUSponsorBlockSafeValueForKey(player, @"currentVideoID") ?: YTMUSponsorBlockSafeValueForKey(player, @"contentVideoID");
+    if (![videoID isKindOfClass:[NSString class]] || !videoID.length) {
+        id value = YTMUSafeValueForKey(player, @"currentVideoID") ?: YTMUSafeValueForKey(player, @"contentVideoID");
         if ([value isKindOfClass:[NSString class]]) videoID = value;
         else if ([value respondsToSelector:@selector(stringValue)]) videoID = [value stringValue];
     }
-    return videoID ?: @"";
+    return [videoID isKindOfClass:[NSString class]] ? videoID : @"";
 }
 
 static CGFloat YTMUSponsorBlockCurrentVideoTime(YTPlayerViewController *player) {
     @try {
         return player.currentVideoMediaTime;
     } @catch (__unused NSException *exception) {
-        id value = YTMUSponsorBlockSafeValueForKey(player, @"currentVideoMediaTime");
+        id value = YTMUSafeValueForKey(player, @"currentVideoMediaTime");
         return [value respondsToSelector:@selector(floatValue)] ? [value floatValue] : 0;
     }
 }
 
-%hook YTPlayerViewController
-%property (nonatomic, strong) NSMutableDictionary *sponsorBlockValues;
+// Validated copy of the API's array: every entry has a UUID, a category
+// and a numeric [start, end] pair, so the per-tick check can trust it.
+static NSArray<NSDictionary *> *YTMUSponsorBlockSegmentsFromResponse(id json) {
+    if (![json isKindOfClass:[NSArray class]]) return @[];
+    NSMutableArray<NSDictionary *> *segments = [NSMutableArray array];
+    for (NSDictionary *entry in (NSArray *)json) {
+        if (![entry isKindOfClass:[NSDictionary class]]) continue;
+        NSString *uuid = entry[@"UUID"];
+        NSArray *range = entry[@"segment"];
+        if (![uuid isKindOfClass:[NSString class]] || !uuid.length) continue;
+        if (![entry[@"category"] isKindOfClass:[NSString class]]) continue;
+        if (![range isKindOfClass:[NSArray class]] || range.count < 2) continue;
+        if (![range[0] respondsToSelector:@selector(floatValue)] || ![range[1] respondsToSelector:@selector(floatValue)]) continue;
+        [segments addObject:entry];
+    }
+    return segments;
+}
 
-- (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
-    %orig;
+// Called from the single didActivateVideo hook in Source/SyncedLyrics.x
+// (the method used to be hooked here as well; two hooks of one method in
+// two files chained in link order).
+void YTMUSponsorBlockVideoDidActivate(YTPlayerViewController *self) {
+    self.ytmu_sponsorBlockState = nil;
+    if (!YTMU(@"sponsorBlock")) return;
 
-    if (!ytmuBool(@"sponsorBlock")) return;
-
-    self.sponsorBlockValues = [NSMutableDictionary dictionary];
     NSString *videoID = YTMUSponsorBlockCurrentVideoID(self);
     if (!videoID.length) return;
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"https://sponsor.ajay.app/api/skipSegments?videoID=%@&categories=%@", videoID, @"%5B%22music_offtopic%22%5D"]]];
+    NSString *encodedVideoID = [videoID stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: videoID;
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://sponsor.ajay.app/api/skipSegments?videoID=%@&categories=%%5B%%22music_offtopic%%22%%5D", encodedVideoID]];
+    if (!url) return;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.timeoutInterval = 15.0;
 
+    __weak typeof(self) weakSelf = self;
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (!error) {
-            id jsonResponse = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if ([jsonResponse isKindOfClass:[NSArray class]] && [NSJSONSerialization isValidJSONObject:jsonResponse]) {
-                NSMutableDictionary *segments = [NSMutableDictionary dictionary];
-                for (NSDictionary *segmentDict in jsonResponse) {
-                    if (![segmentDict isKindOfClass:[NSDictionary class]]) continue;
-                    NSString *uuid = segmentDict[@"UUID"];
-                    if (!uuid.length) continue;
-                    [segments setObject:@(1) forKey:uuid];
-                }
-
-                [self.sponsorBlockValues setObject:jsonResponse forKey:videoID];
-                [self.sponsorBlockValues setObject:segments forKey:@"segments"];
-            }
-        }
+        // 404 = no segments for this video; anything unparseable is ignored.
+        if (error || !data.length) return;
+        NSArray<NSDictionary *> *segments = YTMUSponsorBlockSegmentsFromResponse([NSJSONSerialization JSONObjectWithData:data options:0 error:nil]);
+        if (!segments.count) return;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            // The answer belongs to the video that was playing when the
+            // request went out; a skip in the meantime makes it stale.
+            if (![YTMUSponsorBlockCurrentVideoID(strongSelf) isEqualToString:videoID]) return;
+            YTMUSponsorBlockState *state = [[YTMUSponsorBlockState alloc] init];
+            state.videoID = videoID;
+            state.segments = segments;
+            state.handledUUIDs = [NSMutableSet set];
+            strongSelf.ytmu_sponsorBlockState = state;
+        });
     }] resume];
 }
+
+%hook YTPlayerViewController
+%property (nonatomic, strong) YTMUSponsorBlockState *ytmu_sponsorBlockState;
 
 - (void)singleVideo:(id)video currentVideoTimeDidChange:(id)time {
     %orig;
 
-    [self skipSegment];
+    [self ytmu_skipSponsorSegmentIfNeeded];
 }
 
 - (void)potentiallyMutatedSingleVideo:(id)video currentVideoTimeDidChange:(id)time {
     %orig;
 
-    [self skipSegment];
+    [self ytmu_skipSponsorSegmentIfNeeded];
 }
 
 %new
-- (void)skipSegment {
-    if (ytmuBool(@"sponsorBlock") && [NSJSONSerialization isValidJSONObject:self.sponsorBlockValues]) {
-        NSString *videoID = YTMUSponsorBlockCurrentVideoID(self);
-        if (!videoID.length) return;
-        NSDictionary *sponsorBlockValues = [self.sponsorBlockValues objectForKey:videoID];
-        NSMutableDictionary *segmentSkipValues = [self.sponsorBlockValues objectForKey:@"segments"];
-        CGFloat currentTime = YTMUSponsorBlockCurrentVideoTime(self);
+- (void)ytmu_skipSponsorSegmentIfNeeded {
+    YTMUSponsorBlockState *state = self.ytmu_sponsorBlockState;
+    if (!state.segments.count || !YTMU(@"sponsorBlock")) return;
+    if (![YTMUSponsorBlockCurrentVideoID(self) isEqualToString:state.videoID]) return;
 
-        for (NSDictionary *jsonDictionary in sponsorBlockValues) {
-            if (![jsonDictionary isKindOfClass:[NSDictionary class]]) continue;
-            NSString *uuid = [jsonDictionary objectForKey:@"UUID"];
-            NSNumber *segmentSkipValue = [segmentSkipValues objectForKey:uuid];
-            NSArray *segment = [jsonDictionary objectForKey:@"segment"];
-            if (![segment isKindOfClass:[NSArray class]] || segment.count < 2) continue;
+    CGFloat currentTime = YTMUSponsorBlockCurrentVideoTime(self);
+    for (NSDictionary *segment in state.segments) {
+        NSString *uuid = segment[@"UUID"];
+        if ([state.handledUUIDs containsObject:uuid]) continue;
+        if (![segment[@"category"] isEqual:@"music_offtopic"]) continue;
+        NSArray *range = segment[@"segment"];
+        CGFloat start = [range[0] floatValue];
+        CGFloat end = [range[1] floatValue];
+        if (currentTime < start || currentTime > end - 1) continue;
 
-            if (segmentSkipValue && [segmentSkipValue isEqual:@(1)]
-                && [[jsonDictionary objectForKey:@"category"] isEqual:@"music_offtopic"]
-                && currentTime >= [segment[0] floatValue]
-                && currentTime <= ([segment[1] floatValue] - 1)) {
+        [state.handledUUIDs addObject:uuid];
+        NSInteger toastDuration = YTMUSettingsInteger(@"sbDuration", 10);
+        __weak typeof(self) weakSelf = self;
 
-                [segmentSkipValues setObject:@(0) forKey:uuid];
-                [self.sponsorBlockValues setObject:segmentSkipValues forKey:@"segments"];
+        GOOHUDMessageAction *unskipAction = [[%c(GOOHUDMessageAction) alloc] init];
+        unskipAction.title = LOC(@"UNSKIP");
+        [unskipAction setHandler:^{
+            [weakSelf seekToTime:start];
+        }];
 
-                GOOHUDMessageAction *unskipAction = [[%c(GOOHUDMessageAction) alloc] init];
-                unskipAction.title = LOC(@"UNSKIP");
-                [unskipAction setHandler:^ {
-                    [self seekToTime:[segment[0] floatValue]];
-                }];
-                
-                GOOHUDMessageAction *skipAction = [[%c(GOOHUDMessageAction) alloc] init];
-                skipAction.title = LOC(@"SKIP");
-                [skipAction setHandler:^ {
-                    [self seekToTime:[segment[1] floatValue]];
+        GOOHUDMessageAction *skipAction = [[%c(GOOHUDMessageAction) alloc] init];
+        skipAction.title = LOC(@"SKIP");
+        [skipAction setHandler:^{
+            [weakSelf seekToTime:end];
+            [[%c(YTMToastController) alloc] showMessage:LOC(@"SEGMENT_SKIPPED") HUDMessageAction:unskipAction infoType:0 duration:toastDuration];
+        }];
 
-                    [[%c(YTMToastController) alloc] showMessage:LOC(@"SEGMENT_SKIPPED") HUDMessageAction:unskipAction infoType:0 duration:ytmuInt(@"sbDuration")];
-                }];
-
-                if (ytmuInt(@"sbSkipMode") == 0) {
-                    [self seekToTime:[segment[1] floatValue]];
-
-                    [[%c(YTMToastController) alloc] showMessage:LOC(@"SEGMENT_SKIPPED") HUDMessageAction:unskipAction infoType:0 duration:ytmuInt(@"sbDuration")];
-                }
-
-                else {
-                    [[%c(YTMToastController) alloc] showMessage:LOC(@"FOUND_SEGMENT") HUDMessageAction:skipAction infoType:0 duration:ytmuInt(@"sbDuration")];
-                }
-            }
+        if (YTMUSettingsInteger(@"sbSkipMode", 0) == 0) {
+            [self seekToTime:end];
+            [[%c(YTMToastController) alloc] showMessage:LOC(@"SEGMENT_SKIPPED") HUDMessageAction:unskipAction infoType:0 duration:toastDuration];
+        } else {
+            [[%c(YTMToastController) alloc] showMessage:LOC(@"FOUND_SEGMENT") HUDMessageAction:skipAction infoType:0 duration:toastDuration];
         }
+        // The seek moved the playhead; any further segment is judged
+        // against the new position on the next tick.
+        break;
     }
 }
 %end
-
-%ctor {
-    NSMutableDictionary *mutableDict = [NSMutableDictionary dictionaryWithDictionary:[[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"]];
-
-    if (mutableDict[@"sbSkipMode"] == nil) {
-        [mutableDict setObject:@(0) forKey:@"sbSkipMode"];
-    }
-
-    if (mutableDict[@"sbDuration"] == nil) {
-        [mutableDict setObject:@(10) forKey:@"sbDuration"];
-    }
-
-    [[NSUserDefaults standardUserDefaults] setObject:mutableDict forKey:@"YTMUltimate"];
-}

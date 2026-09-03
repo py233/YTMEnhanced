@@ -66,10 +66,6 @@
 "CLEAR_CACHE" = "Išvalyti talpyklą";
 
 "LINKS" = "Nuorodos";
-"TWITTER" = "Sekite %@ \"Twitter\"";
-"TWITTER_DESC" = "Sekite mane dėl atnaujinimų";
-"DISCORD" = "Prisijungti prie \"Discord\"";
-"DISCORD_DESC" = "Pranešti apie klaidas ir papildomų funkcijų užklausas";
 "SOURCE_CODE" = "Šaltinio kodas";
 "SOURCE_CODE_DESC" = "Peržiūrėkite kodą";
 
@@ -82,13 +78,13 @@
 "YES" = "Taip";
 "REGIONAL_RESTRICTION" = "Panašu, kad Youtube Music naudojimas jūsų šalyje yra apribotas.\n\n Prieigai prie YouTube Music naudokite VPN.";
 
-"DONT_RUSH" = "Don't rush brilliance";
+"DONT_RUSH" = "Neskubėkite";
 "DONT_RUSH_DESC" = "Required to play the song to extract the link";
 "SELECT_ACTION" = "Pasirinkite veiksmą";
 "DOWNLOADING" = "Atsisiunčiama";
-"DOWNLOAD_PREMIUM" = "Download (Premium required)";
+"DOWNLOAD_PREMIUM" = "Atsisiųsti (reikalinga Premium)";
 "OOPS" = "Oi!\nkažkas atsitiko";
-"LINK_NOT_FOUND" = "Link not found";
+"LINK_NOT_FOUND" = "Nuoroda nerasta";
 "SAVED_TO_PHOTOS" = "Išsaugota Nuotraukose";
 "DONE" = "Atlikta";
 "FOUND_SEGMENT" = "Rastas segmentas nepriklausantis temai";
@@ -176,8 +172,8 @@
 "SCROBBLE_LASTFM_HEADER" = "Last.fm";
 "SCROBBLE_LASTFM_ENABLE" = "Siųsti į Last.fm";
 "SCROBBLE_LASTFM_FOOTER" = "Užregistruok API programą adresu last.fm/api/account/create, įklijuok API key ir secret čia, tada paliesk Patvirtinti.";
-"SCROBBLE_API_KEY" = "API key";
-"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_API_KEY" = "API raktas";
+"SCROBBLE_API_SECRET" = "API paslaptis";
 "SCROBBLE_LASTFM_AUTHENTICATE" = "Patvirtinti";
 "SCROBBLE_LASTFM_FINISH_AUTH" = "Patvirtinau — baigti";
 "SCROBBLE_LASTFM_SIGN_OUT" = "Atsijungti";
@@ -190,7 +186,7 @@
 "SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_ENABLE" = "Siųsti į ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_FOOTER" = "Nukopijuok savo User Token iš listenbrainz.org/profile/ ir įklijuok čia. API root keisti reikia tik jei pats hostini.";
-"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_USER_TOKEN" = "Naudotojo žetonas";
 "SCROBBLE_API_ROOT" = "API šakninis adresas";
 "SCROBBLE_LISTENBRAINZ_VALIDATE" = "Patikrinti token";
 "SCROBBLE_LISTENBRAINZ_OK" = "ListenBrainz token galioja";

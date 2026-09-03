@@ -9,18 +9,10 @@
 #import "Lyrics/YTMULyricsPlaybackState.h"
 #import "Lyrics/YTMUSyncedLyricsView.h"
 #import "Lyrics/YTMUInnerTubeDescriptionFetcher.h"
-#import "Translation/YTMUTranslationContext.h"
 #import "Utils/YTMUKVC.h"
+#import "Utils/YTMUSettings.h"
 
-static BOOL YTMUSyncedLyricsEnabled(void) {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    return [dict[@"YTMUltimateIsEnabled"] boolValue] && [dict[@"syncedLyricsEnabled"] boolValue];
-}
 
-static BOOL YTMUArtworkLyricsOverlayEnabled(void) {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    return [dict[@"lyricsArtworkOverlayEnabled"] boolValue];
-}
 
 static NSTimeInterval YTMUNormalizedPlaybackTimeMs(YTPlayerViewController *player) {
     if (!player) return 0;
@@ -62,11 +54,9 @@ static void YTMULogOfficialLyricsProbe(id object, NSString *event, NSString *sou
                   entityKey.length ? entityKey : @"<empty>");
 }
 
-@interface YTPlayerViewController ()
-@property (nonatomic, retain) YTMUSyncedLyricsView *ytmuSyncedLyricsView;
-- (void)ytmu_attachSyncedLyricsViewIfNeeded;
-- (void)ytmu_layoutSyncedLyricsView;
-@end
+// Implemented in Source/SponsorBlock.x; the one didActivateVideo hook lives
+// in this file.
+extern void YTMUSponsorBlockVideoDidActivate(YTPlayerViewController *player);
 
 static NSString *YTMUStringFromObject(id object) {
     if ([object isKindOfClass:[NSString class]]) return object;
@@ -278,7 +268,7 @@ static NSString *YTMUClassAndPointer(id object) {
     return object ? [NSString stringWithFormat:@"%@<%p>", NSStringFromClass([object class]), object] : @"<nil>";
 }
 
-static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString *source, BOOL force) {
+static BOOL YTMURefreshLyricsFromPlayerNow(YTPlayerViewController *player, NSString *source, BOOL force) {
     if (!player) return NO;
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:player];
 
@@ -365,10 +355,8 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
     if (!alternativeTitle.length) alternativeTitle = YTMUAlternativeTitleFromMicroformat(microformat, title);
     if (duration <= 0) duration = [nowPlaying[MPMediaItemPropertyPlaybackDuration] doubleValue];
 
-    [[YTMUTranslationContext sharedContext] updateWithVideoId:videoId title:title artist:artist];
-
     if (YTMULyricsDebugLoggingEnabled()) {
-        NSDictionary *flags = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
+        NSDictionary *flags = YTMUSettingsSnapshot();
         YTMULyricsLog(@"player metadata source=%@ player=%@ videoId=%@ title=%@ alt=%@ artist=%@ duration=%.1f tags=%lu master=%@ synced=%@ bilingual=%@",
                       source ?: @"<unknown>",
                       YTMUClassAndPointer(player),
@@ -536,6 +524,24 @@ static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString
 
 static char YTMUPlayerRefreshRetryTokenKey;
 
+static char YTMUPlayerRefreshThrottleKey;
+
+// Layout-driven (non-forced) refreshes arrive in bursts from two view
+// controllers' viewDidLayoutSubviews. The dedup inside makes a repeat
+// cheap, but the KVC walk to reach it is not free, so non-forced calls are
+// coalesced to one per player per 250 ms. Forced refreshes (a video was
+// activated) and the scheduled retries after one are never held back.
+static BOOL YTMURefreshLyricsFromPlayer(YTPlayerViewController *player, NSString *source, BOOL force) {
+    if (!player) return NO;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (!force) {
+        NSNumber *last = objc_getAssociatedObject(player, &YTMUPlayerRefreshThrottleKey);
+        if (last && now - last.doubleValue < 0.25) return NO;
+    }
+    objc_setAssociatedObject(player, &YTMUPlayerRefreshThrottleKey, @(now), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return YTMURefreshLyricsFromPlayerNow(player, source, force);
+}
+
 static void YTMUSchedulePlayerRefreshRetries(YTPlayerViewController *player, NSString *source) {
     if (!player) return;
     NSUInteger token = [objc_getAssociatedObject(player, &YTMUPlayerRefreshRetryTokenKey) unsignedIntegerValue] + 1;
@@ -550,7 +556,7 @@ static void YTMUSchedulePlayerRefreshRetries(YTPlayerViewController *player, NSS
             if (!strongPlayer) return;
             if ([objc_getAssociatedObject(strongPlayer, &YTMUPlayerRefreshRetryTokenKey) unsignedIntegerValue] != token) return;
             NSString *retrySource = [NSString stringWithFormat:@"%@.retry%lu", source ?: @"player", (unsigned long)(idx + 1)];
-            YTMURefreshLyricsFromPlayer(strongPlayer, retrySource, NO);
+            YTMURefreshLyricsFromPlayerNow(strongPlayer, retrySource, NO);
         });
     }
 }
@@ -574,9 +580,6 @@ static void YTMUHandlePlayerCandidate(id candidate, NSString *source, BOOL force
         return;
     }
 
-    if ([player respondsToSelector:@selector(ytmu_attachSyncedLyricsViewIfNeeded)]) {
-        [player ytmu_attachSyncedLyricsViewIfNeeded];
-    }
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:player];
     YTMURefreshLyricsFromPlayer(player, source, force);
     if (force) YTMUSchedulePlayerRefreshRetries(player, source);
@@ -636,6 +639,52 @@ static void YTMULogRuntimeDiagnostics(void) {
                       YTMUHasSelector(cls, @selector(singleVideo:currentVideoTimeDidChange:)),
                       YTMUHasSelector(cls, @selector(potentiallyMutatedSingleVideo:currentVideoTimeDidChange:)));
         YTMULogInterestingSelectors(cls);
+    }
+
+    // The private keys the hooks read by name. A key a new app build has
+    // renamed shows up here on the first launch with logging on, instead
+    // of as a feature that silently stopped working.
+    NSDictionary<NSString *, NSArray<NSString *> *> *probes = @{
+        @"YTPlayerViewController": @[@"currentVideoID", @"contentVideoID", @"currentVideoMediaTime", @"currentVideoTotalMediaTime", @"playerResponse", @"contentPlayerResponse"],
+        @"YTMNowPlayingViewController": @[@"parentViewController"],
+        @"ELMTouchCommandPropertiesHandler": @[@"_controller", @"_tapRecognizer"],
+        @"ELMNodeController": @[@"key"],
+        @"YTMLightweightMusicDescriptionShelfCell": @[@"_descriptionLabel", @"_descriptionContainer", @"_delegate"],
+    };
+    for (NSString *className in probes) {
+        Class cls = NSClassFromString(className);
+        NSMutableArray<NSString *> *missing = [NSMutableArray array];
+        for (NSString *key in probes[className]) {
+            if (!YTMUKVCClassCanReadKey(cls, key)) [missing addObject:key];
+        }
+        YTMULyricsLog(@"runtime kvc class=%@ present=%@ missing=%@",
+                      className,
+                      cls ? @"YES" : @"NO",
+                      missing.count ? [missing componentsJoinedByString:@","] : @"<none>");
+    }
+
+    // The private selectors the hooks call or hook. Same idea: a missing
+    // one is logged by name instead of the feature quietly vanishing.
+    NSDictionary<NSString *, NSArray<NSString *> *> *selectorProbes = @{
+        @"YTPlayerViewController": @[@"seekToTime:", @"playbackController:didActivateVideo:withPlaybackData:", @"singleVideo:currentVideoTimeDidChange:"],
+        @"YTPivotBarViewController": @[@"selectItemWithPivotIdentifier:"],
+        @"YTPivotBarView": @[@"setRenderer:"],
+        @"YTMPivotBarItemStyle": @[@"pivotBarItemIconImageWithIconType:color:useNewIcons:selected:"],
+        @"ELMTouchCommandPropertiesHandler": @[@"handleTap"],
+        @"YTMToastController": @[@"showMessage:HUDMessageAction:infoType:duration:"],
+        @"ASCollectionView": @[@"nodeForItemAtIndexPath:"],
+        @"YTMLightweightMusicDescriptionShelfCell": @[@"setRenderer:"],
+    };
+    for (NSString *className in selectorProbes) {
+        Class cls = NSClassFromString(className);
+        NSMutableArray<NSString *> *missing = [NSMutableArray array];
+        for (NSString *selectorName in selectorProbes[className]) {
+            if (!cls || ![cls instancesRespondToSelector:NSSelectorFromString(selectorName)]) [missing addObject:selectorName];
+        }
+        YTMULyricsLog(@"runtime selectors class=%@ present=%@ missing=%@",
+                      className,
+                      cls ? @"YES" : @"NO",
+                      missing.count ? [missing componentsJoinedByString:@","] : @"<none>");
     }
 }
 
@@ -753,30 +802,11 @@ static void YTMUInstallDynamicHooks(void) {
 
 %hook YTPlayerViewController
 
-%property (nonatomic, retain) YTMUSyncedLyricsView *ytmuSyncedLyricsView;
-
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        YTMULyricsLog(@"hook YTPlayerViewController.viewDidAppear fired (class=%@)", NSStringFromClass([self class]));
-    });
-    [self ytmu_attachSyncedLyricsViewIfNeeded];
-}
-
-- (void)viewDidLayoutSubviews {
-    %orig;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        YTMULyricsLog(@"hook YTPlayerViewController.viewDidLayoutSubviews fired");
-    });
-    [self ytmu_layoutSyncedLyricsView];
-}
-
 - (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
     %orig;
     YTMULyricsLog(@"hook didActivateVideo class=%@", NSStringFromClass([self class]));
     YTMUHandlePlayerCandidate(self, @"YTPlayerViewController.didActivateVideo", YES);
+    YTMUSponsorBlockVideoDidActivate(self);
 }
 
 - (void)singleVideo:(id)video currentVideoTimeDidChange:(id)time {
@@ -784,7 +814,6 @@ static void YTMUInstallDynamicHooks(void) {
     NSTimeInterval timeMs = YTMUNormalizedPlaybackTimeMs(self);
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self];
     [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
-    [self.ytmuSyncedLyricsView updatePlaybackTimeMs:timeMs];
 }
 
 - (void)potentiallyMutatedSingleVideo:(id)video currentVideoTimeDidChange:(id)time {
@@ -792,42 +821,6 @@ static void YTMUInstallDynamicHooks(void) {
     NSTimeInterval timeMs = YTMUNormalizedPlaybackTimeMs(self);
     [[YTMULyricsPlaybackState sharedState] notePlayerViewController:self];
     [[YTMULyricsPlaybackState sharedState] notePlaybackTimeMs:timeMs];
-    [self.ytmuSyncedLyricsView updatePlaybackTimeMs:timeMs];
-}
-
-%new
-- (void)ytmu_attachSyncedLyricsViewIfNeeded {
-    if (!YTMUArtworkLyricsOverlayEnabled()) {
-        if (self.ytmuSyncedLyricsView) {
-            self.ytmuSyncedLyricsView.hidden = YES;
-            [self.ytmuSyncedLyricsView removeFromSuperview];
-            self.ytmuSyncedLyricsView = nil;
-        }
-        return;
-    }
-    if (!YTMUSyncedLyricsEnabled()) {
-        self.ytmuSyncedLyricsView.hidden = YES;
-        return;
-    }
-    if (!self.ytmuSyncedLyricsView) {
-        self.ytmuSyncedLyricsView = [[YTMUSyncedLyricsView alloc] initWithFrame:CGRectZero];
-        self.ytmuSyncedLyricsView.playerViewController = self;
-        self.ytmuSyncedLyricsView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-        [self.view addSubview:self.ytmuSyncedLyricsView];
-        YTMULyricsLog(@"synced lyrics view attached player=%@ container=%@", YTMUClassAndPointer(self), YTMUClassAndPointer(self.view));
-        [self ytmu_layoutSyncedLyricsView];
-        [self.ytmuSyncedLyricsView reloadFromManager];
-    }
-}
-
-%new
-- (void)ytmu_layoutSyncedLyricsView {
-    if (!self.ytmuSyncedLyricsView) return;
-    UIEdgeInsets safe = self.view.safeAreaInsets;
-    CGFloat width = self.view.bounds.size.width - 20;
-    CGFloat height = MIN(MAX(self.view.bounds.size.height * 0.38, 210), 360);
-    CGFloat y = self.view.bounds.size.height - height - safe.bottom - 14;
-    self.ytmuSyncedLyricsView.frame = CGRectMake(10, MAX(safe.top + 12, y), width, height);
 }
 
 %end
@@ -932,23 +925,7 @@ static void YTMUInstallDynamicHooks(void) {
 %end
 
 %ctor {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
-    YTMULyricsSetDefault(dict, @"syncedLyricsEnabled", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
-    YTMULyricsSetDefault(dict, @"lyricsShowInexact", @(YES));
-    YTMULyricsSetDefault(dict, @"lyricsRomanization", @(YES));
-    YTMULyricsSetDefault(dict, @"lyricsConvertChinese", @"disabled");
-    YTMULyricsSetDefault(dict, @"lyricsShowTimeCodes", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsLineEffect", @"fancy");
-    YTMULyricsSetDefault(dict, @"lyricsFontSize", @"small");
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetActiveKey", @"");
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsets", @{});
-    YTMULyricsSetDefault(dict, @"lyricsDefaultText", @"♪");
-    YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", @(NO));
-    dict[@"lyricsArtworkOverlayEnabled"] = @(NO);
-    [defaults setObject:dict forKey:@"YTMUltimate"];
+    // Defaults are seeded once, in Source/Defaults.x.
     %init;
     YTMULogRuntimeDiagnostics();
     YTMUInstallDynamicHooks();

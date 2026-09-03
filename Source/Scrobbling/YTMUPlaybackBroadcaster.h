@@ -16,11 +16,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)sharedBroadcaster;
 
-// Idempotent. Safe to call from `+load` of YTMUScrobbleManager.
+// Idempotent. The scrobble manager starts the poll only while
+// scrobbling is switched on and stops it when the user switches it off.
 - (void)start;
 
-// Only exposed for tests / manual debugging.
+// Stops the poll and forgets the observed track, so a later start does
+// not report the song that was playing at the time as a "previous"
+// track.
 - (void)stop;
+
+- (BOOL)isRunning;
 
 @end
 

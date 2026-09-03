@@ -1,4 +1,5 @@
 #import "YTMUScrobbleTypes.h"
+#import "../Utils/YTMUSettings.h"
 
 NSNotificationName const YTMUPlaybackTrackChangedNotification = @"YTMUPlaybackTrackChangedNotification";
 NSNotificationName const YTMUPlaybackStateChangedNotification = @"YTMUPlaybackStateChangedNotification";
@@ -144,32 +145,17 @@ static NSString *YTMUListenFirstNonEmpty(NSString *a, NSString *b, NSString *c) 
 #pragma mark - Defaults helpers
 
 NSString *YTMUScrobbleDefaultsString(NSString *key, NSString *fallback) {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    id value = dict[key];
-    if ([value isKindOfClass:[NSString class]]) {
-        NSString *str = [(NSString *)value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (str.length) return str;
-    }
-    return fallback ?: @"";
+    NSString *value = YTMUSettingsString(key, @"");
+    NSString *trimmed = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return trimmed.length ? trimmed : (fallback ?: @"");
 }
 
 BOOL YTMUScrobbleDefaultsBool(NSString *key, BOOL fallback) {
-    NSDictionary *dict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-    id value = dict[key];
-    if ([value respondsToSelector:@selector(boolValue)]) return [value boolValue];
-    return fallback;
+    return YTMUSettingsBool(key, fallback);
 }
 
 void YTMUScrobbleSetDefaults(NSString *key, id _Nullable value) {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:
-                                 [defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
-    if (value) {
-        dict[key] = value;
-    } else {
-        [dict removeObjectForKey:key];
-    }
-    [defaults setObject:dict forKey:@"YTMUltimate"];
+    YTMUSettingsSetObject(key, value);
 }
 
 #pragma mark - Logging

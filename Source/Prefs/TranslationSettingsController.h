@@ -1,8 +1,6 @@
-#import <UIKit/UIKit.h>
-#import "../Headers/Localization.h"
+#import "YTMUSettingsTableController.h"
 
-@interface TranslationSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
-@property (nonatomic, strong) UITableView *tableView;
+@interface TranslationSettingsController : YTMUSettingsTableController <UITextFieldDelegate>
 @property (nonatomic, weak) UITextField *activeTextField;
 - (UIView *)KBToolbar:(UITextField *)textField;
 @end

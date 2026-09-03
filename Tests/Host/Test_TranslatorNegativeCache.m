@@ -90,8 +90,9 @@ YTMU_TEST(Translator_networkFailure_isNotRemembered) {
     NSArray *lines = @[@"l1", @"l2", @"l3"];
     NSError *err = Translate(lines, @"neg-net", NULL);
     YTMU_ASSERT(err != nil, "expected network failure");
-    NSUInteger calls = fake.translateCount;
-    YTMU_ASSERT(calls >= 2, "expected at least whole+retry, got %lu", (unsigned long)calls);
+    // A dead network is not retried (the second attempt would fail the
+    // same way and only double the wait) — and it is not remembered.
+    YTMU_ASSERT_EQ_INT(fake.translateCount, 1);
     fake.translationError = nil; fake.translatedLines = @[@"x", @"y", @"z"];
     NSArray *got = nil;
     err = Translate(lines, @"neg-net", &got);

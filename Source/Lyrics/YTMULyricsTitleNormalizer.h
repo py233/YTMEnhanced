@@ -26,6 +26,15 @@ typedef void (^YTMULyricsTitleNormalizerCompletion)(YTMULyricsTitleNormalization
 // the AI re-pass.
 - (nullable YTMULyricsTitleNormalization *)cachedNormalizationForInfo:(YTMULyricsSearchInfo *)info;
 
+// Same, but a cached entry only counts when it was produced for the same
+// raw title/artist the caller has now. The lyrics path uses this: YouTube
+// Music's metadata flickers for a moment after a song change (new videoId,
+// previous song's title), and a normalization computed from the wrong
+// title must not be served for that videoId forever. The scrobble
+// resolver asks with already-cleaned metadata and keeps the lenient form.
+- (nullable YTMULyricsTitleNormalization *)cachedNormalizationForInfo:(YTMULyricsSearchInfo *)info
+                                              requireRawMetadataMatch:(BOOL)requireRawMetadataMatch;
+
 // Hits the LLM and persists the result on success. provider must conform to
 // YTMULLMCompletionProvider; providerName is used purely for logging. The
 // completion runs on the main queue. On any failure (network, HTTP, parse)
@@ -34,6 +43,14 @@ typedef void (^YTMULyricsTitleNormalizerCompletion)(YTMULyricsTitleNormalization
 - (void)normalizeForInfo:(YTMULyricsSearchInfo *)info
                 provider:(id<YTMULLMCompletionProvider>)provider
             providerName:(NSString *)providerName
+              completion:(YTMULyricsTitleNormalizerCompletion)completion;
+
+// As above; `requireRawMetadataMatch` selects which cached entries are
+// accepted before the LLM is asked (see -cachedNormalizationForInfo:…).
+- (void)normalizeForInfo:(YTMULyricsSearchInfo *)info
+                provider:(id<YTMULLMCompletionProvider>)provider
+            providerName:(NSString *)providerName
+ requireRawMetadataMatch:(BOOL)requireRawMetadataMatch
               completion:(YTMULyricsTitleNormalizerCompletion)completion;
 
 // Wipe the persisted normalizations. Hooked into the existing "Clear

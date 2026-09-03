@@ -417,29 +417,11 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     return [[YTMULyricsPlaybackState sharedState] currentPlaybackTimeMs];
 }
 
-- (BOOL)hasCompleteRomanizationForLines:(NSArray<YTMULyricLine *> *)lines {
-    BOOL needsRomanization = NO;
-    NSString *sourceLanguage = @"auto";
-    for (YTMULyricLine *line in lines) {
-        if ([YTMULyricsTextProcessor hasJapaneseKana:line.text ?: @""]) {
-            sourceLanguage = @"ja";
-            break;
-        }
-    }
-    for (YTMULyricLine *line in lines) {
-        NSString *text = [line.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
-        needsRomanization = YES;
-        if (![line.romanizedText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
-            return NO;
-        }
-    }
-    return needsRomanization;
-}
-
-- (BOOL)hasCompleteRomanizationForResult:(YTMULyricsResult *)result {
+// YES when at least one line that needs romanization has it; lines the
+// endpoint skipped render without a romaji row (see the manager's partial
+// batch caching).
+- (BOOL)hasAnyRomanizationForResult:(YTMULyricsResult *)result {
     NSArray<NSString *> *sourceLines = result.lineTexts ?: @[];
-    BOOL needsRomanization = NO;
     NSString *sourceLanguage = @"auto";
     for (NSString *line in sourceLines) {
         if ([YTMULyricsTextProcessor hasJapaneseKana:line ?: @""]) {
@@ -450,13 +432,10 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     for (NSUInteger idx = 0; idx < sourceLines.count; idx++) {
         NSString *text = [sourceLines[idx] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if (![YTMULyricsTextProcessor needsRomanizationForText:text preferredLanguage:sourceLanguage]) continue;
-        needsRomanization = YES;
-        NSString *roman = idx < result.romanizedLineTexts.count ? result.romanizedLineTexts[idx] : @"";
-        if (![roman stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) {
-            return NO;
-        }
+        NSString *roman = [self romanizedLineForResult:result index:idx fallbackLine:idx < result.lines.count ? result.lines[idx] : nil];
+        if ([roman stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) return YES;
     }
-    return needsRomanization;
+    return NO;
 }
 
 - (NSString *)romanizedLineForResult:(YTMULyricsResult *)result index:(NSUInteger)index fallbackLine:(YTMULyricLine *)line {
@@ -585,7 +564,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
     BOOL romanizationEnabled = YTMULyricsSettingsBool(@"lyricsRomanization", YES);
     BOOL showTimeCodes = YTMULyricsSettingsBool(@"lyricsShowTimeCodes", NO);
     NSArray<NSString *> *translations = manager.translatedLines ?: @[];
-    BOOL showRomanization = romanizationEnabled && [self hasCompleteRomanizationForResult:result];
+    BOOL showRomanization = romanizationEnabled && [self hasAnyRomanizationForResult:result];
 
     NSMutableArray<YTMULyricLineView *> *lineViews = [NSMutableArray array];
     NSArray<YTMULyricLine *> *synced = result.lines;

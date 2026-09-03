@@ -33,7 +33,7 @@ NSString *YTMULyricsPageTimingOffsetKey(void);
 NSInteger YTMULyricsPageTimingOffsetMs(void);
 void YTMULyricsPageSetTimingOffsetMs(NSInteger value);
 NSString *YTMULyricsPageRomanizationLanguageForResult(YTMULyricsResult *result);
-BOOL YTMULyricsPageResultHasCompleteRomanization(YTMULyricsResult *result);
+BOOL YTMULyricsPageResultHasAnyRomanization(YTMULyricsResult *result);
 NSString *YTMULyricsPageRomanizedLineAtIndex(YTMULyricsResult *result, NSUInteger idx);
 NSString *YTMULyricsPageLineText(NSString *text);
 UIColor *YTMULyricsPageSecondaryTextColor(void);

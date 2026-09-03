@@ -20,6 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)clearRomanizationCache;
 - (NSArray<NSString *> *)displayLineTexts;
 
+// One line per provider: when it last returned lyrics and when it last
+// failed (error or timeout). For the debug log and the settings screen.
+- (NSString *)providerHealthSummary;
+
 @end
 
 NS_ASSUME_NONNULL_END

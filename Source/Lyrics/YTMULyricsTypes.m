@@ -1,4 +1,5 @@
 #import "YTMULyricsTypes.h"
+#import "../Utils/YTMUSettings.h"
 
 NSString *const YTMULyricsSourceYTMusic = @"YTMusic";
 NSString *const YTMULyricsSourceLRCLib = @"LRCLIB";
@@ -198,13 +199,8 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
 
 @end
 
-static NSDictionary *YTMULyricsSettingsDictionary(void) {
-    return [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"] ?: @{};
-}
-
 BOOL YTMULyricsDebugLoggingEnabled(void) {
-    id value = YTMULyricsSettingsDictionary()[@"translationDebugLogs"];
-    return value == nil ? NO : [value boolValue];
+    return YTMUSettingsBool(@"translationDebugLogs", NO);
 }
 
 void YTMULyricsLogImpl(NSString *format, ...) {
@@ -219,47 +215,30 @@ void YTMULyricsLogImpl(NSString *format, ...) {
 }
 
 NSString *YTMULyricsSettingsString(NSString *key, NSString *fallback) {
-    id value = YTMULyricsSettingsDictionary()[key];
-    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return value;
-    return fallback ?: @"";
+    return YTMUSettingsString(key, fallback);
 }
 
 BOOL YTMULyricsSettingsBool(NSString *key, BOOL fallback) {
-    id value = YTMULyricsSettingsDictionary()[key];
-    return value == nil ? fallback : [value boolValue];
+    return YTMUSettingsBool(key, fallback);
 }
 
 NSInteger YTMULyricsSettingsInteger(NSString *key, NSInteger fallback) {
-    id value = YTMULyricsSettingsDictionary()[key];
-    return value == nil ? fallback : [value integerValue];
-}
-
-void YTMULyricsSetDefault(NSMutableDictionary *dict, NSString *key, id value) {
-    if (dict[key] == nil && key.length && value) dict[key] = value;
+    return YTMUSettingsInteger(key, fallback);
 }
 
 NSInteger YTMULyricsClampTimingOffsetMs(NSInteger value) {
     return MIN(10000, MAX(-10000, value));
 }
 
-static NSMutableDictionary *YTMULyricsMutableSettings(void) {
-    return [NSMutableDictionary dictionaryWithDictionary:YTMULyricsSettingsDictionary()];
+static NSDictionary *YTMULyricsTimingOffsetsIn(NSDictionary *settings) {
+    return [settings[@"lyricsTimingOffsets"] isKindOfClass:[NSDictionary class]] ? settings[@"lyricsTimingOffsets"] : @{};
 }
 
-static NSMutableDictionary *YTMULyricsMutableTimingOffsetsFromSettings(NSDictionary *settings) {
-    NSDictionary *stored = [settings[@"lyricsTimingOffsets"] isKindOfClass:[NSDictionary class]] ? settings[@"lyricsTimingOffsets"] : @{};
-    return [NSMutableDictionary dictionaryWithDictionary:stored];
-}
-
-static void YTMULyricsSaveSettings(NSMutableDictionary *settings, BOOL notify, NSString *key) {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setObject:settings ?: @{} forKey:@"YTMUltimate"];
-    [defaults synchronize];
-    if (notify && key.length) {
-        [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification
-                                                            object:nil
-                                                          userInfo:@{YTMULyricsSettingChangedKey: key}];
-    }
+static void YTMULyricsPostTimingOffsetChange(BOOL notify) {
+    if (!notify) return;
+    [[NSNotificationCenter defaultCenter] postNotificationName:YTMULyricsSettingsDidChangeNotification
+                                                        object:nil
+                                                      userInfo:@{YTMULyricsSettingChangedKey: @"lyricsTimingOffsetMs"}];
 }
 
 NSString *YTMULyricsTimingOffsetKeyForInfo(YTMULyricsSearchInfo *info) {
@@ -275,14 +254,12 @@ NSString *YTMULyricsTimingOffsetKeyForInfo(YTMULyricsSearchInfo *info) {
 
 NSInteger YTMULyricsTimingOffsetForKey(NSString *key) {
     if (!key.length) return 0;
-    NSDictionary *settings = YTMULyricsSettingsDictionary();
-    NSDictionary *offsets = [settings[@"lyricsTimingOffsets"] isKindOfClass:[NSDictionary class]] ? settings[@"lyricsTimingOffsets"] : @{};
-    id value = offsets[key];
+    id value = YTMULyricsTimingOffsetsIn(YTMUSettingsSnapshot())[key];
     return [value respondsToSelector:@selector(integerValue)] ? YTMULyricsClampTimingOffsetMs([value integerValue]) : 0;
 }
 
 NSInteger YTMULyricsCurrentTimingOffsetForKey(NSString *key) {
-    NSDictionary *settings = YTMULyricsSettingsDictionary();
+    NSDictionary *settings = YTMUSettingsSnapshot();
     NSString *activeKey = [settings[@"lyricsTimingOffsetActiveKey"] isKindOfClass:[NSString class]] ? settings[@"lyricsTimingOffsetActiveKey"] : @"";
     if (key.length && [activeKey isEqualToString:key]) {
         id value = settings[@"lyricsTimingOffsetMs"];
@@ -291,44 +268,54 @@ NSInteger YTMULyricsCurrentTimingOffsetForKey(NSString *key) {
     return YTMULyricsTimingOffsetForKey(key);
 }
 
+// Runs on every song change. The facade skips the write (and the
+// notification) when the active key and offset are already what they
+// would become, so a plain song change no longer rewrites the settings.
 void YTMULyricsActivateTimingOffsetForInfo(YTMULyricsSearchInfo *info, BOOL notify) {
-    NSString *key = YTMULyricsTimingOffsetKeyForInfo(info);
-    NSInteger offset = YTMULyricsTimingOffsetForKey(key);
-    NSMutableDictionary *settings = YTMULyricsMutableSettings();
-    settings[@"lyricsTimingOffsetActiveKey"] = key ?: @"";
-    settings[@"lyricsTimingOffsetMs"] = @(offset);
-    YTMULyricsSaveSettings(settings, notify, @"lyricsTimingOffsetMs");
+    NSString *key = YTMULyricsTimingOffsetKeyForInfo(info) ?: @"";
+    __block BOOL changed = NO;
+    YTMUSettingsUpdate(^(NSMutableDictionary<NSString *, id> *settings) {
+        id stored = YTMULyricsTimingOffsetsIn(settings)[key];
+        NSInteger offset = [stored respondsToSelector:@selector(integerValue)] ? YTMULyricsClampTimingOffsetMs([stored integerValue]) : 0;
+        NSString *currentKey = [settings[@"lyricsTimingOffsetActiveKey"] isKindOfClass:[NSString class]] ? settings[@"lyricsTimingOffsetActiveKey"] : @"";
+        NSInteger currentOffset = [settings[@"lyricsTimingOffsetMs"] respondsToSelector:@selector(integerValue)] ? [settings[@"lyricsTimingOffsetMs"] integerValue] : 0;
+        changed = ![currentKey isEqualToString:key] || currentOffset != offset;
+        settings[@"lyricsTimingOffsetActiveKey"] = key;
+        settings[@"lyricsTimingOffsetMs"] = @(offset);
+    }, @[@"lyricsTimingOffsetMs"]);
+    if (changed) YTMULyricsPostTimingOffsetChange(notify);
 }
 
 void YTMULyricsSetTimingOffsetForKey(NSString *key, NSInteger value, BOOL notify) {
     NSInteger clamped = YTMULyricsClampTimingOffsetMs(value);
-    NSMutableDictionary *settings = YTMULyricsMutableSettings();
-    NSMutableDictionary *offsets = YTMULyricsMutableTimingOffsetsFromSettings(settings);
-    NSString *activeKey = key.length ? key : ([settings[@"lyricsTimingOffsetActiveKey"] isKindOfClass:[NSString class]] ? settings[@"lyricsTimingOffsetActiveKey"] : @"");
+    YTMUSettingsUpdate(^(NSMutableDictionary<NSString *, id> *settings) {
+        NSMutableDictionary *offsets = [YTMULyricsTimingOffsetsIn(settings) mutableCopy];
+        NSString *activeKey = key.length ? key : ([settings[@"lyricsTimingOffsetActiveKey"] isKindOfClass:[NSString class]] ? settings[@"lyricsTimingOffsetActiveKey"] : @"");
 
-    if (activeKey.length) {
-        if (clamped == 0) {
-            [offsets removeObjectForKey:activeKey];
-        } else {
-            offsets[activeKey] = @(clamped);
-        }
-        while (offsets.count > 512) {
-            NSString *drop = nil;
-            for (NSString *candidate in offsets.allKeys) {
-                if (![candidate isEqualToString:activeKey]) {
-                    drop = candidate;
-                    break;
-                }
+        if (activeKey.length) {
+            if (clamped == 0) {
+                [offsets removeObjectForKey:activeKey];
+            } else {
+                offsets[activeKey] = @(clamped);
             }
-            if (!drop.length) break;
-            [offsets removeObjectForKey:drop];
+            while (offsets.count > 512) {
+                NSString *drop = nil;
+                for (NSString *candidate in offsets.allKeys) {
+                    if (![candidate isEqualToString:activeKey]) {
+                        drop = candidate;
+                        break;
+                    }
+                }
+                if (!drop.length) break;
+                [offsets removeObjectForKey:drop];
+            }
         }
-    }
 
-    settings[@"lyricsTimingOffsets"] = offsets;
-    settings[@"lyricsTimingOffsetActiveKey"] = activeKey ?: @"";
-    settings[@"lyricsTimingOffsetMs"] = @(clamped);
-    YTMULyricsSaveSettings(settings, notify, @"lyricsTimingOffsetMs");
+        settings[@"lyricsTimingOffsets"] = offsets;
+        settings[@"lyricsTimingOffsetActiveKey"] = activeKey ?: @"";
+        settings[@"lyricsTimingOffsetMs"] = @(clamped);
+    }, @[@"lyricsTimingOffsetMs"]);
+    YTMULyricsPostTimingOffsetChange(notify);
 }
 
 NSRegularExpression *YTMULyricsCachedRegex(NSString *pattern, NSRegularExpressionOptions options) {
@@ -413,12 +400,39 @@ static NSUInteger YTMULevenshtein(NSString *a, NSString *b) {
     return distance;
 }
 
+// YES when `needle` occurs in `haystack` as a whole word or segment — the
+// characters around the match are not letters or digits. "Hi Ren" inside
+// "Hi Ren (Official Audio)" qualifies; "Sun" inside "Sunflower" does not.
+static BOOL YTMULyricsContainsAtBoundary(NSString *haystack, NSString *needle) {
+    NSString *trimmed = [needle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!trimmed.length || !haystack.length) return NO;
+    NSRange range = [haystack rangeOfString:trimmed options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch | NSWidthInsensitiveSearch];
+    if (range.location == NSNotFound) return NO;
+    NSCharacterSet *alphanumeric = [NSCharacterSet alphanumericCharacterSet];
+    if (range.location > 0 && [alphanumeric characterIsMember:[haystack characterAtIndex:range.location - 1]]) return NO;
+    NSUInteger end = NSMaxRange(range);
+    if (end < haystack.length && [alphanumeric characterIsMember:[haystack characterAtIndex:end]]) return NO;
+    return YES;
+}
+
 CGFloat YTMULyricsSimilarity(NSString *left, NSString *right) {
     NSString *a = YTMULyricsCompactString(left);
     NSString *b = YTMULyricsCompactString(right);
     if (!a.length || !b.length) return 0;
     if ([a isEqualToString:b]) return 1;
-    if (a.length >= 3 && b.length >= 3 && ([a containsString:b] || [b containsString:a])) return 0.94;
+    // Containment counts as near-equality when the strings are of
+    // comparable length ("terminal" inside "ハテterminal") or when the
+    // shorter one is a whole segment of the longer ("Hi Ren" inside
+    // "Hi Ren (Official Audio)"). A short title buried inside a longer word
+    // ("Sun" in "Sunflower") is a different song and falls through to the
+    // edit distance.
+    NSUInteger shorter = MIN(a.length, b.length);
+    NSUInteger longer = MAX(a.length, b.length);
+    if (shorter >= 3 && ([a containsString:b] || [b containsString:a])) {
+        NSString *longerOriginal = a.length >= b.length ? left : right;
+        NSString *shorterOriginal = a.length >= b.length ? right : left;
+        if (shorter * 2 >= longer || YTMULyricsContainsAtBoundary(longerOriginal, shorterOriginal)) return 0.94;
+    }
     NSUInteger maxLen = MAX(a.length, b.length);
     NSUInteger distance = YTMULevenshtein(a, b);
     return MAX(0, 1.0 - ((CGFloat)distance / (CGFloat)maxLen));

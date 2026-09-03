@@ -15,11 +15,7 @@
 #import "Lyrics/YTMULyricsPlaybackState.h"
 #import "Utils/YTMUKVC.h"
 #import "Utils/YTMUHLSManifest.h"
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
+#import "Utils/YTMUSettings.h"
 
 // The player that is playing right now. The lyrics hooks observe every
 // player activation (and every time tick) and keep a weak reference in
@@ -74,61 +70,60 @@ static void YTMUDownloadShowAlert(NSString *titleKey, NSString *subtitleKey) {
 - (void)downloadCoverImage:(YTPlayerViewController *)playerVC;
 @end
 
-%hook ELMTouchCommandPropertiesHandler
-- (void)handleTap {
-
-    if (class_getInstanceVariable([self class], "_controller") == NULL) {
-        return %orig;
+// The download-badge tap. Called from the single handleTap hook in
+// Source/SelectableLyrics.x (two hooks of one method in two files used to
+// chain in link order). Returns YES when the tap was a download-badge tap
+// and has been handled; `callOriginal` runs the app's own handler (the
+// "Premium download" choice).
+BOOL YTMUDownloadHandleTap(ELMTouchCommandPropertiesHandler *handler, dispatch_block_t callOriginal) {
+    if (class_getInstanceVariable([handler class], "_controller") == NULL ||
+        class_getInstanceVariable([handler class], "_tapRecognizer") == NULL) {
+        return NO;
     }
 
+    ELMNodeController *node = YTMUSafeValueForKey(handler, @"_controller");
+    UIGestureRecognizer *tapRecognizer = YTMUSafeValueForKey(handler, @"_tapRecognizer");
+    if (![node.key isEqualToString:@"music_download_badge_1"]) return NO;
 
-    if (class_getInstanceVariable([self class], "_tapRecognizer") == NULL) {
-        return %orig;
-    }
+    UIViewController *ancestor = [tapRecognizer.view respondsToSelector:@selector(_viewControllerForAncestor)] ? tapRecognizer.view._viewControllerForAncestor : nil;
+    if (![ancestor isKindOfClass:%c(YTMNowPlayingViewController)]) return NO;
 
-    ELMNodeController *node = [self valueForKey:@"_controller"];
-    UIGestureRecognizer *tapRecognizer = [self valueForKey:@"_tapRecognizer"];
-
-    if (![node.key isEqualToString:@"music_download_badge_1"]) {
-        return %orig;
-    }
-
-    if (![tapRecognizer.view._viewControllerForAncestor isKindOfClass:%c(YTMNowPlayingViewController)]) {
-        return %orig;
-    }
-
-    YTMNowPlayingViewController *playingVC = (YTMNowPlayingViewController *)tapRecognizer.view._viewControllerForAncestor;
+    YTMNowPlayingViewController *playingVC = (YTMNowPlayingViewController *)ancestor;
     YTPlayerViewController *playerVC = YTMUDownloadCurrentPlayer(playingVC);
     id playerResponse = YTMUDownloadPlayerResponse(playerVC);
 
-    if (playerVC && playerResponse) {
-        YTMActionSheetController *sheetController = [%c(YTMActionSheetController) musicActionSheetController];
-        sheetController.sourceView = tapRecognizer.view;
-        [sheetController addHeaderWithTitle:LOC(@"SELECT_ACTION") subtitle:nil];
-
-        [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_AUDIO") iconImage:[%c(YTUIResources) audioOutline] style:0 handler:^ {
-            [self downloadAudio:playerVC];
-        }]];
-
-        [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_COVER") iconImage:[%c(YTUIResources) outlineImageWithColor:[UIColor whiteColor]] style:0 handler:^ {
-            [self downloadCoverImage:playerVC];
-        }]];
-
-        [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_PREMIUM") iconImage:[%c(YTUIResources) downloadOutline] secondaryIconImage:[%c(YTUIResources) youtubePremiumBadgeLight] accessibilityIdentifier:nil handler:^ {
-            return %orig;
-        }]];
-
-        if (YTMU(@"downloadAudio") && YTMU(@"downloadCoverImage")) {
-            [sheetController presentFromViewController:playingVC animated:YES completion:nil];
-        } else if (YTMU(@"downloadAudio")) {
-            [self downloadAudio:playerVC];
-        } else if (YTMU(@"downloadCoverImage")) {
-            [self downloadCoverImage:playerVC];
-        }
-    } else {
+    if (!playerVC || !playerResponse) {
         YTMUDownloadShowAlert(@"DONT_RUSH", @"DONT_RUSH_DESC");
+        return YES;
     }
+
+    YTMActionSheetController *sheetController = [%c(YTMActionSheetController) musicActionSheetController];
+    sheetController.sourceView = tapRecognizer.view;
+    [sheetController addHeaderWithTitle:LOC(@"SELECT_ACTION") subtitle:nil];
+
+    [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_AUDIO") iconImage:[%c(YTUIResources) audioOutline] style:0 handler:^{
+        [handler downloadAudio:playerVC];
+    }]];
+
+    [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_COVER") iconImage:[%c(YTUIResources) outlineImageWithColor:[UIColor whiteColor]] style:0 handler:^{
+        [handler downloadCoverImage:playerVC];
+    }]];
+
+    [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_PREMIUM") iconImage:[%c(YTUIResources) downloadOutline] secondaryIconImage:[%c(YTUIResources) youtubePremiumBadgeLight] accessibilityIdentifier:nil handler:^{
+        if (callOriginal) callOriginal();
+    }]];
+
+    if (YTMU(@"downloadAudio") && YTMU(@"downloadCoverImage")) {
+        [sheetController presentFromViewController:playingVC animated:YES completion:nil];
+    } else if (YTMU(@"downloadAudio")) {
+        [handler downloadAudio:playerVC];
+    } else if (YTMU(@"downloadCoverImage")) {
+        [handler downloadCoverImage:playerVC];
+    }
+    return YES;
 }
+
+%hook ELMTouchCommandPropertiesHandler
 
 %new
 - (void)downloadAudio:(YTPlayerViewController *)playerVC {

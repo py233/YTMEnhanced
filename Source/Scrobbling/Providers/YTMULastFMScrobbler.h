@@ -20,6 +20,11 @@ NS_ASSUME_NONNULL_BEGIN
                     listeners:(NSInteger)listeners;
 @end
 
+// api_sig for an authenticated call: md5 of the byte-sorted keys and
+// values (without `format`) followed by the shared secret. Exposed so the
+// host tests can pin the shape.
+NSString *YTMULastFMSignParams(NSDictionary<NSString *, NSString *> *params, NSString *_Nullable secret);
+
 #pragma mark - Provider
 
 @interface YTMULastFMScrobbler : NSObject <YTMUScrobbler>

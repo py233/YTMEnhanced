@@ -43,7 +43,7 @@ static NSString *YTMULastFMMD5(NSString *input) {
 // where sorted means UTF-8 byte-sorted keys, "format" field excluded.
 // See https://www.last.fm/api/desktopauth and the desktop fork's
 // `scrobbler/services/lastfm.ts` :: createApiSig (verified shape match).
-static NSString *YTMULastFMSignParams(NSDictionary<NSString *, NSString *> *params, NSString *secret) {
+NSString *YTMULastFMSignParams(NSDictionary<NSString *, NSString *> *params, NSString *secret) {
     NSMutableArray<NSString *> *keys = [[params allKeys] mutableCopy];
     [keys removeObject:@"format"];
     [keys sortUsingSelector:@selector(compare:)];
@@ -298,6 +298,10 @@ static NSError *YTMULastFMError(NSInteger code, NSString *message) {
     NSMutableDictionary<NSString *, NSString *> *params = [[self baseParamsForListen:listen method:@"track.scrobble"] mutableCopy];
     params[@"timestamp"] = [NSString stringWithFormat:@"%lld", (long long)listen.startedAtUnix];
     [self submitSignedParams:params completion:completion];
+}
+
+- (NSUInteger)maxBatchSize {
+    return kLastFMBatchMax;
 }
 
 - (void)submitBatch:(NSArray<YTMUListen *> *)listens completion:(YTMUScrobblerCompletion)completion {

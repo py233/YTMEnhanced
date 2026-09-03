@@ -66,10 +66,6 @@
 "CLEAR_CACHE" = "Xóa bộ nhớ đệm";
 
 "LINKS" = "Liên kết";
-"TWITTER" = "Theo dõi %@ trên Twitter";
-"TWITTER_DESC" = "Nhận thông tin về các cập nhật mới";
-"DISCORD" = "Tham gia Discord";
-"DISCORD_DESC" = "Báo lỗi và gửi yêu cầu tính năng";
 "SOURCE_CODE" = "Mã nguồn";
 "SOURCE_CODE_DESC" = "Xem mã nguồn";
 
@@ -176,8 +172,8 @@
 "SCROBBLE_LASTFM_HEADER" = "Last.fm";
 "SCROBBLE_LASTFM_ENABLE" = "Gửi đến Last.fm";
 "SCROBBLE_LASTFM_FOOTER" = "Đăng ký một ứng dụng API tại last.fm/api/account/create, dán API key và secret vào đây, rồi nhấn Xác thực.";
-"SCROBBLE_API_KEY" = "API key";
-"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_API_KEY" = "Khóa API";
+"SCROBBLE_API_SECRET" = "Mã bí mật API";
 "SCROBBLE_LASTFM_AUTHENTICATE" = "Xác thực";
 "SCROBBLE_LASTFM_FINISH_AUTH" = "Tôi đã chấp thuận — hoàn tất";
 "SCROBBLE_LASTFM_SIGN_OUT" = "Đăng xuất";
@@ -190,7 +186,7 @@
 "SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_ENABLE" = "Gửi đến ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_FOOTER" = "Sao chép User Token của bạn từ listenbrainz.org/profile/ và dán vào đây. API root chỉ cần thay đổi nếu bạn tự host.";
-"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_USER_TOKEN" = "Mã thông báo người dùng";
 "SCROBBLE_API_ROOT" = "Địa chỉ gốc API";
 "SCROBBLE_LISTENBRAINZ_VALIDATE" = "Xác minh token";
 "SCROBBLE_LISTENBRAINZ_OK" = "Token ListenBrainz hợp lệ";

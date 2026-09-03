@@ -66,10 +66,6 @@
 "CLEAR_CACHE" = "Clear cache";
 
 "LINKS" = "Links";
-"TWITTER" = "Follow %@ on Twitter";
-"TWITTER_DESC" = "Follow for updates";
-"DISCORD" = "Join the Discord";
-"DISCORD_DESC" = "Report bugs and request features";
 "SOURCE_CODE" = "Source code";
 "SOURCE_CODE_DESC" = "Take a look at the code";
 

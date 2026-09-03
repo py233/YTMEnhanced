@@ -1,4 +1,5 @@
 #import "YTMUPromptBuilder.h"
+#import "YTMULLMTextUtils.h"
 
 @implementation YTMUPromptBuilder
 
@@ -208,33 +209,9 @@
     NSArray *parsed = [self tryParse:text];
     if (parsed) return parsed;
 
-    // Strip markdown code fences. Some providers/models wrap the
-    // JSON in ```json … ``` even when the system prompt tells them
-    // not to. Previous regex-based stripping (`^```(?:json)?`)
-    // occasionally failed in practice — we now walk characters
-    // explicitly so there's no ICU-regex / Unicode-class surprise.
-    NSString *fenced = text;
-    if ([fenced hasPrefix:@"```"]) {
-        NSUInteger start = 3;
-        // Optional language tag (json / javascript / js / ts / etc.) —
-        // skip until newline or whitespace.
-        while (start < fenced.length) {
-            unichar c = [fenced characterAtIndex:start];
-            if (c == '\n' || c == '\r' || c == ' ' || c == '\t') break;
-            start++;
-        }
-        // Skip the separating newline/whitespace itself.
-        while (start < fenced.length) {
-            unichar c = [fenced characterAtIndex:start];
-            if (c != '\n' && c != '\r' && c != ' ' && c != '\t') break;
-            start++;
-        }
-        fenced = [fenced substringFromIndex:start];
-    }
-    if ([fenced hasSuffix:@"```"]) {
-        fenced = [fenced substringToIndex:fenced.length - 3];
-    }
-    fenced = [fenced stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    // Some providers/models wrap the JSON in ```json … ``` even when the
+    // system prompt tells them not to.
+    NSString *fenced = YTMULLMStripMarkdownFences(text);
     parsed = [self tryParse:fenced];
     if (parsed) return parsed;
 
@@ -257,38 +234,13 @@
         if (parsed) return parsed;
     }
 
-    // Last-ditch: brace-balanced extraction. Walks the string with
-    // a depth counter that respects JSON string literals (so braces
-    // inside `"..."` don't confuse the count). Catches cases where
-    // the response is truncated mid-output but the leading {…} is
-    // still self-contained, or where there's trailing prose after
-    // the JSON object.
+    // Brace-balanced extraction from the first `{` (respects JSON string
+    // literals): catches trailing prose after the object, or a response
+    // truncated after a self-contained leading object.
     if (objStart.location != NSNotFound) {
-        NSUInteger len = text.length;
-        NSUInteger depth = 0;
-        BOOL inString = NO;
-        BOOL escape = NO;
-        NSUInteger endIdx = NSNotFound;
-        for (NSUInteger i = objStart.location; i < len; i++) {
-            unichar c = [text characterAtIndex:i];
-            if (inString) {
-                if (escape) { escape = NO; continue; }
-                if (c == '\\') { escape = YES; continue; }
-                if (c == '"') { inString = NO; }
-                continue;
-            }
-            if (c == '"') { inString = YES; continue; }
-            if (c == '{') { depth++; }
-            else if (c == '}') {
-                if (depth > 0) depth--;
-                if (depth == 0) { endIdx = i; break; }
-            }
-        }
-        if (endIdx != NSNotFound) {
-            NSString *sub = [text substringWithRange:NSMakeRange(objStart.location, endIdx - objStart.location + 1)];
-            parsed = [self tryParse:sub];
-            if (parsed) return parsed;
-        }
+        NSString *sub = YTMULLMBalancedObjectSubstring(text, objStart.location);
+        parsed = sub ? [self tryParse:sub] : nil;
+        if (parsed) return parsed;
     }
 
     // Last-resort: tolerant `{"lines":[...]}` parser that survives

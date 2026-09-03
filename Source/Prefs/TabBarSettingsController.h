@@ -1,8 +1,6 @@
-#import <UIKit/UIKit.h>
-#import "../Headers/Localization.h"
+#import "YTMUSettingsTableController.h"
 
-@interface OtherSettingsController : UIViewController <UITableViewDelegate, UITableViewDataSource>
-@property (nonatomic, strong) UITableView* tableView;
+@interface OtherSettingsController : YTMUSettingsTableController
 @end
 
 @interface YTAssetLoader : NSObject

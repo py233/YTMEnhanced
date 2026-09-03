@@ -66,10 +66,6 @@
 "CLEAR_CACHE" = "Очистить кеш";
 
 "LINKS" = "Ссылки";
-"TWITTER" = "Twitter аккаунт %@";
-"TWITTER_DESC" = "Подпишитесь, чтобы быть в курсе новостей";
-"DISCORD" = "Наш Discord";
-"DISCORD_DESC" = "Место для отчета об ошибках и запросе функций";
 "SOURCE_CODE" = "Исходный код";
 "SOURCE_CODE_DESC" = "Можете взглянуть на исходник";
 
@@ -169,15 +165,15 @@
 "LYRICS_ERROR_NETEASE_API_FORMAT" = "ошибка API %ld";
 "TRANSLATION_CACHE_CLEARED_FORMAT" = "Текст: %lu\nПереводы: %lu\nРоманизация: память очищена";
 
-"SCROBBLING_SETTINGS" = "Scrobbling";
+"SCROBBLING_SETTINGS" = "Скробблинг";
 "SCROBBLE_MASTER_ENABLE" = "Включить scrobbling";
 "SCROBBLE_MASTER_FOOTER" = "Главный переключатель. Когда выключен, прослушивания не отправляются ни одному сервису.";
 
 "SCROBBLE_LASTFM_HEADER" = "Last.fm";
 "SCROBBLE_LASTFM_ENABLE" = "Отправлять на Last.fm";
 "SCROBBLE_LASTFM_FOOTER" = "Зарегистрируй API-приложение на last.fm/api/account/create, вставь сюда API key и secret, затем нажми «Войти».";
-"SCROBBLE_API_KEY" = "API key";
-"SCROBBLE_API_SECRET" = "API secret";
+"SCROBBLE_API_KEY" = "Ключ API";
+"SCROBBLE_API_SECRET" = "Секрет API";
 "SCROBBLE_LASTFM_AUTHENTICATE" = "Войти";
 "SCROBBLE_LASTFM_FINISH_AUTH" = "Я одобрил — завершить";
 "SCROBBLE_LASTFM_SIGN_OUT" = "Выйти";
@@ -190,7 +186,7 @@
 "SCROBBLE_LISTENBRAINZ_HEADER" = "ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_ENABLE" = "Отправлять на ListenBrainz";
 "SCROBBLE_LISTENBRAINZ_FOOTER" = "Скопируй свой User Token со страницы listenbrainz.org/profile/ и вставь сюда. API root нужно менять только при собственном размещении.";
-"SCROBBLE_USER_TOKEN" = "User token";
+"SCROBBLE_USER_TOKEN" = "Токен пользователя";
 "SCROBBLE_API_ROOT" = "Корень API";
 "SCROBBLE_LISTENBRAINZ_VALIDATE" = "Проверить токен";
 "SCROBBLE_LISTENBRAINZ_OK" = "Токен ListenBrainz действителен";

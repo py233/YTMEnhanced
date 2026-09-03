@@ -3,15 +3,12 @@
 #import "Headers/YTMWatchViewController.h"
 #import "Headers/YTPivotBarViewController.h"
 #import "Headers/YTPlayabilityResolutionUserActionUIController.h"
+#import "Utils/YTMUSettings.h"
+#import "Utils/YTMUKVC.h"
 
 @interface YTPlayabilityResolutionUserActionUIControllerImpl : NSObject
 - (void)confirmAlertDidPressConfirm;
 @end
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
 
 // Headers stuff
 %hook YTLightweightCollectionController
@@ -50,39 +47,22 @@ static BOOL YTMU(NSString *key) {
 }
 %end
 
-// Remove tabs
-%hook YTPivotBarView
-- (void)setRenderer:(YTIPivotBarRenderer *)renderer {
-    NSMutableArray <YTIPivotBarSupportedRenderers *> *items = [renderer itemsArray];
-    NSDictionary *identifiersToRemove = @{
-        @"FEmusic_home": @(YTMU(@"hideHomeTab")),
-        @"FEmusic_immersive": @(YTMU(@"hideSamplesTab")),
-        @"FEmusic_explore": @(YTMU(@"hideExploreTab")),
-        @"FEmusic_library_landing": @(YTMU(@"hideLibraryTab"))
-    };
-    for (NSString *identifier in identifiersToRemove) {
-        BOOL shouldRemoveItem = [identifiersToRemove[identifier] boolValue];
-        NSUInteger index = [items indexOfObjectPassingTest:^BOOL(YTIPivotBarSupportedRenderers *renderers, NSUInteger idx, BOOL *stop) {
-            return shouldRemoveItem && [[[renderers pivotBarItemRenderer] pivotIdentifier] isEqualToString:identifier];
-        }];
-        if (index != NSNotFound) {
-            [items removeObjectAtIndex:index];
-        }
-    }
-    %orig;
-}
-%end
+// Hidden tabs are removed in Source/YTMTab.x (the one YTPivotBarView
+// setRenderer: hook).
 
 // Startup bar
-BOOL isTabSelected = NO;
+static BOOL isTabSelected = NO;
 
 %hook YTPivotBarViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     if (!isTabSelected) {
-        NSArray *pivotIdentifiers = @[@"FEmusic_home", @"FEmusic_immersive", @"FEmusic_explore", @"FEmusic_library_landing", @"BHdownloadsVC"];
-        NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-        [self selectItemWithPivotIdentifier:pivotIdentifiers[[YTMUltimateDict[@"startupPage"] integerValue]]];
+        // Index 4 is the tweak's own Downloads tab; its pivot identifier is
+        // the one YTMTab.x injects (it used to name a tab that never existed).
+        NSArray *pivotIdentifiers = @[@"FEmusic_home", @"FEmusic_immersive", @"FEmusic_explore", @"FEmusic_library_landing", @"FEytmu_downloads"];
+        NSInteger index = YTMUSettingsInteger(@"startupPage", 0);
+        if (index < 0 || index >= (NSInteger)pivotIdentifiers.count) index = 0;
+        [self selectItemWithPivotIdentifier:pivotIdentifiers[index]];
         isTabSelected = YES;
     }
 }
@@ -103,12 +83,15 @@ BOOL isTabSelected = NO;
 %hook YTMWatchViewController
 - (void)playbackControllerStateDidChange {
     %orig;
+    if (!YTMU(@"YTMUltimateIsEnabled")) return;
     // Reset all miniplayer restrictions
     if ([self respondsToSelector:@selector(resetMiniplayerRestrictions)]) {
         [self resetMiniplayerRestrictions];
     }
-    // Disable auto-pause when player minimized to miniplayer
-    [self setValue:@(NO) forKey:@"_pauseOnMinimize"];
+    // Disable auto-pause when player minimized to miniplayer. Written by
+    // ivar name, so it is checked first: a renamed ivar in a newer app
+    // build must not turn into NSUnknownKeyException here.
+    YTMUSafeSetValueForKey(self, @"_pauseOnMinimize", @NO);
 }
 %end
 

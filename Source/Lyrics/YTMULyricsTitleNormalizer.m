@@ -1,4 +1,5 @@
 #import "YTMULyricsTitleNormalizer.h"
+#import "../Translation/YTMULLMTextUtils.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import "../Utils/YTMUPlistStore.h"
 #import "../Utils/YTMUInflightCoalescer.h"
@@ -108,8 +109,30 @@ static NSError *YTMULNError(NSInteger code, NSString *message) {
 }
 
 - (nullable YTMULyricsTitleNormalization *)cachedNormalizationForInfo:(YTMULyricsSearchInfo *)info {
+    return [self cachedNormalizationForInfo:info requireRawMetadataMatch:NO];
+}
+
+static NSString *YTMULNTrimmed(id value) {
+    return [value isKindOfClass:[NSString class]]
+        ? [(NSString *)value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+        : @"";
+}
+
+- (nullable YTMULyricsTitleNormalization *)cachedNormalizationForInfo:(YTMULyricsSearchInfo *)info
+                                              requireRawMetadataMatch:(BOOL)requireRawMetadataMatch {
     NSDictionary *dict = [self readPlistForVideoId:info.videoId];
     if (!dict) return nil;
+    if (requireRawMetadataMatch) {
+        // raw_t / raw_a are what the LLM was asked about. Entries written by
+        // older builds carry them too, so a mismatch is a real one.
+        NSString *rawTitle = YTMULNTrimmed(dict[@"raw_t"]);
+        NSString *rawArtist = YTMULNTrimmed(dict[@"raw_a"]);
+        if (![rawTitle isEqualToString:YTMULNTrimmed(info.title)] || ![rawArtist isEqualToString:YTMULNTrimmed(info.artist)]) {
+            YTMULyricsLog(@"normalize cache ignored videoId=%@: cached for \"%@\" / \"%@\", now \"%@\" / \"%@\"",
+                          info.videoId, rawTitle, rawArtist, info.title, info.artist);
+            return nil;
+        }
+    }
     YTMULyricsTitleNormalization *n = [self normalizationFromPlist:dict];
     if (!n.titleCandidates.count || !n.artistCandidates.count) return nil;
     return n;
@@ -163,81 +186,11 @@ static NSString *const YTMULNSystemPrompt =
 
 #pragma mark - JSON parsing
 
-// Strip ```json…``` (any language tag) by walking characters: skip
-// the opening ``` + optional language tag + separating whitespace, and
-// strip a trailing ``` if present. The earlier "find first newline"
-// approach failed silently when a model emitted `\`\`\`{...}\`\`\``
-// with no newline after the fence.
-- (NSString *)stripMarkdownFences:(NSString *)text {
-    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if ([trimmed hasPrefix:@"```"]) {
-        NSUInteger i = 3;
-        while (i < trimmed.length) {
-            unichar c = [trimmed characterAtIndex:i];
-            if (c == '\n' || c == '\r' || c == ' ' || c == '\t') break;
-            i++;
-        }
-        while (i < trimmed.length) {
-            unichar c = [trimmed characterAtIndex:i];
-            if (c != '\n' && c != '\r' && c != ' ' && c != '\t') break;
-            i++;
-        }
-        trimmed = [trimmed substringFromIndex:i];
-    }
-    if ([trimmed hasSuffix:@"```"]) trimmed = [trimmed substringToIndex:trimmed.length - 3];
-    return [trimmed stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-}
-
+// Fence stripping, greedy and brace-balanced extraction live in
+// YTMULLMFirstJSONObject (shared with the translator and the description
+// extractor).
 - (nullable NSDictionary *)parseJSON:(NSString *)text {
-    if (!text.length) return nil;
-    NSString *clean = [self stripMarkdownFences:text];
-    NSData *data = [clean dataUsingEncoding:NSUTF8StringEncoding];
-    if (data) {
-        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-    }
-    // Greedy first { … last } (handles prose like "Here's the JSON:" + trailing notes).
-    NSRange open = [clean rangeOfString:@"{"];
-    NSRange close = [clean rangeOfString:@"}" options:NSBackwardsSearch];
-    if (open.location != NSNotFound && close.location != NSNotFound && close.location > open.location) {
-        NSString *substr = [clean substringWithRange:NSMakeRange(open.location, close.location - open.location + 1)];
-        NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
-        id obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
-        if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-    }
-    // Brace-balanced extraction: respects JSON string literals so
-    // braces inside `"..."` don't confuse the depth counter. Catches
-    // mid-output trailing prose / fence remnants that would otherwise
-    // drag `lastIndexOf` past the real closing brace.
-    if (open.location != NSNotFound) {
-        NSUInteger len = clean.length;
-        NSUInteger depth = 0;
-        BOOL inString = NO;
-        BOOL escape = NO;
-        NSUInteger endIdx = NSNotFound;
-        for (NSUInteger i = open.location; i < len; i++) {
-            unichar c = [clean characterAtIndex:i];
-            if (inString) {
-                if (escape) { escape = NO; continue; }
-                if (c == '\\') { escape = YES; continue; }
-                if (c == '"') inString = NO;
-                continue;
-            }
-            if (c == '"') { inString = YES; continue; }
-            if (c == '{') { depth++; }
-            else if (c == '}') {
-                if (depth > 0) depth--;
-                if (depth == 0) { endIdx = i; break; }
-            }
-        }
-        if (endIdx != NSNotFound) {
-            NSString *substr = [clean substringWithRange:NSMakeRange(open.location, endIdx - open.location + 1)];
-            NSData *substrData = [substr dataUsingEncoding:NSUTF8StringEncoding];
-            id obj = substrData ? [NSJSONSerialization JSONObjectWithData:substrData options:0 error:nil] : nil;
-            if ([obj isKindOfClass:[NSDictionary class]]) return obj;
-        }
-    }
-    return nil;
+    return YTMULLMFirstJSONObject(text);
 }
 
 - (nullable YTMULyricsTitleNormalization *)normalizationFromResponseDict:(NSDictionary *)dict {
@@ -274,6 +227,14 @@ static NSString *const YTMULNSystemPrompt =
                 provider:(id<YTMULLMCompletionProvider>)provider
             providerName:(NSString *)providerName
               completion:(YTMULyricsTitleNormalizerCompletion)completion {
+    [self normalizeForInfo:info provider:provider providerName:providerName requireRawMetadataMatch:NO completion:completion];
+}
+
+- (void)normalizeForInfo:(YTMULyricsSearchInfo *)info
+                provider:(id<YTMULLMCompletionProvider>)provider
+            providerName:(NSString *)providerName
+ requireRawMetadataMatch:(BOOL)requireRawMetadataMatch
+              completion:(YTMULyricsTitleNormalizerCompletion)completion {
     if (!completion) return;
     NSString *videoId = info.videoId ?: @"";
     if (!provider || !videoId.length) {
@@ -283,7 +244,7 @@ static NSString *const YTMULNSystemPrompt =
         return;
     }
 
-    YTMULyricsTitleNormalization *cached = [self cachedNormalizationForInfo:info];
+    YTMULyricsTitleNormalization *cached = [self cachedNormalizationForInfo:info requireRawMetadataMatch:requireRawMetadataMatch];
     if (cached) {
         YTMULyricsLog(@"normalize cache hit videoId=%@ titles=%lu artists=%lu",
                       videoId, (unsigned long)cached.titleCandidates.count, (unsigned long)cached.artistCandidates.count);

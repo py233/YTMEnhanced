@@ -17,6 +17,15 @@ static const NSTimeInterval kPollInterval = 1.0;
 // playback truly stopped.
 static const NSInteger kEmptyTicksForStop = 2;
 
+// Repeat-one / replay detection. The title and artist stay the same,
+// so the only sign of a new play is the position jumping back to the
+// start after being well into the song: the elapsed time reported by
+// MPNowPlayingInfoCenter drops by more than kRestartRewindSeconds and
+// lands under kRestartStartWindowSeconds. A seek back into the middle
+// of the song does not qualify.
+static const NSTimeInterval kRestartRewindSeconds = 10.0;
+static const NSTimeInterval kRestartStartWindowSeconds = 5.0;
+
 @interface YTMUPlaybackBroadcaster ()
 @property (nonatomic, strong, nullable) NSTimer *pollTimer;
 @property (nonatomic, copy, nullable) NSString *lastTrackName;
@@ -26,6 +35,8 @@ static const NSInteger kEmptyTicksForStop = 2;
 @property (nonatomic) BOOL lastIsPlaying;
 @property (nonatomic) NSInteger emptyTickCount;
 @property (nonatomic) NSTimeInterval lastTickWallClock;
+// Elapsed time reported on the previous tick; < 0 when unknown.
+@property (nonatomic) NSTimeInterval lastObservedElapsed;
 @end
 
 @implementation YTMUPlaybackBroadcaster
@@ -45,6 +56,7 @@ static const NSInteger kEmptyTicksForStop = 2;
         _lastIsPlaying = NO;
         _emptyTickCount = kEmptyTicksForStop; // start in "stopped" state
         _lastTickWallClock = 0;
+        _lastObservedElapsed = -1;
     }
     return self;
 }
@@ -66,7 +78,19 @@ static const NSInteger kEmptyTicksForStop = 2;
 - (void)stop {
     [self.pollTimer invalidate];
     self.pollTimer = nil;
+    self.lastTrackName = nil;
+    self.lastArtist = nil;
+    self.lastAlbumName = nil;
+    self.currentListen = nil;
+    self.lastIsPlaying = NO;
+    self.emptyTickCount = kEmptyTicksForStop;
+    self.lastTickWallClock = 0;
+    self.lastObservedElapsed = -1;
     YTMUScrobbleLog(@"broadcaster stop");
+}
+
+- (BOOL)isRunning {
+    return self.pollTimer != nil;
 }
 
 #pragma mark - Tick
@@ -98,13 +122,29 @@ static const NSInteger kEmptyTicksForStop = 2;
 
     BOOL trackChanged = ![self isSameTrackName:track artist:artist asLast:self.lastTrackName lastArtist:self.lastArtist];
 
+    // Same track, but back at the start after being deep into it: a new
+    // play (repeat-one, or the user restarting the song). The previous
+    // play is handed over as `previous` and evaluated for scrobbling
+    // like any other track end.
+    id elapsedValue = nowPlaying[MPNowPlayingInfoPropertyElapsedPlaybackTime];
+    BOOL hasElapsed = [elapsedValue respondsToSelector:@selector(doubleValue)] && isfinite([elapsedValue doubleValue]);
+    NSTimeInterval elapsed = hasElapsed ? MAX(0, [elapsedValue doubleValue]) : -1;
+    BOOL restarted = !trackChanged && self.currentListen != nil && hasElapsed && self.lastObservedElapsed >= 0
+                     && self.lastObservedElapsed - elapsed > kRestartRewindSeconds
+                     && elapsed < kRestartStartWindowSeconds;
+    self.lastObservedElapsed = elapsed;
+
     // Accumulate elapsed-played time onto the *previous* track if we
     // observed it still playing one tick ago and no track change.
-    if (!trackChanged && self.currentListen && self.lastIsPlaying && deltaSeconds > 0 && deltaSeconds < 5.0) {
+    if (!trackChanged && !restarted && self.currentListen && self.lastIsPlaying && deltaSeconds > 0 && deltaSeconds < 5.0) {
         self.currentListen.elapsedPlayedSeconds += deltaSeconds;
     }
 
-    if (trackChanged) {
+    if (restarted) {
+        YTMUScrobbleLog(@"track restarted (elapsed %.0fs → %.1fs) track=\"%@\"", self.lastObservedElapsed, elapsed, track);
+    }
+
+    if (trackChanged || restarted) {
         YTMUListen *previous = self.currentListen;
         YTMUListen *next = nil;
         if (track.length && artist.length) {

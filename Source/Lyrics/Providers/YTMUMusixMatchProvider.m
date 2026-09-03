@@ -2,6 +2,24 @@
 #import "../YTMULRCParser.h"
 #import "../../Utils/NSBundle+YTMU.h"
 
+// Musixmatch answers unmatched lookups with this fixed placeholder track
+// ("no result") instead of an error; it must never be shown as lyrics.
+static const NSInteger YTMUMusixMatchPlaceholderTrackId = 115264642;
+
+// Musixmatch retired the desktop API in 2026: apic-desktop.musixmatch.com now
+// resolves to 127.0.0.1 from every resolver worldwide, so every request to it
+// fails at the TLS handshake ("An SSL error has occurred"). apic.musixmatch.com
+// is still served, but it answers the old `web-desktop-app-v1.0` credential
+// with 401 hint=upgrade; the Android player credential is still accepted.
+//
+// The endpoint is also behind a WAF that fingerprints clients (see
+// spotDL/spotify-downloader#2741): a datacenter IP that mints tokens quickly
+// starts getting 401 hint=captcha. Nothing we can do from here beyond asking
+// once per 55 s, which the token cache below already does — so treat this
+// provider as best-effort and let the rest of the chain carry the result.
+static NSString *const YTMUMusixMatchHost = @"apic.musixmatch.com";
+static NSString *const YTMUMusixMatchAppId = @"android-player-v1.0";
+
 @interface YTMUMusixMatchProvider ()
 // atomic: written from NSURLSession's completion queue, read from whichever
 // thread starts the next search.
@@ -36,11 +54,11 @@
         return;
     }
 
-    NSURL *url = [NSURL URLWithString:@"https://apic-desktop.musixmatch.com/ws/1.1/token.get?app_id=web-desktop-app-v1.0"];
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://%@/ws/1.1/token.get?app_id=%@", YTMUMusixMatchHost, YTMUMusixMatchAppId]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     request.timeoutInterval = 8.0; // bound a stuck token-fetch call
     [request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
-    [request setValue:@"apic-desktop.musixmatch.com" forHTTPHeaderField:@"Authority"];
+    [request setValue:YTMUMusixMatchHost forHTTPHeaderField:@"Authority"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
             completion(@"", error);
@@ -50,7 +68,12 @@
         id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *token = YTMULyricsJSONStringAtPath(json, @[@"message", @"body", @"user_token"]);
         if (!token.length) {
-            completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_NO_TOKEN", @"Musixmatch token not initialized")}]);
+            // The header carries why: "upgrade" = this credential is retired,
+            // "captcha" = this IP is rate-limited as a bot.
+            NSString *hint = YTMULyricsJSONStringAtPath(json, @[@"message", @"header", @"hint"]);
+            NSString *message = YTMULocalized(@"LYRICS_ERROR_MUSIXMATCH_NO_TOKEN", @"Musixmatch token not initialized");
+            if (hint.length) message = [NSString stringWithFormat:@"%@ (%@)", message, hint];
+            completion(@"", [NSError errorWithDomain:@"YTMUMusixMatch" code:1 userInfo:@{NSLocalizedDescriptionKey: message}]);
             return;
         }
         self.token = token;
@@ -61,7 +84,7 @@
 
 - (void)queryMacroWithInfo:(YTMULyricsSearchInfo *)info token:(NSString *)token completion:(void(^)(NSDictionary *json, NSError *error))completion {
     NSMutableDictionary *params = [@{
-        @"app_id": @"web-desktop-app-v1.0",
+        @"app_id": YTMUMusixMatchAppId,
         @"format": @"json",
         @"usertoken": token ?: @"",
         @"q_track": info.alternativeTitle.length ? info.alternativeTitle : info.title ?: @"",
@@ -76,11 +99,11 @@
     [params enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *obj, BOOL *stop) {
         [parts addObject:[NSString stringWithFormat:@"%@=%@", key, YTMULyricsEncodeQuery(obj)]];
     }];
-    NSString *url = [NSString stringWithFormat:@"https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?%@", [parts componentsJoinedByString:@"&"]];
+    NSString *url = [NSString stringWithFormat:@"https://%@/ws/1.1/macro.subtitles.get?%@", YTMUMusixMatchHost, [parts componentsJoinedByString:@"&"]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     request.timeoutInterval = 8.0; // bound a stuck subtitles call
     [request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
-    [request setValue:@"apic-desktop.musixmatch.com" forHTTPHeaderField:@"Authority"];
+    [request setValue:YTMUMusixMatchHost forHTTPHeaderField:@"Authority"];
     [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
             completion(nil, error);
@@ -102,7 +125,7 @@
     NSDictionary *lyrics = YTMULyricsJSONDictionaryAtPath(macro, @[@"track.lyrics.get", @"message", @"body", @"lyrics"]);
     NSArray *subs = YTMULyricsJSONArrayAtPath(macro, @[@"track.subtitles.get", @"message", @"body", @"subtitle_list"]);
     if (![track isKindOfClass:[NSDictionary class]]) return nil;
-    if ([YTMULyricsJSONNumberAtPath(track, @[@"track_id"]) integerValue] == 115264642) return nil;
+    if ([YTMULyricsJSONNumberAtPath(track, @[@"track_id"]) integerValue] == YTMUMusixMatchPlaceholderTrackId) return nil;
 
     NSString *trackName = YTMULyricsJSONStringAtPath(track, @[@"track_name"]) ?: info.title;
     NSString *artistName = YTMULyricsJSONStringAtPath(track, @[@"artist_name"]) ?: info.artist;

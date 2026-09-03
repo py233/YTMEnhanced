@@ -1,9 +1,5 @@
 #import <Foundation/Foundation.h>
-
-static BOOL YTMU(NSString *key) {
-    NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
-    return [YTMUltimateDict[key] boolValue];
-}
+#import "Utils/YTMUSettings.h"
 
 %hook MDXFeatureFlags
 - (BOOL)isCastCloudDiscoveryEnabled {

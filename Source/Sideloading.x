@@ -4,6 +4,7 @@
 #import <rootless.h>
 #import "Source/Headers/YTAlertView.h"
 #import "Source/Headers/Localization.h"
+#import "Source/Utils/YTMUKVC.h"
 
 #define YT_BUNDLE_ID @"com.google.ios.youtubemusic"
 #define YT_BUNDLE_NAME @"YouTubeMusic"
@@ -20,23 +21,67 @@
 @interface SSOConfiguration : NSObject
 @end
 
+// The keychain access group of this (re-signed) app, read once. Every
+// keychain hook below asks for it, so the answer is cached after the first
+// successful lookup; a failed lookup (keychain still locked at launch) is
+// retried on the next call. The Security framework result is a +1 object
+// and is released here.
 static NSString *accessGroupID() {
-    NSDictionary *query = [NSDictionary dictionaryWithObjectsAndKeys:
-                           (__bridge NSString *)kSecClassGenericPassword, (__bridge NSString *)kSecClass,
-                           @"bundleSeedID", kSecAttrAccount,
-                           @"", kSecAttrService,
-                           (id)kCFBooleanTrue, kSecReturnAttributes,
-                           nil];
-    CFDictionaryRef result = nil;
-    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&result);
-    if (status == errSecItemNotFound) {
-        status = SecItemAdd((__bridge CFDictionaryRef)query, (CFTypeRef *)&result);
-        if (status != errSecSuccess) {
-            return nil;
+    static NSString *cached;
+    static NSObject *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [[NSObject alloc] init]; });
+    @synchronized (lock) {
+        if (cached) return cached;
+        NSDictionary *query = @{
+            (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+            (__bridge id)kSecAttrAccount: @"bundleSeedID",
+            (__bridge id)kSecAttrService: @"",
+            (__bridge id)kSecReturnAttributes: (__bridge id)kCFBooleanTrue,
+        };
+        CFTypeRef result = NULL;
+        OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
+        if (status == errSecItemNotFound) {
+            status = SecItemAdd((__bridge CFDictionaryRef)query, &result);
         }
+        NSString *accessGroup = nil;
+        if (status == errSecSuccess && result && CFGetTypeID(result) == CFDictionaryGetTypeID()) {
+            id group = ((__bridge NSDictionary *)result)[(__bridge id)kSecAttrAccessGroup];
+            if ([group isKindOfClass:[NSString class]]) accessGroup = [group copy];
+        }
+        if (result) CFRelease(result);
+        if (accessGroup) cached = accessGroup;
+        return accessGroup;
     }
-    NSString *accessGroup = [(__bridge NSDictionary *)result objectForKey:(__bridge NSString *)kSecAttrAccessGroup];
-    return accessGroup;
+}
+
+// dladdr per call is expensive and -[NSBundle bundleIdentifier] is called
+// constantly; the verdict for a return address never changes, so it is
+// remembered.
+static BOOL YTMUSideloadCallerIsInMainBundle(uintptr_t address) {
+    static NSMutableDictionary<NSNumber *, NSNumber *> *verdicts;
+    static NSObject *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        verdicts = [NSMutableDictionary dictionary];
+        lock = [[NSObject alloc] init];
+    });
+    NSNumber *key = @(address);
+    @synchronized (lock) {
+        NSNumber *known = verdicts[key];
+        if (known) return known.boolValue;
+    }
+    BOOL inMainBundle = NO;
+    Dl_info info = {0};
+    if (dladdr((void *)address, &info) != 0 && info.dli_fname) {
+        NSString *path = [NSString stringWithUTF8String:info.dli_fname] ?: @"";
+        inMainBundle = [path hasPrefix:NSBundle.mainBundle.bundlePath];
+    }
+    @synchronized (lock) {
+        if (verdicts.count > 4096) [verdicts removeAllObjects];
+        verdicts[key] = @(inMainBundle);
+    }
+    return inMainBundle;
 }
 
 // Fix login (2) - Ginsu & AhmedBakfir
@@ -112,9 +157,18 @@ static NSString *accessGroupID() {
 %hook NSFileManager
 - (NSURL *)containerURLForSecurityApplicationGroupIdentifier:(NSString *)groupIdentifier {
     if (groupIdentifier != nil) {
-        NSArray *paths = [[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask];
-        NSURL *documentsURL = [paths lastObject];
-        return [documentsURL URLByAppendingPathComponent:@"AppGroup"];
+        // A sideloaded app has no app-group container; Documents/AppGroup
+        // stands in for it. The directory is created so callers that
+        // write into it straight away (Google's keychain/session stores)
+        // do not fail on a missing parent.
+        static NSURL *appGroupURL;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+            appGroupURL = [documentsURL URLByAppendingPathComponent:@"AppGroup"];
+            [[NSFileManager defaultManager] createDirectoryAtURL:appGroupURL withIntermediateDirectories:YES attributes:nil error:nil];
+        });
+        return appGroupURL;
     }
     return %orig(groupIdentifier);
 }
@@ -179,8 +233,10 @@ static NSString *accessGroupID() {
 %hook SSOConfiguration
 - (id)initWithClientID:(id)clientID supportedAccountServices:(id)supportedAccountServices {
     self = %orig;
-    [self setValue:YT_NAME forKey:@"_shortAppName"];
-    [self setValue:YT_BUNDLE_ID forKey:@"_applicationIdentifier"];
+    // Ivar names of Google's sign-in SDK; a renamed ivar in a newer build
+    // must degrade to "not patched", not to an NSUnknownKeyException.
+    YTMUSafeSetValueForKey(self, @"_shortAppName", YT_NAME);
+    YTMUSafeSetValueForKey(self, @"_applicationIdentifier", YT_BUNDLE_ID);
     return self;
 }
 - (void)setShortAppName:(id)appName { %orig(YT_NAME); }
@@ -188,13 +244,9 @@ static NSString *accessGroupID() {
 
 %hook NSBundle
 - (NSString *)bundleIdentifier {
-    NSArray *address = [NSThread callStackReturnAddresses];
-    Dl_info info = {0};
-    if (dladdr((void *)[address[2] longLongValue], &info) == 0)
-        return %orig;
-    NSString *path = [NSString stringWithUTF8String:info.dli_fname];
-    if ([path hasPrefix:NSBundle.mainBundle.bundlePath])
-        return YT_BUNDLE_ID;
+    NSArray *addresses = [NSThread callStackReturnAddresses];
+    if (addresses.count < 3) return %orig;
+    if (YTMUSideloadCallerIsInMainBundle((uintptr_t)[addresses[2] unsignedLongLongValue])) return YT_BUNDLE_ID;
     return %orig;
 }
 - (id)objectForInfoDictionaryKey:(NSString *)key {
@@ -277,7 +329,7 @@ BOOL isFirstTime = YES;
         workaround.completion = ^{
             [self dismissViewControllerAnimated:YES completion:^{
                 if ([self respondsToSelector:@selector(remoteViewControllerWillDismiss:)]) {
-                    [self performSelector:@selector(remoteViewControllerWillDismiss:)];
+                    [self performSelector:@selector(remoteViewControllerWillDismiss:) withObject:nil];
                 }
                 YTAlertView *alertView = [%c(YTAlertView) infoDialog];
                 alertView.title = LOC(@"WARNING");

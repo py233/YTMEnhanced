@@ -8,11 +8,12 @@
 #import "Lyrics/YTMULyricsPlaybackState.h"
 #import "Lyrics/YTMUSyncedLyricsView.h"
 #import "Lyrics/YTMULyricsTextProcessor.h"
-#import "Translation/YTMUTranslationContext.h"
 #import "Translation/YTMUTranslationTypes.h"
 #import "Lyrics/YTMULyricsPanelSupport.h"
 #import "Lyrics/YTMULyricsTabOverlayView.h"
 #import "Lyrics/YTMULyricsPanelViewController.h"
+#import "Utils/YTMUKVC.h"
+#import "Utils/YTMUSettings.h"
 
 static UIViewController *YTMULyricsPageTopPresenter(UIViewController *controller) {
     UIViewController *presenter = controller;
@@ -147,14 +148,12 @@ static NSString *YTMULyricsPageNodeAttributedText(id node, NSUInteger depth) {
     NSArray<NSString *> *attrKeys = @[@"attributedText", @"_attributedText", @"attributedString", @"_attributedString"];
     NSString *own = nil;
     for (NSString *key in attrKeys) {
-        @try {
-            id value = [node valueForKey:key];
-            if ([value isKindOfClass:[NSAttributedString class]]) {
-                own = [(NSAttributedString *)value string];
-            } else if ([value isKindOfClass:[NSString class]]) {
-                own = (NSString *)value;
-            }
-        } @catch (__unused NSException *e) {}
+        id value = YTMUSafeValueForKey(node, key);
+        if ([value isKindOfClass:[NSAttributedString class]]) {
+            own = [(NSAttributedString *)value string];
+        } else if ([value isKindOfClass:[NSString class]]) {
+            own = (NSString *)value;
+        }
         if (own.length) break;
     }
     if (own.length) [parts addObject:own];
@@ -162,12 +161,8 @@ static NSString *YTMULyricsPageNodeAttributedText(id node, NSUInteger depth) {
     NSArray *children = nil;
     NSArray<NSString *> *childKeys = @[@"subnodes", @"_subnodes"];
     for (NSString *key in childKeys) {
-        @try {
-            id value = [node valueForKey:key];
-            if ([value isKindOfClass:[NSArray class]]) {
-                children = value;
-            }
-        } @catch (__unused NSException *e) {}
+        id value = YTMUSafeValueForKey(node, key);
+        if ([value isKindOfClass:[NSArray class]]) children = value;
         if (children) break;
     }
     for (id sub in children ?: @[]) {
@@ -186,10 +181,8 @@ static NSString *YTMULyricsPageCellNodeKey(UIView *cell) {
         @"_controller.key",
     ];
     for (NSString *path in paths) {
-        @try {
-            id value = [cell valueForKeyPath:path];
-            if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return (NSString *)value;
-        } @catch (__unused NSException *e) {}
+        id value = YTMUSafeValueForKeyPath(cell, path);
+        if ([value isKindOfClass:[NSString class]] && [(NSString *)value length]) return (NSString *)value;
     }
     return @"";
 }
@@ -197,11 +190,8 @@ static NSString *YTMULyricsPageCellNodeKey(UIView *cell) {
 static NSString *YTMULyricsPageCellNodeText(UIView *cell) {
     NSArray<NSString *> *keys = @[@"_node", @"node"];
     for (NSString *key in keys) {
-        @try {
-            id node = [cell valueForKey:key];
-            NSString *text = YTMULyricsPageNodeAttributedText(node, 0);
-            if (text.length) return text;
-        } @catch (__unused NSException *e) {}
+        NSString *text = YTMULyricsPageNodeAttributedText(YTMUSafeValueForKey(cell, key), 0);
+        if (text.length) return text;
     }
     return @"";
 }
@@ -278,10 +268,8 @@ static NSString *YTMULyricsPageNodeControllerKey(id node) {
         @"element.elementIdentifier",
     ];
     for (NSString *path in paths) {
-        @try {
-            id v = [node valueForKeyPath:path];
-            if ([v isKindOfClass:[NSString class]] && [(NSString *)v length]) return (NSString *)v;
-        } @catch (__unused NSException *e) {}
+        id v = YTMUSafeValueForKeyPath(node, path);
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length]) return (NSString *)v;
     }
     return @"";
 }
@@ -466,6 +454,31 @@ static void YTMULyricsPageRestoreActionBarInset(UIScrollView *scrollView) {
 // scroll position at open-time and restoring it on viewDidAppear after
 // dismiss is a pure UX restore: no layout or hierarchy changes.
 static char YTMULyricsActionBarSavedOffsetKey;
+
+static NSInteger YTMULyricsActionBarItemCount(UIScrollView *bar) {
+    if (![bar isKindOfClass:[UICollectionView class]]) return (NSInteger)bar.subviews.count;
+    UICollectionView *cv = (UICollectionView *)bar;
+    NSInteger total = 0;
+    @try {
+        NSInteger sections = cv.numberOfSections;
+        for (NSInteger s = 0; s < sections; s++) total += [cv numberOfItemsInSection:s];
+    } @catch (__unused NSException *e) {
+        return -1;
+    }
+    return total;
+}
+
+// The chip verdict scans every cell of the action bar and is asked for on
+// every layout pass of the now-playing screen, which come in bursts. A
+// decided verdict is reused for half a second while the bar, the song and
+// the bar's item count / content width are unchanged; an undecided one
+// (cells still unbound) is never kept.
+static __weak UIScrollView *gChipVerdictBar;
+static NSString *gChipVerdictVideoId;
+static NSInteger gChipVerdictItems;
+static CGFloat gChipVerdictWidth;
+static BOOL gChipVerdictChipPresent;
+static CFAbsoluteTime gChipVerdictAt;
 
 %hook YTMNowPlayingViewController
 
@@ -657,9 +670,28 @@ static char YTMULyricsActionBarSavedOffsetKey;
     // never write from here.
     BOOL rendererSawLyrics = YTMULyricsHasOfficialForCurrentSong();
     BOOL chipPresent = NO;
+    BOOL hasUnboundNodes = NO;
     if (!rendererSawLyrics) {
-        chipPresent = YTMULyricsCollectionViewHasLyricsCell(actionBar)
-            || YTMULyricsPageContainsOfficialLyricsEntry(actionBar, 0);
+        NSInteger items = YTMULyricsActionBarItemCount(actionBar);
+        CGFloat width = actionBar.contentSize.width;
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        NSString *videoKey = currentVideoId ?: @"";
+        if (gChipVerdictBar == actionBar && gChipVerdictItems == items && gChipVerdictWidth == width
+            && [gChipVerdictVideoId isEqualToString:videoKey] && now - gChipVerdictAt < 0.5) {
+            chipPresent = gChipVerdictChipPresent;
+        } else {
+            chipPresent = YTMULyricsCollectionViewHasLyricsCell(actionBar)
+                || YTMULyricsPageContainsOfficialLyricsEntry(actionBar, 0);
+            hasUnboundNodes = !chipPresent && YTMULyricsCollectionViewHasUnboundNodes(actionBar);
+            if (!hasUnboundNodes) {
+                gChipVerdictBar = actionBar;
+                gChipVerdictItems = items;
+                gChipVerdictWidth = width;
+                gChipVerdictVideoId = [videoKey copy];
+                gChipVerdictChipPresent = chipPresent;
+                gChipVerdictAt = now;
+            }
+        }
     }
 
     if (rendererSawLyrics || chipPresent) {
@@ -674,7 +706,7 @@ static char YTMULyricsActionBarSavedOffsetKey;
         return;
     }
 
-    if (YTMULyricsCollectionViewHasUnboundNodes(actionBar)) {
+    if (hasUnboundNodes) {
         // Some cells in the action bar's dataSource haven't bound yet —
         // their text/key are both empty so we can't tell whether one of
         // them is the native Lyrics chip. Stay retracted and wait for
@@ -880,6 +912,12 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     return YES;
 }
 
+// Implemented in Source/Downloading.x.
+extern BOOL YTMUDownloadHandleTap(ELMTouchCommandPropertiesHandler *handler, dispatch_block_t callOriginal);
+
+// The one hook of the action-row tap handler: the official "Lyrics" chip
+// opens our panel, the download badge goes to the downloader, everything
+// else runs the app's handler.
 %hook ELMTouchCommandPropertiesHandler
 
 - (void)handleTap {
@@ -888,6 +926,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
         [nowPlaying ytmu_openLyricsPanel:self];
         return;
     }
+    if (YTMUDownloadHandleTap(self, ^{ %orig; })) return;
     %orig;
 }
 
@@ -947,12 +986,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     %orig;
     [self ytmu_ensureLyricsReplacementViews];
 
-    YTFormattedStringLabel *officialLyrics = nil;
-    @try {
-        officialLyrics = [self valueForKey:@"_descriptionLabel"];
-    } @catch (__unused NSException *exception) {
-        officialLyrics = nil;
-    }
+    YTFormattedStringLabel *officialLyrics = YTMUSafeValueForKey(self, @"_descriptionLabel");
     self.ytmuFallbackLyricsText = officialLyrics.attributedText.string ?: officialLyrics.text ?: @"";
 
     if (!YTMULyricsPageReplacementEnabled()) {
@@ -976,12 +1010,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     if (!YTMULyricsPageReplacementEnabled()) return;
     [self ytmu_ensureLyricsReplacementViews];
 
-    YTFormattedStringLabel *officialLyrics = nil;
-    @try {
-        officialLyrics = [self valueForKey:@"_descriptionLabel"];
-    } @catch (__unused NSException *exception) {
-        officialLyrics = nil;
-    }
+    YTFormattedStringLabel *officialLyrics = YTMUSafeValueForKey(self, @"_descriptionLabel");
 
     CGRect baseFrame = officialLyrics ? officialLyrics.frame : UIEdgeInsetsInsetRect(self.bounds, UIEdgeInsetsMake(12, 32, 24, 32));
     CGFloat sourceHeight = 34.0;
@@ -1005,13 +1034,8 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 
 %new
 - (void)ytmu_ensureLyricsReplacementViews {
-    UIView *container = nil;
-    @try {
-        container = [self valueForKey:@"_descriptionContainer"];
-    } @catch (__unused NSException *exception) {
-        container = nil;
-    }
-    if (!container) container = self;
+    UIView *container = YTMUSafeValueForKey(self, @"_descriptionContainer");
+    if (![container isKindOfClass:[UIView class]]) container = self;
 
     if (!self.ytmuSourceScrollView) {
         self.ytmuSourceScrollView = [[UIScrollView alloc] initWithFrame:CGRectZero];
@@ -1097,12 +1121,7 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
     [self ytmu_updateSourceButtons];
     [self setNeedsLayout];
 
-    id delegate = nil;
-    @try {
-        delegate = [self valueForKey:@"_delegate"] ?: [self valueForKey:@"delegate"];
-    } @catch (__unused NSException *exception) {
-        delegate = nil;
-    }
+    id delegate = YTMUSafeValueForKey(self, @"_delegate") ?: YTMUSafeValueForKey(self, @"delegate");
     if ([delegate respondsToSelector:@selector(lightweightMusicDescriptionShelfCellNeedsResize:)]) {
         SEL selector = @selector(lightweightMusicDescriptionShelfCellNeedsResize:);
         void (*resize)(id, SEL, id) = (void (*)(id, SEL, id))[delegate methodForSelector:selector];
@@ -1195,20 +1214,3 @@ static BOOL YTMULyricsPageTapLooksLikeOfficialLyrics(id handler, YTMNowPlayingVi
 }
 
 %end
-
-%ctor {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithDictionary:[defaults dictionaryForKey:@"YTMUltimate"] ?: @{}];
-    YTMULyricsSetDefault(dict, @"bilingualLyrics", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsTranslationEnabled", dict[@"bilingualLyrics"] ?: @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsPreferredSource", @"auto");
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetMs", @(0));
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsetActiveKey", @"");
-    YTMULyricsSetDefault(dict, @"lyricsTimingOffsets", @{});
-    YTMULyricsSetDefault(dict, @"translationProvider", YTMUTranslationProviderGoogle);
-    YTMULyricsSetDefault(dict, @"translationTargetLang", @"auto");
-    YTMULyricsSetDefault(dict, @"translationBaseUrl", @"https://api.openai.com/v1");
-    YTMULyricsSetDefault(dict, @"translationDebugLogs", @(NO));
-    YTMULyricsSetDefault(dict, @"lyricsFocusBlur", @(YES));
-    [defaults setObject:dict forKey:@"YTMUltimate"];
-}

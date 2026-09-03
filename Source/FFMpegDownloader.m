@@ -1,9 +1,8 @@
 #import "FFMpegDownloader.h"
 
 @implementation FFMpegDownloader {
-
     Statistics *statistics;
-
+    BOOL cancelControlsInstalled;
 }
 
 - (void)statisticsCallback:(Statistics *)newStatistics {
@@ -13,8 +12,21 @@
     });
 }
 
+- (void)showResultHUDWithText:(NSString *)text icon:(NSString *)iconName {
+    [self.hud hideAnimated:NO];
+    self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+    self.hud.mode = MBProgressHUDModeCustomView;
+    self.hud.label.text = text;
+    self.hud.label.numberOfLines = 0;
+    UIImageView *iconView = [[UIImageView alloc] initWithImage:[self imageWithSystemIconNamed:iconName]];
+    iconView.contentMode = UIViewContentModeScaleAspectFit;
+    self.hud.customView = iconView;
+    [self.hud hideAnimated:YES afterDelay:3.0];
+}
+
 - (void)downloadAudio:(NSString *)audioURL {
     statistics = nil;
+    cancelControlsInstalled = NO;
     [MobileFFmpegConfig resetStatistics];
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setActive];
@@ -24,53 +36,42 @@
     self.hud.mode = MBProgressHUDModeAnnularDeterminate;
     self.hud.label.text = LOC(@"DOWNLOADING");
 
-    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSURL *documentsURL = [[fileManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
     NSURL *destinationURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.m4a", self.tempName]];
-    NSURL *outputURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.m4a", self.mediaName]];
     NSURL *folderURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
-    [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
-    [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:nil];
+    NSURL *outputURL = [folderURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.m4a", self.mediaName]];
+    [fileManager createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
+    [fileManager removeItemAtURL:destinationURL error:nil];
 
     [MobileFFmpegConfig setLogDelegate:self];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i %@ -c copy %@", audioURL, destinationURL]];
+        // Argument array, not a command string: the HLS URL carries query
+        // parameters and the destination path carries the song title, and
+        // the string parser splits both on spaces and quotes.
+        int returnCode = [MobileFFmpeg executeWithArguments:@[@"-i", audioURL, @"-c", @"copy", destinationURL.path]];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (returnCode == RETURN_CODE_SUCCESS) {
-                [self.hud hideAnimated:YES];
-                BOOL isMoved = [[NSFileManager defaultManager] moveItemAtURL:destinationURL toURL:outputURL error:nil];
-
+                // A previous download of the same song must not make the
+                // move fail (moveItemAtURL: refuses to overwrite).
+                [fileManager removeItemAtURL:outputURL error:nil];
+                NSError *moveError = nil;
+                BOOL isMoved = [fileManager moveItemAtURL:destinationURL toURL:outputURL error:&moveError];
                 if (isMoved) {
                     [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
-                    self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
-                    self.hud.mode = MBProgressHUDModeCustomView;
-                    self.hud.label.text = LOC(@"DONE");
-                    self.hud.label.numberOfLines = 0;
-
-                    UIImageView *checkmarkImageView = [[UIImageView alloc] initWithImage:[self imageWithSystemIconNamed:@"checkmark"]];
-                    checkmarkImageView.contentMode = UIViewContentModeScaleAspectFit;
-                    self.hud.customView = checkmarkImageView;
-
-                    [self.hud hideAnimated:YES afterDelay:3.0];
+                    [self showResultHUDWithText:LOC(@"DONE") icon:@"checkmark"];
+                } else {
+                    NSLog(@"[YTMUDownload] could not move %@ to %@: %@", destinationURL.path, outputURL.path, moveError);
+                    [fileManager removeItemAtURL:destinationURL error:nil];
+                    [self showResultHUDWithText:LOC(@"OOPS") icon:@"xmark"];
                 }
             } else if (returnCode == RETURN_CODE_CANCEL) {
                 [self.hud hideAnimated:YES];
-
-                [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:nil];
+                [fileManager removeItemAtURL:destinationURL error:nil];
             } else {
-                if (self.hud && self.hud.mode == MBProgressHUDModeAnnularDeterminate) {
-                    self.hud.mode = MBProgressHUDModeCustomView;
-                    self.hud.label.text = LOC(@"OOPS");
-                    self.hud.label.numberOfLines = 0;
-
-                    UIImageView *checkmarkImageView = [[UIImageView alloc] initWithImage:[self imageWithSystemIconNamed:@"xmark"]];
-                    checkmarkImageView.contentMode = UIViewContentModeScaleAspectFit;
-                    self.hud.customView = checkmarkImageView;
-
-                    [self.hud hideAnimated:YES afterDelay:3.0];
-                    [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"Command execution failed with rc=%d and output=%@.\n", returnCode, [MobileFFmpegConfig getLastCommandOutput]];
-                }
-
-                [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:nil];
+                NSLog(@"[YTMUDownload] ffmpeg failed rc=%d output=%@", returnCode, [MobileFFmpegConfig getLastCommandOutput]);
+                [fileManager removeItemAtURL:destinationURL error:nil];
+                [self showResultHUDWithText:LOC(@"OOPS") icon:@"xmark"];
             }
         });
     });
@@ -87,44 +88,50 @@
     [MobileFFmpegConfig setStatisticsDelegate:self];
 }
 
+// The HUD's own button becomes "Cancel" (stops ffmpeg) and a small close
+// button in the corner just hides the HUD. Built once per download; the
+// statistics callback used to re-add the targets on every tick.
+- (void)installCancelControlsIfNeeded {
+    if (cancelControlsInstalled || !self.hud) return;
+    cancelControlsInstalled = YES;
+
+    [self.hud.button setTitle:LOC(@"CANCEL") forState:UIControlStateNormal];
+    [self.hud.button addTarget:self action:@selector(cancelDownloading:) forControlEvents:UIControlEventTouchUpInside];
+
+    UIView *buttonSuperview = self.hud.button.superview;
+    if (!buttonSuperview || [buttonSuperview viewWithTag:998]) return;
+    UIButton *cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [cancelButton setTag:998];
+    UIImage *cancelImage = [[UIImage systemImageNamed:@"x.circle"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    [cancelButton setImage:cancelImage forState:UIControlStateNormal];
+    [cancelButton setTintColor:[[UIColor labelColor] colorWithAlphaComponent:0.7]];
+    [cancelButton addTarget:self action:@selector(cancelHUD:) forControlEvents:UIControlEventTouchUpInside];
+    [buttonSuperview addSubview:cancelButton];
+    cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [NSLayoutConstraint activateConstraints:@[
+        [cancelButton.topAnchor constraintEqualToAnchor:buttonSuperview.topAnchor constant:5.0],
+        [cancelButton.leadingAnchor constraintEqualToAnchor:buttonSuperview.leadingAnchor constant:5.0],
+        [cancelButton.widthAnchor constraintEqualToConstant:17.0],
+        [cancelButton.heightAnchor constraintEqualToConstant:17.0]
+    ]];
+}
+
 - (void)updateProgressDialog {
-    if (statistics == nil) {
-        return;
-    }
+    if (statistics == nil) return;
+    if (!self.hud || self.hud.mode != MBProgressHUDModeAnnularDeterminate) return;
+    [self installCancelControlsIfNeeded];
 
     int timeInMilliseconds = [statistics getTime];
-    if (timeInMilliseconds > 0) {
-        double totalVideoDuration = self.duration;
-        double timeInSeconds = timeInMilliseconds / 1000.0;
-        double percentage = timeInSeconds / totalVideoDuration;
-
-        if (self.hud && self.hud.mode == MBProgressHUDModeAnnularDeterminate) {
-            self.hud.progress = percentage;
-            self.hud.detailsLabel.text = [NSString stringWithFormat:@"%d%%", (int)(percentage * 100)];
-            [self.hud.button setTitle:LOC(@"CANCEL") forState:UIControlStateNormal];
-            [self.hud.button addTarget:self action:@selector(cancelDownloading:) forControlEvents:UIControlEventTouchUpInside];
-
-            UIButton *cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
-            [cancelButton setTag:998];
-            UIImage *cancelImage = [[UIImage systemImageNamed:@"x.circle"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-            [cancelButton setImage:cancelImage forState:UIControlStateNormal];
-            [cancelButton setTintColor:[[UIColor labelColor] colorWithAlphaComponent:0.7]];
-            [cancelButton addTarget:self action:@selector(cancelHUD:) forControlEvents:UIControlEventTouchUpInside];
-
-            UIView *buttonSuperview = self.hud.button.superview;
-            if (![buttonSuperview viewWithTag:998]) {
-                [buttonSuperview addSubview:cancelButton];
-
-                cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
-                [NSLayoutConstraint activateConstraints:@[
-                    [cancelButton.topAnchor constraintEqualToAnchor:buttonSuperview.topAnchor constant:5.0],
-                    [cancelButton.leadingAnchor constraintEqualToAnchor:buttonSuperview.leadingAnchor constant:5.0],
-                    [cancelButton.widthAnchor constraintEqualToConstant:17.0],
-                    [cancelButton.heightAnchor constraintEqualToConstant:17.0]
-                ]];
-            }
-        }
+    if (timeInMilliseconds <= 0) return;
+    if (self.duration <= 0) {
+        // Unknown length: no percentage to show, but the elapsed time is
+        // still worth something.
+        self.hud.detailsLabel.text = [NSString stringWithFormat:@"%d s", timeInMilliseconds / 1000];
+        return;
     }
+    double percentage = MIN(1.0, (timeInMilliseconds / 1000.0) / (double)self.duration);
+    self.hud.progress = percentage;
+    self.hud.detailsLabel.text = [NSString stringWithFormat:@"%d%%", (int)(percentage * 100)];
 }
 
 - (void)cancelDownloading:(UIButton *)sender {

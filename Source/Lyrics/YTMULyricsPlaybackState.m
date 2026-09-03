@@ -3,6 +3,14 @@
 #import <MediaPlayer/MediaPlayer.h>
 #import <QuartzCore/QuartzCore.h>
 
+@interface YTMULyricsPlaybackState ()
+// MPNowPlayingInfoCenter's elapsed time is a static value stamped when the
+// app last updated it. To keep the lyrics moving between updates we
+// remember when we first saw the current value and extrapolate from there.
+@property (nonatomic) NSTimeInterval lastNowPlayingElapsedMs;
+@property (nonatomic) NSTimeInterval lastNowPlayingElapsedSeenAtMs;
+@end
+
 @implementation YTMULyricsPlaybackState
 
 + (instancetype)sharedState {
@@ -68,7 +76,16 @@
     if ([elapsed respondsToSelector:@selector(doubleValue)]) {
         NSTimeInterval value = [elapsed doubleValue];
         if (isfinite(value) && value >= 0) {
-            NSTimeInterval timeMs = value * 1000.0;
+            NSTimeInterval elapsedMs = value * 1000.0;
+            NSTimeInterval nowMs = CACurrentMediaTime() * 1000.0;
+            if (elapsedMs != self.lastNowPlayingElapsedMs || self.lastNowPlayingElapsedSeenAtMs <= 0) {
+                self.lastNowPlayingElapsedMs = elapsedMs;
+                self.lastNowPlayingElapsedSeenAtMs = nowMs;
+            }
+            id rateValue = nowPlaying[MPNowPlayingInfoPropertyPlaybackRate];
+            double rate = [rateValue respondsToSelector:@selector(doubleValue)] ? [rateValue doubleValue] : 1.0;
+            NSTimeInterval timeMs = elapsedMs;
+            if (rate > 0) timeMs += MAX(0, nowMs - self.lastNowPlayingElapsedSeenAtMs) * rate;
             [self notePlaybackTimeMs:timeMs];
             return timeMs;
         }
