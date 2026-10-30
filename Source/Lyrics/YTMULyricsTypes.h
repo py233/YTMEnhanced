@@ -7,6 +7,9 @@ extern NSString *const YTMULyricsSourceLRCLib;
 extern NSString *const YTMULyricsSourceNetEase;
 extern NSString *const YTMULyricsSourceMusixMatch;
 extern NSString *const YTMULyricsSourceGenius;
+extern NSString *const YTMULyricsSourceSpicyLyrics;
+extern NSString *const YTMULyricsSourceBetterLyrics;
+extern NSString *const YTMULyricsSourceUnison;
 // Synthetic provider that uses the user's LLM to extract lyrics that the
 // uploader pasted into the YouTube video description. No timestamps —
 // surfaces as plain (non-karaoke) lyrics. Always last in the chain.
@@ -30,6 +33,7 @@ typedef NS_ENUM(NSInteger, YTMULyricsFetchState) {
 @property (nonatomic) NSTimeInterval durationMs;
 @property (nonatomic, copy) NSString *text;
 @property (nonatomic, copy) NSString *romanizedText;
+@property (nonatomic, copy) NSArray<NSDictionary *> *wordTimings;
 + (instancetype)lineWithTime:(NSString *)time
                     timeInMs:(NSTimeInterval)timeInMs
                   durationMs:(NSTimeInterval)durationMs

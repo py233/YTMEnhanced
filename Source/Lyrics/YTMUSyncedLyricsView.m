@@ -39,6 +39,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
 @property (nonatomic, copy) NSString *mainText;
 @property (nonatomic, copy) NSString *romanText;
 @property (nonatomic, copy) NSString *translationText;
+@property (nonatomic, copy) NSArray<NSDictionary *> *wordTimings;
 @property (nonatomic) NSUInteger index;
 @property (nonatomic) NSTimeInterval timeInMs;
 @property (nonatomic) NSTimeInterval durationMs;
@@ -189,6 +190,36 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
                                                        progress:active ? 1.0 : 0.0
                                                     activeColor:translation
                                                   inactiveColor:dim];
+}
+
+- (void)updateKaraokeAtTimeMs:(NSTimeInterval)timeMs active:(BOOL)active {
+    if (!active || !self.wordTimings.count) {
+        [self updateKaraokeProgress:active ? 1.0 : 0.0 active:active];
+        return;
+    }
+    NSMutableAttributedString *out = [[NSMutableAttributedString alloc] initWithString:self.mainText ?: @""
+                                                                               attributes:@{NSFontAttributeName: self.mainLabel.font,
+                                                                                            NSForegroundColorAttributeName: [[UIColor whiteColor] colorWithAlphaComponent:0.32]}];
+    NSUInteger searchLocation = 0;
+    for (NSDictionary *word in self.wordTimings) {
+        NSString *text = [word[@"text"] isKindOfClass:[NSString class]] ? word[@"text"] : @"";
+        if (!text.length || searchLocation >= self.mainText.length) continue;
+        NSRange range = [self.mainText rangeOfString:text options:0 range:NSMakeRange(searchLocation, self.mainText.length - searchLocation)];
+        if (range.location == NSNotFound) continue;
+        searchLocation = NSMaxRange(range);
+        NSTimeInterval start = [word[@"start"] doubleValue];
+        NSTimeInterval end = [word[@"end"] doubleValue];
+        CGFloat progress = end > start ? MIN(1.0, MAX(0.0, (timeMs - start) / (end - start))) : (timeMs >= start ? 1.0 : 0.0);
+        UIColor *color = progress >= 1.0 ? [UIColor whiteColor] : (progress > 0.0 ? [UIColor whiteColor] : [[UIColor whiteColor] colorWithAlphaComponent:0.32]);
+        [out addAttribute:NSForegroundColorAttributeName value:color range:range];
+        if (progress > 0.0 && progress < 1.0) {
+            NSUInteger split = range.location + (NSUInteger)floor(range.length * progress);
+            if (split > range.location) [out addAttribute:NSForegroundColorAttributeName value:[UIColor whiteColor] range:NSMakeRange(range.location, split - range.location)];
+        }
+    }
+    self.mainLabel.attributedText = out;
+    self.romanLabel.attributedText = [self attributedText:self.romanText ?: @"" font:self.romanLabel.font active:YES progress:1.0 activeColor:[[UIColor whiteColor] colorWithAlphaComponent:0.58] inactiveColor:[[UIColor whiteColor] colorWithAlphaComponent:0.32]];
+    self.translationLabel.attributedText = [self attributedText:self.translationText ?: @"" font:self.translationLabel.font active:YES progress:1.0 activeColor:[[UIColor whiteColor] colorWithAlphaComponent:0.78] inactiveColor:[[UIColor whiteColor] colorWithAlphaComponent:0.32]];
 }
 
 @end
@@ -592,6 +623,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
         lineView.mainLabel.font = [UIFont systemFontOfSize:base weight:UIFontWeightRegular];
         lineView.mainLabel.textColor = [UIColor whiteColor];
         lineView.mainText = text.length ? text : [self emptyLineStates].firstObject;
+        lineView.wordTimings = line.wordTimings ?: @[];
         lineView.mainLabel.text = lineView.mainText;
         lineView.romanLabel.font = [UIFont italicSystemFontOfSize:base * 0.78];
         NSString *roman = showRomanization ? [self romanizedLineForResult:result index:i fallbackLine:line] : @"";
@@ -729,7 +761,7 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
             }
         }
         CGFloat progress = line.durationMs > 0 ? (CGFloat)((timeMs - line.timeInMs) / line.durationMs) : 1.0;
-        [line updateKaraokeProgress:progress active:YES];
+        [line updateKaraokeAtTimeMs:timeMs active:YES];
         // The display link lands here ~30×/s, which is what lets a hold
         // expire mid-line: the moment it lifts, drift back to the active
         // line instead of waiting for the next line change.
@@ -760,7 +792,11 @@ static id YTMUSyncedLyricsBlurFilter(CGFloat radius) {
         if ((NSInteger)i == current && line.durationMs > 0) {
             progress = (CGFloat)((timeMs - line.timeInMs) / line.durationMs);
         }
-        [line updateKaraokeProgress:progress active:(NSInteger)i == current];
+        if (line.wordTimings.count && (NSInteger)i == current) {
+            [line updateKaraokeAtTimeMs:timeMs active:YES];
+        } else {
+            [line updateKaraokeProgress:progress active:(NSInteger)i == current];
+        }
     }
 
     if ([self isFollowSuspended]) {

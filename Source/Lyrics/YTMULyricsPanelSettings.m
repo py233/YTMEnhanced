@@ -109,6 +109,9 @@ NSArray<NSDictionary *> *YTMULyricsPageSourceOptions(void) {
             @{@"key": YTMULyricsSourceNetEase, @"title": @"NetEase"},
             @{@"key": YTMULyricsSourceMusixMatch, @"title": @"Musixmatch"},
             @{@"key": YTMULyricsSourceGenius, @"title": @"Genius"},
+            @{@"key": YTMULyricsSourceSpicyLyrics, @"title": @"SpicyLyrics.org"},
+            @{@"key": YTMULyricsSourceBetterLyrics, @"title": @"BetterLyrics"},
+            @{@"key": YTMULyricsSourceUnison, @"title": @"Unison"},
             @{@"key": YTMULyricsSourceDescription, @"title": @"Description"},
         ];
     });

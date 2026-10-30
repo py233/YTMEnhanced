@@ -6,6 +6,9 @@ NSString *const YTMULyricsSourceLRCLib = @"LRCLIB";
 NSString *const YTMULyricsSourceNetEase = @"NetEase";
 NSString *const YTMULyricsSourceMusixMatch = @"Musixmatch";
 NSString *const YTMULyricsSourceGenius = @"Genius";
+NSString *const YTMULyricsSourceSpicyLyrics = @"SpicyLyrics.org";
+NSString *const YTMULyricsSourceBetterLyrics = @"BetterLyrics";
+NSString *const YTMULyricsSourceUnison = @"Unison";
 NSString *const YTMULyricsSourceDescription = @"Description";
 
 NSString *const YTMULyricsDidUpdateNotification = @"YTMULyricsDidUpdateNotification";
@@ -29,6 +32,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     line.durationMs = durationMs;
     line.text = text ?: @"";
     line.romanizedText = @"";
+    line.wordTimings = @[];
     return line;
 }
 
@@ -39,6 +43,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     copy.durationMs = self.durationMs;
     copy.text = self.text ?: @"";
     copy.romanizedText = self.romanizedText ?: @"";
+    copy.wordTimings = self.wordTimings ?: @[];
     return copy;
 }
 
@@ -48,6 +53,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
     [coder encodeDouble:self.durationMs forKey:@"durationMs"];
     [coder encodeObject:self.text ?: @"" forKey:@"text"];
     [coder encodeObject:self.romanizedText ?: @"" forKey:@"romanizedText"];
+    [coder encodeObject:self.wordTimings ?: @[] forKey:@"wordTimings"];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder {
@@ -58,6 +64,7 @@ NSString *const YTMULyricsSettingChangedKey = @"key";
         _durationMs = [coder decodeDoubleForKey:@"durationMs"];
         _text = [coder decodeObjectOfClass:[NSString class] forKey:@"text"] ?: @"";
         _romanizedText = [coder decodeObjectOfClass:[NSString class] forKey:@"romanizedText"] ?: @"";
+        _wordTimings = [coder decodeObjectOfClasses:[NSSet setWithObjects:[NSArray class], [NSDictionary class], [NSString class], [NSNumber class], nil] forKey:@"wordTimings"] ?: @[];
     }
     return self;
 }

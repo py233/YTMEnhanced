@@ -11,6 +11,9 @@
 #import "Providers/YTMUMusixMatchProvider.h"
 #import "Providers/YTMUGeniusProvider.h"
 #import "Providers/YTMUDescriptionProvider.h"
+#import "Providers/YTMUSpicyLyricsProvider.h"
+#import "Providers/YTMUBetterLyricsProvider.h"
+#import "Providers/YTMUUnisonProvider.h"
 #import "../Utils/NSBundle+YTMU.h"
 #import "YTMURomanizationService.h"
 #import <NaturalLanguage/NaturalLanguage.h>
@@ -126,6 +129,9 @@ typedef void (^YTMULyricsTryProvidersCompletion)(YTMULyricsResult *_Nullable res
             [[YTMUNetEaseProvider alloc] init],
             [[YTMUMusixMatchProvider alloc] init],
             [[YTMUGeniusProvider alloc] init],
+            [[YTMUSpicyLyricsProvider alloc] init],
+            [[YTMUBetterLyricsProvider alloc] init],
+            [[YTMUUnisonProvider alloc] init],
             [[YTMUDescriptionProvider alloc] init],
             [[YTMULRCLibProvider alloc] init],
         ];
